@@ -9,7 +9,10 @@ they were.
 
 Cross-play is switched on from the server, without a release: latest.json's
     "crossplay": {"<sha256 of a Linux or macOS shadPS4>": "<sha256 of the Windows shadPS4 it stays in step with>"}
-makes a game on the first build compute its tag as the second one's, with no letter. The last map read is kept in
+makes a game on the first build compute its tag as the second one's, with no letter. From 0.99.0 the map also works
+on Windows: an entry naming a Windows build for the one before it (Overtime Native v3 for v2: the same game code, the
+picture passes aside) puts the two in one pool once a match between them has been played through, with no release
+and without splitting players who have not updated yet. The last map read is kept in
 the app's folder (crossplay.json), so a start right after the app opens uses it; an entry taken out of latest.json is
 gone at the next read (packdownload.published reads it). Standard library only.
 """
@@ -81,7 +84,6 @@ def remember(mapping):
 
 
 def stands_for(sha, system=None):
-    """The Windows build's sha256 this system's shadPS4 `sha` is switched to, or None (its own pool). Windows: None."""
-    if not pool(system):
-        return None
+    """The Windows build's sha256 this shadPS4 `sha` is switched to by the server's map, or None (its own tag). On
+    Windows only a Windows build the map names has one (0.99.0); the system is not looked at."""
     return known().get((sha or '').lower())

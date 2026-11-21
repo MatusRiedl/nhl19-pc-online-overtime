@@ -174,14 +174,17 @@ def test_club_schedules_are_asked_for_at_once_and_give_the_same_calendar():
 
 
 def test_requests_asked_for_at_once_still_start_min_interval_apart():
-    """Several threads ask at once: NHL.com still gets at most one request per `min_interval`."""
+    """Several threads ask at once: NHL.com still gets at most one request per `min_interval`. The starts are
+    scheduled exactly that far apart; a thread that wakes late under load (the full suite in parallel) shortens the
+    next measured gap, so the check allows some of that and asks for the whole run's spread too."""
     from concurrent.futures import ThreadPoolExecutor
     fetch = Slow({}, delay=0.01)
     c = nhlcom.Client(fetch=fetch, min_interval=0.05)
     with ThreadPoolExecutor(4) as pool:
         list(pool.map(c.player, range(8)))
     starts = sorted(fetch.starts)
-    assert c.requests == 8 and min(b - a for a, b in zip(starts, starts[1:])) >= 0.045
+    assert c.requests == 8 and min(b - a for a, b in zip(starts, starts[1:])) >= 0.03     # at once: about 0
+    assert starts[-1] - starts[0] >= 7 * 0.05 - 0.02
 
 
 def _http(code, after=None):

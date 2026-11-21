@@ -27,6 +27,9 @@ MAGIC = {'win32': (b'MZ',),
          'darwin': (bytes([0xCF, 0xFA, 0xED, 0xFE]), bytes([0xCA, 0xFE, 0xBA, 0xBE]))}     # 64-bit, universal
 KIND = {'win32': 'a Windows program', 'linux': 'a Linux program', 'darwin': 'a macOS program'}
 WITH_FILES = ('darwin',)        # systems whose pack carries files beside the program
+# the files a Windows pack may carry beside shadPS4.exe, by name (0.99.0): Overtime Native v3's DLSS 5 forwarder, which
+# NGX loads from the program's folder. Any other file in a Windows pack (Kravickas's CI zip) is left in the pack.
+BESIDE = {'win32': ('nvngx.dll_dlssnr.dll',)}
 ROOT, STAMP = 'squashfs-root', 'unpacked.txt'      # the unpacked AppImage, and which file it was unpacked from
 EXTRACT_TIMEOUT = 300
 
@@ -110,6 +113,9 @@ def unpack(pack, target, system=None, run=subprocess.run):
                     if info.is_dir() or info.filename == main or not _safe(rel):
                         continue
                     _write(z, info, os.path.join(folder, *rel.split('/')), bool((info.external_attr >> 16) & 0o111))
+            for info in z.infolist():
+                if (info.filename.startswith(base) and info.filename[len(base):].lower() in BESIDE.get(system, ())):
+                    _write(z, info, os.path.join(folder, info.filename[len(base):]), False)
             _write(z, z.getinfo(main), target, system != 'win32')
     except zipfile.BadZipFile as err:
         raise EmuFileError(f'The shadPS4 build does not read: {err}') from err

@@ -30,7 +30,6 @@ LANGUAGES = ('Japanese', 'English (US)', 'French (France)', 'Spanish (Spain)', '
 
 LOCK_GPU = ('Overtime sets this for NHL 19: it stops graphical glitches, and every player in an online match needs '
             'the same value.')
-LOCK_DRAWS = 'Overtime sets this for NHL 19: the draws go to the GPU every 1000.'
 LOCK_NETWORK = ('Overtime sets the network for online play: the ShadNet sign-in and servers come from Setup and the '
                 'Multiplayer tab.')
 LOCK_REDZONE = ('On for Intel CPUs: Overtime turns it on so the game does its math like an AMD CPU, which online '
@@ -110,6 +109,19 @@ FIELDS = [
     _f('Graphics', 'Upscaling', 'GPU', 'rcas_attenuation', 'Sharpening softness', 'slider', 250,
        'How much RCAS holds back: 0 is the sharpest, higher is softer.', min=0, max=3000, scale=1000, digits=2,
        show_if={'GPU.fsr_enabled': True, 'GPU.rcas_enabled': True}),
+    # Overtime Native v3's Picture options (0.99.0; other builds ignore these keys). Setup's Boost performance card sets
+    # them too, with the DLSS files.
+    _f('Graphics', 'Upscaling', 'GPU', 'upscaler', 'Upscaler (Native v3)', 'select', '',
+       'What scales the picture up on Overtime Native v3. Follow the FSR switch uses the switch above. DLSS needs an '
+       'NVIDIA RTX card and your nvngx_dlss.dll (Setup, Boost performance); without them FSR 1 is used.',
+       options=_opts(('', 'Follow the FSR switch'), ('off', 'Off'), ('fsr1', 'FSR 1'), ('dlss', 'DLSS'))),
+    _f('Graphics', 'Upscaling', 'GPU', 'dlss_nr', 'DLSS 5 (Native v3)', 'check', False,
+       "NVIDIA's DLSS 5 over the picture on Overtime Native v3. Needs an NVIDIA RTX card and your DLSS 5 file "
+       '(Setup, Boost performance).'),
+    _f('Graphics', 'Upscaling', 'GPU', 'dlss_nr_dll', 'DLSS 5 file', 'text', '',
+       "Where your nvngx_dlssnr.dll is. Setup's Add DLSS 5 file sets it.", show_if={'GPU.dlss_nr': True}),
+    _f('Graphics', 'Upscaling', 'GPU', 'motion_debug', 'Motion view (Native v3)', 'check', False,
+       'A test view: the motion DLSS reads, in colour over a grey picture. Leave it off to play.'),
     # --- User ---
     _f('User', 'Trophies', 'General', 'trophy_popup_disabled', 'Hide trophy pop-ups', 'check', False,
        'No pop-up when a trophy unlocks.'),
@@ -192,7 +204,7 @@ FIELDS = [
        'Copies linear images back too.', lock=LOCK_GPU),
     _f('Experimental', 'GPU', 'GPU', 'submit_draw_interval', 'Submit draw interval', 'number', 0,
        'Sends the GPU the draws recorded so far after this many draws. 0 waits for the end of the work as usual.',
-       min=0, max=100000, lock=LOCK_DRAWS),
+       min=0, max=100000),
     _f('Experimental', 'GPU', 'GPU', 'direct_memory_access_enabled', 'Direct memory access', 'check', False,
        'Lets the GPU read game memory directly. Faster on some games, glitches on others.'),
     _f('Experimental', 'GPU', 'Vulkan', 'pipeline_cache_enabled', 'Shader cache', 'check', False,
@@ -310,6 +322,16 @@ def locks():
 
 
 FPS_ID = 'GPU.vblank_frequency'     # the 60 / 120 / Unlocked choice; a hand-set other value still shows
+
+
+def value(user_dir, fid):
+    """The value of field `fid` NHL 19 starts with: the game file's, else config.json's, else the field's default."""
+    f = BY_ID[fid]
+    for path in (gamesetup.custom_config_path(user_dir), os.path.join(user_dir, 'config.json')):
+        got = _value_in(_load(path), f)
+        if got is not None:
+            return got
+    return f['default']
 
 
 def frame_rate(user_dir):

@@ -12,7 +12,7 @@ from overtime_roster.app import crossplay, gamesetup, launch, matchsetup, online
 from test_gamesetup import _versioninfo, world  # noqa: F401 (the fixture)
 
 SERVER = ('ot.puckpeak.com', 'https://91.98.195.150/')
-TRUSTED = next(iter(onlinetag.ONLINE_EXES))      # the online build (Overtime Native v2): trusted, why() has no remark
+TRUSTED = next(iter(onlinetag.ONLINE_EXES))      # the online build (Overtime Native v3): trusted, why() has no remark
 
 
 @pytest.fixture
@@ -93,6 +93,8 @@ def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd()
                                                       # 2026-11-19: the same commit built for Linux and macOS
                                                       'Overtime Native v2 d1d3168a, Linux AppImage',
                                                       'Overtime Native v2 d1d3168a, macOS x86_64',
+                                                      # 2026-11-21: Overtime Native v3 (v2 + picture, cache fixes)
+                                                      'Overtime Native v3 5768473ca (v2 d1d3168a)',
                                                       'Overtime nightly dab14f34 (4788f0b)',
                                                       'Overtime smooth c97b8b51 (Kravickas 749170d)',
                                                       'upstream shadPS4 nightly 4788f0b']
@@ -100,11 +102,12 @@ def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd()
         assert len(sha) == 64 and sha == sha.lower()
         assert onlinetag.math_class(sha, 'intel', True) == 'amd'
         assert onlinetag.math_class(sha, 'intel', False, 'win32') != 'amd'
-    new, old, krav_test, ours_gc, v2, v2_linux, v2_mac, ours, smooth, nightly = sorted(
+    new, old, krav_test, ours_gc, v2, v2_linux, v2_mac, v3, ours, smooth, nightly = sorted(
         onlinetag.TRUSTED_EXES, key=onlinetag.TRUSTED_EXES.get)
-    # owner 2026-11-16: Overtime Native v2 is the online build (v1, ours_gc, from 2026-11-13); every other trusted exe is
-    # another tag
-    assert list(onlinetag.ONLINE_EXES) == [v2, v2_linux, v2_mac]      # one commit, one file per system
+    # owner 2026-11-21: Overtime Native v3 is the Windows online build (v2 from 2026-11-16, still Linux's and macOS's and
+    # older Windows apps'; v1, ours_gc, from 2026-11-13); every other trusted exe is another tag
+    assert list(onlinetag.ONLINE_EXES) == [v3, v2, v2_linux, v2_mac]
+    assert onlinetag.compute('NHL19_1.60', 'f' * 20, v3, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, v2, 'amd')
     assert all(onlinetag.ONLINE_EXES[sha] == onlinetag.TRUSTED_EXES[sha] for sha in onlinetag.ONLINE_EXES)
     assert onlinetag.compute('NHL19_1.60', 'f' * 20, v2, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, ours_gc, 'amd')
     assert onlinetag.compute('NHL19_1.60', 'f' * 20, ours_gc, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, ours, 'amd')
@@ -207,7 +210,7 @@ def test_only_overtime_native_is_the_online_build(game, monkeypatch):
     other = onlinetag.start_inputs(emu, gd)
     said = onlinetag.why(other)
     assert onlinetag.tag(other) != onlinetag.tag(native) and other['math'] == native['math'] == 'amd'
-    assert 'does not run the Overtime Native v2 build' in said and 'Nightly' not in said and 'choose' not in said
+    assert f'does not run the {onlinetag.ONLINE_LABEL} build' in said and 'Nightly' not in said and 'choose' not in said
 
 
 @pytest.mark.windows_only

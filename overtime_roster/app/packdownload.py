@@ -43,9 +43,11 @@ EMULATOR_EXE = emufile.name()           # shadPS4.exe; shadps4.AppImage on Linux
 NIGHTLY_PACK = 'shadps4_nightly.zip'    # not art: Overtime Native v1 (boost.py 'nightly')
 # not art: Overtime Native v2 (boost.py 'native2'); shadps4_native2_linux.zip / _macos.zip on those systems
 NATIVE2_PACK = emufile.pack_name('shadps4_native2.zip')
+# not art: Overtime Native v3 (boost.py 'native3', 0.99.0): v2 + the Picture options (DLSS, DLSS 5); Windows only
+NATIVE3_PACK = 'shadps4_native3.zip'
 CPUTEST_PACK = 'cpu_estimates.zip'      # not art: tools/cpu_estimates.py as an exe, Check my CPU (cpucheck.py)
 CPUTEST_EXE = 'cpu-estimates.exe'
-TOOL_PACKS = (EMULATOR_PACK, KRAVICKAS_PACK, NIGHTLY_PACK, NATIVE2_PACK,
+TOOL_PACKS = (EMULATOR_PACK, KRAVICKAS_PACK, NIGHTLY_PACK, NATIVE2_PACK, NATIVE3_PACK,
               CPUTEST_PACK)   # the program packs: each one exe, not in PACKS (no art)
 PACKS = {
     'looks32.zip': {'title': 'Team art for all 32 teams', 'core': True},
@@ -68,6 +70,7 @@ REMEMBER = 300                  # seconds a read release is reused by status() (
 FORGET = 30
 CHUNK = 256 * 1024
 TRIES = 3                       # a pack that came down damaged (sha256, size, a file's CRC32) is downloaded again
+PARALLEL = 4                    # packs downloaded at once (public PR #4 took them all at once; 4 keep a slow line usable)
 
 WRONG_FILE = 'The downloaded file is not the one that was published, so it was not used.'
 DAMAGED = ('{name} in the pack is damaged (its CRC32 does not match) every time it is downloaded, so the pack was not '
@@ -507,15 +510,16 @@ def _fetch(release, part, report=None, cancelled=None):
 
 def damaged(path, workers=None):
     """The first file of the zip at `path` (in its order) that does not read back as it was stored: its CRC32 (or its
-    compressed data) is off; '(the zip)' when the zip does not open; None when every file reads. The files are read a
-    few threads at a time (zlib and the CRC32 let the other threads run), each thread with its own handle."""
+    compressed data) is off; None when every file reads, or when it is no zip at all (its sha256 matched, so that is the
+    published file: the pack check after it says it does not read, with no download again). The files are read a few
+    threads at a time (zlib and the CRC32 let the other threads run), each thread with its own handle."""
     import zipfile
     import zlib
     try:
         with zipfile.ZipFile(path) as z:
             names = [i.filename for i in z.infolist() if not i.is_dir()]
     except (zipfile.BadZipFile, OSError, ValueError):
-        return '(the zip)'
+        return None
     n = max(1, min(workers or os.cpu_count() or 1, len(names)))
 
     def check(group):
@@ -586,12 +590,13 @@ def _get(name, release, cache_dir, report=None, cancelled=None, game_dir=None):
     return target
 
 
-def download(names, cache_dir, progress=None, release=None, game_dir=None, cancelled=None):
+def download(names, cache_dir, progress=None, release=None, game_dir=None, cancelled=None, dropped=None):
     """Download the packs `names` into the cache, all at the same time (each to its own .part file, the record under its
     lock), each checked (the published size and sha256, every file's CRC32, a readable pack; photos.zip also against
     the default roster) before it is put in place; one that came down damaged is downloaded again (TRIES). A pack
     already here as published is not downloaded again. progress(name, done bytes, total bytes), from the pack's own
-    thread; cancelled() True stops (every pack being downloaded is dropped). Returns [(name, ok, message)] in the order
+    thread; cancelled() True stops (every pack being downloaded is dropped), dropped(name) True stops that pack only
+    (a switch turned off while the others are still wanted). Returns [(name, ok, message)] in the order
     of `names`, messages for players. `release`: published()'s table, a latest.json URL, or None (the release host,
     read now)."""
     names = list(dict.fromkeys(names))
@@ -630,8 +635,10 @@ def download(names, cache_dir, progress=None, release=None, game_dir=None, cance
             if progress and (abs(done - last[0]) >= step or done == total):     # a try again starts at 0
                 last[0] = done
                 progress(name, done, total)
+        def stop():
+            return bool(cancelled and cancelled()) or bool(dropped and dropped(name))
         try:
-            _get(name, pub, cache_dir, report, cancelled, game_dir)
+            _get(name, pub, cache_dir, report, stop if cancelled or dropped else None, game_dir)
             return name, True, 'Downloaded.'
         except Stopped:
             return name, False, STOPPED
@@ -640,7 +647,7 @@ def download(names, cache_dir, progress=None, release=None, game_dir=None, cance
     if len(todo) == 1:
         out[todo[0][0]] = one(todo[0])
     elif todo:
-        with concurrent.futures.ThreadPoolExecutor(len(todo), thread_name_prefix='pack-download') as pool:
+        with concurrent.futures.ThreadPoolExecutor(min(len(todo), PARALLEL), thread_name_prefix='pack-download') as pool:
             for job, got in zip(todo, pool.map(one, todo)):
                 out[job[0]] = got
     return out
@@ -746,7 +753,7 @@ def check_kitlayers(path):
 
 
 CHECKS = {EMULATOR_PACK: check_emulator, KRAVICKAS_PACK: check_emulator, NIGHTLY_PACK: check_emulator,
-          NATIVE2_PACK: check_emulator, CPUTEST_PACK: check_cputest, CLUBART_PACK: check_clubart,   # not art packs
+          NATIVE2_PACK: check_emulator, NATIVE3_PACK: check_emulator, CPUTEST_PACK: check_cputest, CLUBART_PACK: check_clubart,   # not art packs
           **{name: check_kitlayers for name in KITLAYER_PACKS}}
 
 

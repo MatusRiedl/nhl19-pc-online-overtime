@@ -26,8 +26,8 @@ import webbrowser
 from overtime_core import gamefiles, overlay, rosterupdate, tdb, xmlpatch
 
 from .. import SITE, VERSION
-from . import (boost, cachemove, cpucheck, crashreport, emuinput, emusettings, emufile, gamesetup, jobs, kravbuild,
-               launch, packdownload, patch, patch_ctl, paths, pkginstall, preflight, selfupdate)
+from . import (boost, cachemove, cpucheck, crashreport, dlssfiles, emuinput, emusettings, emufile, gamesetup, gpuinfo,
+               jobs, kravbuild, launch, packdownload, patch, patch_ctl, paths, pkginstall, preflight, selfupdate)
 from .registry import Part
 from .shell import friendly_date
 
@@ -149,6 +149,10 @@ LOGSYNC_MOVE = 'logsync0:'  # defaults_done entry: this data folder's Log "Write
 REBUILD = '0.92.0'      # setup pref 'rebuild': the 0.92.0 defaults (boost.DEFAULT build, Apply everywhere on) were put in once
 DMEM_MOVE = 'dmem0:'     # defaults_done entry: this data folder's first-default DMem 3500 -> 0 at 1080p / 720p is done
 V2_MOVE = 'v2_moved'     # setup pref: a player on Overtime Native v1 (the old default) was put on v2 once (2026-11-16)
+V3_MOVE = 'v3_moved'     # setup pref: a player on Overtime Native v2 (the old default) was put on v3 once (0.99.0)
+# the Boost card's Picture block (Overtime Native v3, 0.99.0): the upscaler choices and the player's DLSS files
+UPSCALERS = {'off': 'Off', 'fsr1': 'FSR 1', 'dlss': 'DLSS'}
+DLSS_FILE_KINDS = {'dlss': ('DLSS file', 'nvngx_dlss.dll'), 'dlss5': ('DLSS 5 file', 'nvngx_dlssnr.dll')}
 
 
 class SetupController(Part):
@@ -170,7 +174,9 @@ class SetupController(Part):
              'setup_emu_settings': 'emu_settings', 'setup_emu_settings_save': 'emu_settings_save',
              'setup_emu_input': 'emu_input', 'setup_emu_input_save': 'emu_input_save',
              'setup_cpu_check': 'cpu_check', 'setup_cpu_send': 'cpu_send',
-             'setup_folder_pick': 'folder_pick', 'setup_folder_set': 'folder_set', 'setup_folder_auto': 'folder_auto'}
+             'setup_folder_pick': 'folder_pick', 'setup_folder_set': 'folder_set', 'setup_folder_auto': 'folder_auto',
+             'setup_upscaler': 'setup_upscaler', 'setup_dlss5': 'setup_dlss5', 'setup_dlss_file': 'setup_dlss_file',
+             'setup_dlss_file_set': 'setup_dlss_file_set', 'setup_dlss_file_remove': 'setup_dlss_file_remove'}
     TAB = 'setup'
 
     def __init__(self, ctl):
@@ -193,6 +199,7 @@ class SetupController(Part):
         self.krav_table = None      # kravbuild.table() of the last look: the Kravickas build on GitHub
         self.dl = None          # {names, name, part, share} while packs download
         self.dl_stop = False    # a pack switched off while it downloads
+        self.dl_dropped = set()     # the packs of the run no switch wants any more (the others come down)
         self.asked = set()      # the core asset switches (patch_ctl.PACK_KEYS) switched on here: their packs download
         self.first_assets = bool(ctl.prefs.get('first_assets'))  # a new install's asset packs still to download
         # the shadPS4 builds (boost.py): the one chosen on the Boost performance card (Overtime Native from the first start
@@ -202,6 +209,9 @@ class SetupController(Part):
         self.build = boost.name_of(prefs.get('build')) if rebuilt else boost.DEFAULT
         if self.build == boost.NIGHTLY and not prefs.get(V2_MOVE):     # v1, the default before v2: on v2 once
             self.build = boost.NATIVE2
+        if self.build == boost.NATIVE2 and boost.DEFAULT == boost.NATIVE3 and not prefs.get(V3_MOVE):
+            self.build = boost.NATIVE3      # v2, the default before v3 (owner 2026-11-21): on v3 once
+        self._gpu = None        # gpuinfo.info(), read once
         old = prefs.get('boost') or {}
         sha = {b: s for b, s in (old.get('sha') or {}).items() if b in boost.BUILDS and isinstance(s, str)}
         if isinstance(old.get('sha256'), str):      # apps before 0.90.2: the Kravickas build's
@@ -228,7 +238,7 @@ class SetupController(Part):
         self.ctl.remember(setup={'emulator': self.emulator, 'skipped': self.skipped, 'boost': self.boost,
                                  'build': self.build, 'defaults_done': list(self.defaults_done),
                                  'resolution': self.resolution, 'replays60': self.replays60, 'rebuild': REBUILD,
-                                 V2_MOVE: True, 'display': gamesetup.display_mode(),
+                                 V2_MOVE: True, V3_MOVE: True, 'display': gamesetup.display_mode(),
                                  'custom': dict(self.custom),
                                  'server': {k: v for k, v in self.server.items() if v != SERVER.get(k)}})
 
@@ -822,8 +832,9 @@ class SetupController(Part):
         build = self.build
         exe = boost.here(build)
         pub = self._published(build)
-        if exe and pub is not None and pub.digest != self.boost['sha'].get(build):
-            exe = ''                    # a newer build is published: Play gets it first
+        if exe and pub is not None and pub.digest != self.boost['sha'].get(build) and build not in boost.UPDATABLE:
+            exe = ''                    # a newer Overtime build is published: Play gets it first
+        # Kravickas's newest GitHub build is taken only on Get newest (owner 2026-11-21): one that is here stays
         return exe, build, ''
 
     def setup_play(self):
@@ -1225,7 +1236,7 @@ class SetupController(Part):
 
         def work():
             results = packdownload.download(names, cache, progress=progress, game_dir=game_dir,
-                                            cancelled=lambda: self.dl_stop)
+                                            cancelled=lambda: self.dl_stop, dropped=self.dl_dropped.__contains__)
             return results, pack_status(cache, game_dir)
 
         def said(out):
@@ -1246,6 +1257,7 @@ class SetupController(Part):
             if then is not None:
                 then()
         self.dl_stop = False
+        self.dl_dropped = set()
         busy = busy or ('Downloading the picture packs...' if len(names) > 1 else
                         f'Downloading {titles.get(names[0], (names[0],))[0]}...')
         return self._job(busy, work, said, rescan=False, after=after)
@@ -1354,8 +1366,9 @@ class SetupController(Part):
         return {'ok': True}
 
     def setup_build_update(self):
-        """Update on the Boost performance card: the published Kravickas build, now (a job). Only for boost.UPDATABLE
-        (owner 2026-11-13): Overtime Native comes with Overtime's releases, and Play gets a new one by itself."""
+        """Get newest on the Boost performance card: the published Kravickas build, now (a job). Only for
+        boost.UPDATABLE (owner 2026-11-13): Overtime Native comes with Overtime's releases, and Play gets a new one by
+        itself. Play never takes a newer Kravickas build when one is here (owner 2026-11-21): only this does."""
         c = self.ctl
         if self._wait():
             return None
@@ -1396,7 +1409,8 @@ class SetupController(Part):
 
     def online_boost(self, note=None):
         """Before every online Ready in a lobby (multiplayer_ctl): NHL 19 on the published lobby build (boost.DEFAULT:
-        Overtime Native v2 from 2026-11-16, v1 from 0.92.0, Kravickas before), switched on or brought up to date with no
+        Overtime Native v3 on Windows from 0.99.0, v2 from 2026-11-16, v1 from 0.92.0, Kravickas before), switched on or
+        brought up to date with no
         click (owner 2026-11-08: "we just handle all things for him"). Lockstep play needs the same shadPS4 on both
         PCs. The build chosen on the card stays chosen: the next Play starts it again. Waits for the download. Returns
         what it did: 'on', 'already', or why not ('none published', a refusal); the lobby compares what is there either
@@ -1459,7 +1473,7 @@ class SetupController(Part):
         elif why:
             text, tone = why, 'caution'
         elif cur['newer'] and cur['updatable']:
-            text, tone = f'{label}: a newer build is out. Press Update, or Play NHL 19 gets it.', 'info'
+            text, tone = f'{label}: a newer build is out. Press Get newest to take it.', 'info'
         elif cur['newer']:
             text, tone = f'{label}: a newer build is out. Play NHL 19 gets it.', 'info'
         elif cur['here']:
@@ -1483,7 +1497,133 @@ class SetupController(Part):
                 'updatable': cur['updatable'],
                 'can_update': cur['updatable'] and cur['published'] and not c.busy and part is None,
                 'resolution': self.resolution, 'framerate': self._frame_rate(emulator), 'everywhere': self.replays60,
-                'news': '' if part is not None else news, 'upstream': upstream}
+                'news': '' if part is not None else news, 'upstream': upstream,
+                'picture': self._picture(emulator) if boost.BUILDS[self.build].get('picture') else None}
+
+    def _gpu_info(self):
+        if self._gpu is None:
+            self._gpu = gpuinfo.info()
+        return self._gpu
+
+    def _picture(self, emulator):
+        """The Boost card's Picture block (Overtime Native v3): the card, the choices and the player's DLSS files."""
+        gpu = self._gpu_info()
+        user = gamesetup.emu_user_dir(emulator) if emulator else ''
+        if user:
+            chosen = emusettings.value(user, 'GPU.upscaler')
+            fsr = emusettings.value(user, 'GPU.fsr_enabled')
+            dlss5 = bool(emusettings.value(user, 'GPU.dlss_nr'))
+        else:
+            chosen, fsr, dlss5 = '', False, False
+        upscaler = chosen if chosen in UPSCALERS else ('fsr1' if fsr else 'off')
+        files = {k: bool(dlssfiles.here(k)) for k in DLSS_FILE_KINDS}
+        notes = []
+        if upscaler == 'dlss' and not gpu['dlss']:
+            notes.append('DLSS needs an NVIDIA RTX card: the game uses FSR 1 on this PC.')
+        elif upscaler == 'dlss' and not files['dlss']:
+            notes.append('DLSS needs your nvngx_dlss.dll: add it, or the game uses FSR 1.')
+        if dlss5 and not files['dlss5']:
+            notes.append('DLSS 5 needs your nvngx_dlssnr.dll: add it, or DLSS 5 stays off.')
+        if dlss5 and gpu['dlss5_compat']:
+            notes.append(f"On an RTX {gpu['rtx']} card DLSS 5 needs the compat build of nvngx_dlssnr.dll.")
+        return {'gpu': gpu['name'], 'rtx': gpu['rtx'], 'can_dlss': gpu['dlss'], 'can_dlss5': gpu['dlss5'],
+                'dlss5_compat': gpu['dlss5_compat'], 'upscaler': upscaler,
+                'upscalers': [{'id': k, 'label': v} for k, v in UPSCALERS.items()],
+                'dlss5': dlss5, 'files': files, 'notes': notes, 'ready': bool(user)}
+
+    def _save_picture(self, changes, said):
+        user = self._emu_user()
+        if not user:
+            return {'error': 'Find NHL 19 in Setup first.'}
+        try:
+            emusettings.save(user, changes, self.resolution)
+        except emusettings.SettingsError as err:
+            self.ctl.say(str(err), 'caution')
+            return {'error': str(err)}
+        except OSError as err:
+            self.ctl.say(f'The picture setting was not saved: {err}', 'caution')
+            return {'error': str(err)}
+        self.ctl.host.log(said)
+        self.ctl.say(f'{said}. NHL 19 uses it from its next start.', 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
+
+    def setup_upscaler(self, value):
+        """The Picture block's Upscaler (Overtime Native v3): Off, FSR 1 or DLSS, in the game's own config. The FSR switch
+        follows (on for FSR 1), so the other builds keep the same choice where they can."""
+        if value not in UPSCALERS:
+            return {'error': f'no upscaler {value}'}
+        return self._save_picture({'GPU.upscaler': value, 'GPU.fsr_enabled': value == 'fsr1'},
+                                  f'Upscaler: {UPSCALERS[value]}')
+
+    def setup_dlss5(self, on):
+        """The Picture block's DLSS 5 switch: on only with the player's DLSS 5 file added (its path goes in the config)."""
+        on = bool(on)
+        kept = dlssfiles.here('dlss5')
+        if on and not kept:
+            return {'error': 'Add your DLSS 5 file (nvngx_dlssnr.dll) first.'}
+        return self._save_picture({'GPU.dlss_nr': on, 'GPU.dlss_nr_dll': kept if on else ''},
+                                  f"DLSS 5: {'on' if on else 'off'}")
+
+    def setup_dlss_file(self, kind):
+        """Add DLSS file / Add DLSS 5 file: Windows' picker, then the file is copied into the app's folder (Overtime never
+        ships it). {type: true} in browser mode (the page asks for the path)."""
+        if kind not in DLSS_FILE_KINDS:
+            return {'error': f'no DLSS file {kind}'}
+        label, name = DLSS_FILE_KINDS[kind]
+        pick = getattr(self.ctl.host, 'pick', None)
+        path = pick(False, '', (f'{label} ({name})',)) if pick else None
+        if path is None:
+            return {'type': True}
+        if not path:
+            return {'cancelled': True}
+        return self.setup_dlss_file_set(kind, path)
+
+    def setup_dlss_file_set(self, kind, path):
+        """The DLSS file of `kind` from `path` (the picker's, or typed in browser mode)."""
+        if kind not in DLSS_FILE_KINDS:
+            return {'error': f'no DLSS file {kind}'}
+        label = DLSS_FILE_KINDS[kind][0]
+        try:
+            kept = dlssfiles.add(kind, str(path or '').strip().strip('"'))
+        except dlssfiles.DlssFileError as err:
+            self.ctl.say(str(err), 'caution')
+            return {'error': str(err)}
+        if kind == 'dlss':
+            dlssfiles.place_beside(boost.exe_path(boost.NATIVE3))
+        else:
+            user = self._emu_user()
+            if user and emusettings.value(user, 'GPU.dlss_nr'):
+                try:
+                    emusettings.save(user, {'GPU.dlss_nr_dll': kept}, self.resolution)
+                except (emusettings.SettingsError, OSError) as err:
+                    self.ctl.host.log(f'DLSS 5 file path not saved: {err}')
+        self.ctl.host.log(f'{label} added: {kept}')
+        self.ctl.say(f'{label} added. Overtime keeps its own copy.', 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
+
+    def setup_dlss_file_remove(self, kind):
+        """Remove beside an added DLSS file: the app's copy goes (DLSS falls back to FSR 1, DLSS 5 goes off)."""
+        if kind not in DLSS_FILE_KINDS:
+            return {'error': f'no DLSS file {kind}'}
+        label = DLSS_FILE_KINDS[kind][0]
+        try:
+            dlssfiles.remove(kind, (boost.exe_path(boost.NATIVE3),) if kind == 'dlss' else ())
+        except dlssfiles.DlssFileError as err:
+            self.ctl.say(str(err), 'caution')
+            return {'error': str(err)}
+        if kind == 'dlss5':
+            user = self._emu_user()
+            if user and emusettings.value(user, 'GPU.dlss_nr'):
+                try:
+                    emusettings.save(user, {'GPU.dlss_nr': False, 'GPU.dlss_nr_dll': ''}, self.resolution)
+                except (emusettings.SettingsError, OSError) as err:
+                    self.ctl.host.log(f'DLSS 5 not switched off: {err}')
+        self.ctl.host.log(f'{label} removed')
+        self.ctl.say(f'{label} removed.', 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
 
     @staticmethod
     def _frame_rate(emulator):
@@ -1492,8 +1632,8 @@ class SetupController(Part):
 
     @staticmethod
     def _emulator_news():
-        """(line, tooltip) about the newest Kravickas build on his GitHub (kravbuild's last read): the one Play and
-        Get newest take."""
+        """(line, tooltip) about the newest Kravickas build on his GitHub (kravbuild's last read): the one Get newest
+        takes (Play takes it only when no Kravickas build is here)."""
         news = kravbuild.info()
         if not news:
             return '', ''
@@ -1778,10 +1918,12 @@ class SetupController(Part):
             c.patch_want[key] = bool(on)
             c.remember(patch=dict(c.patch_want))
             (self.asked.add if on else self.asked.discard)(key)
-            dl = self.dl        # the packs come down together: the run stops when no switch on needs one of them
-            if not on and dl is not None and any(n in dl['names'] for n in names) and not any(
-                    c.patch_want.get(k) for k, v in patch_ctl.ASSET_PACKS.items() if any(n in v for n in dl['names'])):
-                self.dl_stop = True
+            dl = self.dl        # the packs come down together: a pack no switch on needs any more stops, the rest go on
+            if not on and dl is not None:
+                for n in names:
+                    if n in dl['names'] and not any(c.patch_want.get(k) for k, v in patch_ctl.ASSET_PACKS.items()
+                                                    if n in v):
+                        self.dl_dropped.add(n)
         c.changed('patch')
         if on and self._extras_wanted():
             return self._extras_next()

@@ -48,8 +48,9 @@ def _digest(asset):
 def parse(data):
     """({PACK: Release} of the newest published NHL19-Build release with its file, or {} when there is none, info of
     it or None) from GitHub's releases list. Newest = latest published_at (GitHub's own "latest" goes by the commit's
-    date). info: {tag, commit, date, page}."""
-    best = None
+    date); a release whose file has GitHub's sha256 goes before a newer one without it (that one cannot be installed).
+    info: {tag, commit, date, page}."""
+    best = checked = None
     for rel in data if isinstance(data, list) else []:
         if not isinstance(rel, dict) or rel.get('draft') or not isinstance(rel.get('published_at'), str):
             continue
@@ -62,9 +63,11 @@ def parse(data):
             continue
         if best is None or rel['published_at'] > best[0]['published_at']:
             best = (rel, asset)
+        if _digest(asset) and (checked is None or rel['published_at'] > checked[0]['published_at']):
+            checked = (rel, asset)
     if best is None:
         return {}, None
-    rel, asset = best
+    rel, asset = checked or best
     try:
         size = int(asset.get('size') or 0)
     except (TypeError, ValueError):

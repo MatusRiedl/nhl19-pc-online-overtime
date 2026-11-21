@@ -170,7 +170,7 @@ def test_defaults_without_patch_readbacks_always_pro_and_shader_cache_once(user,
     wrote = emusettings.apply_defaults(str(user), True)
     cfg = _read(user)
     assert sorted(wrote) == ['GPU.direct_memory_access_enabled', 'GPU.readback_linear_images_enabled',
-                             'GPU.readbacks_mode', 'GPU.submit_draw_interval', 'GPU.vblank_frequency',
+                             'GPU.readbacks_mode', 'GPU.vblank_frequency',
                              'General.neo_mode', 'Log.sync', 'Vulkan.pipeline_cache_enabled']
     # owner 2026-11-11: direct memory access by default, not locked; 2026-11-13: vblank 9999 (Unlocked), log sync off
     assert emusettings.frame_rate(str(user)) == 9999 and emusettings.log_sync(str(user)) is False
@@ -180,7 +180,8 @@ def test_defaults_without_patch_readbacks_always_pro_and_shader_cache_once(user,
     assert 'extra_dmem_in_mbytes' not in cfg['General'] and emusettings.dmem(str(user)) == 0
     assert not {'GPU.vblank_frequency', 'GPU.direct_memory_access_enabled', 'General.extra_dmem_in_mbytes'} & set(emusettings.locks())
     assert cfg['GPU']['readbacks_mode'] == 2 and cfg['GPU']['readback_linear_images_enabled'] is True
-    assert cfg['GPU']['submit_draw_interval'] == 1000 and 'GPU.submit_draw_interval' in emusettings.locks()
+    # PR #4's submit draw interval 1000 is not a default (fps_bench 2026-11-21): the player's row, unlocked
+    assert 'submit_draw_interval' not in cfg['GPU'] and 'GPU.submit_draw_interval' not in emusettings.locks()
     assert cfg['General']['neo_mode'] is True and cfg['Vulkan']['pipeline_cache_enabled'] is True
     assert cfg['GPU']['present_mode'] == 'Fifo' and cfg['General']['volume_slider'] == 80   # started from config.json
     view = emusettings.view(str(user))
@@ -356,3 +357,16 @@ def test_input_save_says_when_the_bindings_apply(ready, monkeypatch):
     assert got['ok'] and ready.ctl.said[-1][0].endswith('Press F8 in NHL 19 to use them now.')
     bad = dict(model, bindings=dict(model['bindings'], cross=['kp2']))
     assert 'Cross' in ready.emu_input_save('keys', bad)['error']
+
+
+def test_the_picture_keys_of_native_v3_and_value(user):
+    # 0.99.0: Overtime Native v3's Picture options sit with FSR; value() reads like the view (game file, config, default)
+    assert emusettings.value(str(user), 'GPU.upscaler') == '' and emusettings.value(str(user), 'GPU.dlss_nr') is False
+    assert emusettings.value(str(user), 'GPU.window_width') == 1920
+    _write(user, {'GPU': {'upscaler': 'dlss', 'dlss_nr': True, 'dlss_nr_dll': 'C:/x/nvngx_dlssnr.dll'}})
+    assert emusettings.value(str(user), 'GPU.upscaler') == 'dlss'
+    v = emusettings.view(str(user))
+    assert [o['value'] for o in _field(v, 'GPU.upscaler')['options']] == ['', 'off', 'fsr1', 'dlss']
+    assert _field(v, 'GPU.dlss_nr_dll')['show_if'] == {'GPU.dlss_nr': True}
+    assert emusettings.save(str(user), {'GPU.upscaler': 'fsr1', 'GPU.dlss_nr': False}) == ['GPU.dlss_nr', 'GPU.upscaler']
+    assert _read(user)['GPU']['upscaler'] == 'fsr1' and _read(user)['GPU']['dlss_nr'] is False

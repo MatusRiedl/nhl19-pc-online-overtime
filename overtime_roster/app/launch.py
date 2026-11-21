@@ -19,7 +19,7 @@ import time
 
 from overtime_core import gamefiles, overlay
 
-from . import emufile, gamesetup, onlinetag, selfupdate
+from . import dlssfiles, emufile, gamesetup, onlinetag, selfupdate
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ def start(emu_exe, game_dir, patch_file=None, running=None, popen=subprocess.Pop
         onlinetag.apply(emu_exe, game_dir, patch_file, exe)
     except onlinetag.TagError as err:
         raise LaunchError(str(err)) from err
+    dlssfiles.ready_for(run)    # Overtime Native v3: the player's DLSS file beside it (NGX looks there)
     flags = 0
     if sys.platform == 'win32':
         # above normal from its first instruction (owner 2026-11-13, docs/notes/native-port.md: the native port's own

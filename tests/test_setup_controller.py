@@ -6,7 +6,7 @@ import types
 import pytest
 
 from overtime_core import art, overlay
-from overtime_roster.app import gamesetup, jobs, launch, patch, setup_controller as SC
+from overtime_roster.app import boost, gamesetup, jobs, launch, patch, setup_controller as SC
 
 from test_gamesetup import world  # noqa: F401  (fixture)
 
@@ -220,10 +220,12 @@ def test_no_shadps4_gets_the_apps_own(sc, monkeypatch):
     got = _no_shadps4(sc, monkeypatch)
     assert not sc.known_emulator() and 'Find game' in sc._state(True, [], False)['text']
     assert sc.setup_set_emulator(str(sc.world['game'] / 'eboot.bin')) == {'ok': True}
-    assert got == ['native2'] and sc.known_emulator() == boost.exe_path('native2') and sc.standalone()
-    assert sc.ctl.game_dir == str(sc.world['game']) and sc.ctl.prefs['setup']['build'] == 'native2'
+    d = boost.DEFAULT           # Overtime Native v3 on Windows from 0.99.0, v2 elsewhere
+    assert got == [d] and sc.known_emulator() == boost.exe_path(d) and sc.standalone()
+    assert sc.ctl.game_dir == str(sc.world['game']) and sc.ctl.prefs['setup']['build'] == d
     card = sc._boost_card(sc.known_emulator())
-    assert card['build'] == 'native2' and card['playing'] == 'native2' and card['text'] == 'Overtime Native v2: ready. Play NHL 19 starts it.'
+    assert card['build'] == d and card['playing'] == d
+    assert card['text'] == f"{boost.BUILDS[d]['label']}: ready. Play NHL 19 starts it."
     # the player picks their own shadPS4 later: it is kept, and Play still starts the chosen build
     sc.setup_set_emulator(str(sc.world['emu']))
     assert not sc.standalone()
@@ -243,10 +245,11 @@ def test_find_game_installs_a_pkg_and_sets_up_shadps4(sc, monkeypatch, tmp_path)
     monkeypatch.setattr(pkginstall, 'install', install)
     assert sc.setup_set_emulator(str(pkg)) == {'ok': True}
     assert calls == [(str(pkg), sc.ctl.game_dir and calls[0][1])]
-    assert sc.ctl.game_dir == str(sc.world['game']) and got and sc.known_emulator() == boost.exe_path('native2')
+    assert sc.ctl.game_dir == str(sc.world['game']) and got and sc.known_emulator() == boost.exe_path(boost.DEFAULT)
     said = [t for t, _ in sc.ctl.said]
     assert any('Extracting the PKG... 50 %' in t for t in said)
-    assert any('Now press Find game again and pick the update 1.60 PKG' in t and 'Overtime Native v2 build) is set up too' in t
+    label = boost.BUILDS[boost.DEFAULT]['label']
+    assert any('Now press Find game again and pick the update 1.60 PKG' in t and f'{label} build) is set up too' in t
                for t in said)
 
 
@@ -276,9 +279,9 @@ def test_play_refusal_is_reported(sc, monkeypatch):
     monkeypatch.setattr(launch, 'start', refuse)
     sc.setup_refresh()
     assert sc.setup_play() == {'ok': True}                  # the default build downloads first (a job), then starts
-    assert sc.calls['installed'] == ['native2'] and sc.ctl.said[-1] == ('shadPS4 is already running.', 'bad')
+    assert sc.calls['installed'] == [boost.DEFAULT] and sc.ctl.said[-1] == ('shadPS4 is already running.', 'bad')
     assert sc.setup_play() == {'error': 'shadPS4 is already running.'}     # here now: no download
-    assert sc.calls['installed'] == ['native2']
+    assert sc.calls['installed'] == [boost.DEFAULT]
 
 
 def test_one_click_switch_off_takes_its_layer_away(sc, monkeypatch):
@@ -489,6 +492,25 @@ def test_downloads_list_every_pack_and_fetch_them(sc, monkeypatch, tmp_path):
     assert sc._kits(_downloads(sc))['state'] == 'ready'                    # beta1's kits row follows kits.zip
 
 
+def test_a_switch_waits_while_download_all_runs(sc, monkeypatch, tmp_path):
+    from overtime_roster.app import packdownload
+    have, got = _packs_world(sc, monkeypatch, tmp_path)
+    sc.setup_set_emulator(str(sc.world['emu']))
+    sc.ctl.patch_want.update(art=True, photos=True)
+    sc.packs = SC.pack_status(SC.patch_cache())
+    seen = {}
+
+    def download(names, cache_dir, progress=None, game_dir=None, cancelled=None, dropped=None, **kw):
+        assert len(names) > 1
+        progress(names[0], 1, 2)
+        sc.pack_switch('photos', False)         # several packs in one run: the switches wait for it
+        seen.update(want=sc.ctl.patch_want['photos'], dropped=[n for n in names if dropped(n)], stop=cancelled())
+        return [(n, True, 'Downloaded.') for n in names]
+    monkeypatch.setattr(packdownload, 'download', download)
+    sc.packs_download_all()
+    assert seen == {'want': True, 'dropped': [], 'stop': False} and sc.ctl.busy is None
+
+
 def test_get_shadps4_opens_the_official_launcher(sc, monkeypatch):
     opened = []
     monkeypatch.setattr(SC.webbrowser, 'open', opened.append)
@@ -575,13 +597,14 @@ def test_a_pack_switched_off_while_it_downloads_stops(sc, monkeypatch, tmp_path)
     sc.ctl.patch_want.update(art=True)
     sc.packs = SC.pack_status(SC.patch_cache())
 
-    def download(names, cache_dir, progress=None, game_dir=None, cancelled=None, **kw):
+    def download(names, cache_dir, progress=None, game_dir=None, cancelled=None, dropped=None, **kw):
         progress(names[0], 1, 2)
         row = _extras(sc)['ice_all']
         assert row['progress'] == 0.5 and row['text'] == 'Downloading... 50 % of 5 MB' and not row['disabled']
         assert _extras(sc)['alts_intl']['disabled'] is False                # another can be switched on meanwhile
+        assert not dropped(names[0])
         sc.pack_switch('ice_all', False)
-        assert cancelled()
+        assert dropped(names[0]) and not cancelled()        # that pack stops; a run's other packs would go on
         return [(names[0], False, packdownload.STOPPED)]
     monkeypatch.setattr(packdownload, 'download', download)
     sc.pack_switch('ice_all', True)

@@ -71,16 +71,28 @@ TRUSTED_EXES = {'fe88293d67e4e9ab6d0799ac6dcff84644def7806ff0d03b028967cbfdf0e99
                 '6223c21befb3889003b6a8061bbd179c5089b9cccfadee644bed9f4c3d0884db':
                     'Overtime Native v2 d1d3168a, Linux AppImage',
                 '0899d8360bb70f02afb09ca3a3a099859debf69435c554884185cb98e2e4d797':
-                    'Overtime Native v2 d1d3168a, macOS x86_64'}
-# The online build: Overtime Native v2 on Setup's card (owner 2026-11-16; v1 from 0.92.0), the default and what every
-# lobby starts. The exe's sha is in the tag, so a player on another trusted build (v1, Kravickas, an older one) has
-# another tag (why()).
-ONLINE_EXES = {'e162fada7fcafe705d0062e2d9a647f63228e708f202e6c10e4f5609bf6725d9':
+                    'Overtime Native v2 d1d3168a, macOS x86_64',
+                # 2026-11-21, Overtime Native v3 (0.99.0's Windows default and lobby build): v2 + Picture options (FSR 1,
+                # DLSS, DLSS 5; all off by default, picture only) and Kravickas's DLSS branch's motion inputs, plus
+                # upstream shader cache fixes (#4929 #5577 #5692 #5583 #5155, its own cache folders:
+                # docs/notes/v3-perf-candidates.md). cpu_patches, the linker and memory_patcher are v2's
+                # (git diff d1d3168a..5768473ca: none); docs/notes/native-v3.md
+                '5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
+                    'Overtime Native v3 5768473ca (v2 d1d3168a)'}
+# The online build: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; v2 from 2026-11-16, v1 from 0.92.0),
+# the default and what every lobby starts; v2 stays for Linux and macOS and for Windows apps before 0.99.0. The exe's
+# sha is in the tag, so a player on another trusted build (v2 on Windows, Kravickas, an older one) has another tag
+# (why()) until the server's cross-play map names v3 as v2 (crossplay.py).
+ONLINE_EXES = {'5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
+               'Overtime Native v3 5768473ca (v2 d1d3168a)',
+               'e162fada7fcafe705d0062e2d9a647f63228e708f202e6c10e4f5609bf6725d9':
                'Overtime Native v2 d1d3168a (Kravickas nhl-perf-test d0b7ac91)',
                '6223c21befb3889003b6a8061bbd179c5089b9cccfadee644bed9f4c3d0884db':
                'Overtime Native v2 d1d3168a, Linux AppImage',
                '0899d8360bb70f02afb09ca3a3a099859debf69435c554884185cb98e2e4d797':
                'Overtime Native v2 d1d3168a, macOS x86_64'}
+# what why() names as the online build: the default build on this system (boost.DEFAULT's label; Windows v3 from 0.99.0)
+ONLINE_LABEL = 'Overtime Native v3' if sys.platform == 'win32' else 'Overtime Native v2'
 MARK ='; Overtime Roster: matchmaking tag (only games that stay in step meet). Unpatch removes this file.'
 TMP = '.overtime-tmp'
 
@@ -228,10 +240,10 @@ def why(inp):
     if (inp.get('as') or inp['sha']) in ONLINE_EXES:
         pass
     elif inp['sha'] in TRUSTED_EXES:
-        reasons.append('it does not run the Overtime Native v2 build, so open matchmaking pairs it with players on '
+        reasons.append(f'it does not run the {ONLINE_LABEL} build, so open matchmaking pairs it with players on '
                        'its own build (a Multiplayer lobby starts the lobby build by itself)')
     else:
-        reasons.append("this shadPS4 is not the online build (choose Overtime Native v2 on Setup's Boost performance "
+        reasons.append(f"this shadPS4 is not the online build (choose {ONLINE_LABEL} on Setup's Boost performance "
                        'card: that is the one; a Multiplayer lobby plays on it too)')
     if not inp['crossvendor']:
         reasons.append('the Cross-CPU fix is not in the patch (it needs the v1.60 eboot.bin)')

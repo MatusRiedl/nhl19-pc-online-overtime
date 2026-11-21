@@ -22,6 +22,8 @@ HEAD = emufile.MAGIC[emufile.system_of()][0]   # the first bytes of a program on
 BUILD = HEAD + b' the Kravickas build'
 NIGHTLY = HEAD + b' the Nightly build'
 NATIVE2 = HEAD + b' the Native v2 build'
+NATIVE3 = HEAD + b' the Native v3 build'
+DEFAULT_BYTES = {'native3': NATIVE3, 'native2': NATIVE2}[boost.DEFAULT]    # the default build (Windows: v3 from 0.99.0)
 OWN = 'D:/PS4/PS4 Emulator/shadPS4.exe'
 INI = f'[general]\r\nx=1\r\n\r\n[version_manager]\r\nversionPath=D:/v\r\nversionSelected={OWN}\r\n'
 THEIR_ENTRY = {'codename': 'Local', 'date': '2026-11-01', 'name': 'NHL 19', 'path': OWN, 'type': 2}
@@ -39,14 +41,14 @@ def github_release(asset, tag='NHL19-Build-2026-11-14-749170d', when='2026-11-14
                         **({'digest': 'sha256:' + hashlib.sha256(data).hexdigest()} if digest else {})}]}
 
 
-def release(root, content=BUILD, names=(PROGRAM,), nightly=NIGHTLY, native2=NATIVE2):
-    """A release folder with Overtime Native v1 and v2 as packs of latest.json (nightly / native2 None: that one is not
+def release(root, content=BUILD, names=(PROGRAM,), nightly=NIGHTLY, native2=NATIVE2, native3=NATIVE3):
+    """A release folder with Overtime Native v1, v2 and v3 as packs of latest.json (nightly / native2 / native3 None: that one is not
     served) and the Kravickas build as the newest release of a GitHub releases list (content=None: none); latest.json's
     URL."""
     (root / 'packs').mkdir(parents=True, exist_ok=True)
     packs, sums, github = {}, '', []
     for name, body in ((boost.PACK, content), (packdownload.NIGHTLY_PACK, nightly),
-                       (packdownload.NATIVE2_PACK, native2)):
+                       (packdownload.NATIVE2_PACK, native2), (packdownload.NATIVE3_PACK, native3)):
         if body is None:
             continue
         pack = root / 'packs' / name
@@ -176,29 +178,35 @@ def test_the_nightly_pack_is_checked_as_a_program_pack():
     assert packdownload.CHECKS[packdownload.NIGHTLY_PACK] is packdownload.check_emulator
     assert packdownload.NATIVE2_PACK in packdownload.TOOL_PACKS
     assert packdownload.CHECKS[packdownload.NATIVE2_PACK] is packdownload.check_emulator
-    assert len({boost.exe_path(b) for b in boost.BUILDS}) == 3 and boost.build_of(boost.exe_path('native2')) == 'native2'
+    assert packdownload.NATIVE3_PACK in packdownload.TOOL_PACKS
+    assert packdownload.CHECKS[packdownload.NATIVE3_PACK] is packdownload.check_emulator
+    assert len({boost.exe_path(b) for b in boost.BUILDS}) == 4 and boost.build_of(boost.exe_path('native2')) == 'native2'
+    assert boost.build_of(boost.exe_path('native3')) == 'native3'
     assert boost.exe_path('nightly') != boost.exe_path('kravickas') == boost.exe_path()
     assert boost.build_of(boost.exe_path('nightly')) == 'nightly' and boost.build_of(OWN) is None
 
 
-def test_play_gets_overtime_native_v2_by_default_and_keeps_the_players_own(sc, served, world, started):  # noqa: F811
-    # owner 2026-11-16: the dropdown lists Overtime Native v2 (the default), v1 (id 'nightly', the default from 0.92.0)
-    # and Kravickas; the card's Update is for Kravickas only
+def test_play_gets_the_default_overtime_native_and_keeps_the_players_own(sc, served, world, started):  # noqa: F811
+    # owner 2026-11-21 (0.99.0): the dropdown lists Overtime Native v3 (the default on Windows), v2 (the default from
+    # 2026-11-16, still on Linux and macOS), v1 (id 'nightly') and Kravickas; the card's Update is for Kravickas only
     own = str(world['emu'])
     sc.setup_set_emulator(own)
     card = card_of(sc)
-    assert boost.DEFAULT == 'native2' and boost.BUILDS['native2']['label'] == 'Overtime Native v2'
-    ids, labels, updatable = (['native2', 'nightly', 'kravickas'], ['Overtime Native v2', 'Overtime Native v1', 'Kravickas'],
-                              [False, False, True]) if sys.platform == 'win32' else (['native2'], ['Overtime Native v2'], [False])
-    assert card['build'] == 'native2' and [b['id'] for b in card['builds']] == ids
+    win = sys.platform == 'win32'
+    assert boost.DEFAULT == ('native3' if win else 'native2') and boost.BUILDS['native2']['label'] == 'Overtime Native v2'
+    ids, labels, updatable = (['native3', 'native2', 'nightly', 'kravickas'],
+                              ['Overtime Native v3', 'Overtime Native v2', 'Overtime Native v1', 'Kravickas'],
+                              [False, False, False, True]) if win else (['native2'], ['Overtime Native v2'], [False])
+    assert card['build'] == boost.DEFAULT and [b['id'] for b in card['builds']] == ids
     assert [b['label'] for b in card['builds']] == labels
     assert [b['updatable'] for b in card['builds']] == updatable
     assert not card['can_update'] and not card['updatable'] and 'downloads it first' in card['text']
+    assert (card['picture'] is not None) == win                     # the Picture options: v3 only
     assert sc.play_state()['can']
     sc.setup_play()
-    exe = boost.exe_path('native2')
-    assert pathlib.Path(exe).read_bytes() == NATIVE2 and started == [exe]
-    assert sc.emulator == exe and sc.boost['emulator'] == own and card_of(sc)['playing'] == 'native2'
+    exe = boost.exe_path(boost.DEFAULT)
+    assert pathlib.Path(exe).read_bytes() == DEFAULT_BYTES and started == [exe]
+    assert sc.emulator == exe and sc.boost['emulator'] == own and card_of(sc)['playing'] == boost.DEFAULT
     assert pathlib.Path(own).read_bytes() == EMU_BYTES              # a player's exe is never touched
     sc.setup_play()                                                 # here and current: no download, starts again
     assert started == [exe, exe]
@@ -229,7 +237,7 @@ def test_a_build_click_stays_chosen_without_a_warning_and_switches_when_here(sc,
 def test_apps_before_0920_move_to_overtime_native_and_apply_everywhere_once(sc):  # noqa: F811
     sc.ctl.prefs['setup'] = {'build': 'kravickas', 'replays60': False}   # a 0.91.1 player: Kravickas, the switch off
     again = SC.SetupController(sc.ctl)
-    assert again.build == 'native2' and again.replays60
+    assert again.build == boost.DEFAULT and again.replays60
     again._remember()
     assert sc.ctl.prefs['setup']['rebuild'] == SC.REBUILD
     again.setup_build('kravickas')
@@ -239,13 +247,18 @@ def test_apps_before_0920_move_to_overtime_native_and_apply_everywhere_once(sc):
 
 
 @pytest.mark.windows_only
-def test_players_on_overtime_native_v1_move_to_v2_once(sc):  # noqa: F811
-    # owner 2026-11-16: v2 is the default; v1 was the default before, so its players are put on v2 once
+def test_players_on_an_old_default_move_to_the_new_one_once(sc):  # noqa: F811
+    # owner 2026-11-16: v2 became the default, v1 players went to v2 once; owner 2026-11-21: v3 is the default on
+    # Windows, so v2 players (and v1 players who never moved) go to v3 once
     sc.ctl.prefs['setup'] = {'build': 'nightly', 'rebuild': SC.REBUILD}
     again = SC.SetupController(sc.ctl)
-    assert again.build == 'native2'
+    assert again.build == 'native3'
     again.setup_build('nightly')                                    # chosen after the move: kept
     assert sc.ctl.prefs['setup'][SC.V2_MOVE] is True and SC.SetupController(sc.ctl).build == 'nightly'
+    sc.ctl.prefs['setup'] = {'build': 'native2', 'rebuild': SC.REBUILD, SC.V2_MOVE: True}
+    assert SC.SetupController(sc.ctl).build == 'native3'
+    sc.ctl.prefs['setup'] = {'build': 'native2', 'rebuild': SC.REBUILD, SC.V2_MOVE: True, SC.V3_MOVE: True}
+    assert SC.SetupController(sc.ctl).build == 'native2'            # v2 chosen again after the move: kept
     sc.ctl.prefs['setup'] = {'build': 'kravickas', 'rebuild': SC.REBUILD}
     assert SC.SetupController(sc.ctl).build == 'kravickas'           # another pick is left alone
 
@@ -256,6 +269,7 @@ def test_the_card_shows_only_the_kravickas_source_button_and_no_experimental_tex
     assert '.filter((x) => x.updatable)' in page                    # source buttons: the Kravickas one
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-nightly' in page     # GPL-2.0: Native's source, in the Info
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-native-v2' in page
+    assert 'github.com/MatusRiedl/shadPS4, branch overtime-native-v3' in page
 
 
 @pytest.mark.windows_only
@@ -269,7 +283,7 @@ def test_each_build_has_its_own_source_code(sc, monkeypatch):  # noqa: F811
 
 
 @pytest.mark.windows_only
-def test_a_newer_build_is_offered_and_play_gets_it(sc, served, world, started):  # noqa: F811
+def test_a_newer_kravickas_build_is_offered_and_only_get_newest_takes_it(sc, served, world, started):  # noqa: F811
     sc.setup_set_emulator(str(world['emu']))
     sc.setup_build('kravickas')
     sc.setup_play()
@@ -279,8 +293,11 @@ def test_a_newer_build_is_offered_and_play_gets_it(sc, served, world, started): 
     sc._scan()
     card = card_of(sc)
     assert next(b for b in card['builds'] if b['id'] == 'kravickas')['newer']
-    assert card['can_update'] and 'Press Update' in card['text']
-    sc.setup_play()
+    assert card['can_update'] and 'Press Get newest' in card['text']
+    old = pathlib.Path(boost.exe_path('kravickas')).read_bytes()
+    sc.setup_play()         # Play keeps the build that is here (owner 2026-11-21)
+    assert pathlib.Path(boost.exe_path('kravickas')).read_bytes() == old != HEAD + b' newer'
+    sc.setup_build_update()
     assert pathlib.Path(boost.exe_path('kravickas')).read_bytes() == HEAD + b' newer'
     assert not any(b['newer'] for b in card_of(sc)['builds'])
 
@@ -290,15 +307,15 @@ def test_play_gets_a_newly_published_overtime_native_without_the_update_button(s
     # lobby pin and the matchmaking tag need
     sc.setup_set_emulator(str(world['emu']))
     sc.setup_play()
-    release(served, native2=HEAD + b' native 2 newer')
+    release(served, **{boost.DEFAULT: HEAD + b' native newer'})
     packdownload.forget()
     kravbuild.forget()
     sc._scan()
     card = card_of(sc)
-    assert next(b for b in card['builds'] if b['id'] == 'native2')['newer'] and not card['can_update']
-    assert card['text'] == 'Overtime Native v2: a newer build is out. Play NHL 19 gets it.'
+    assert next(b for b in card['builds'] if b['id'] == boost.DEFAULT)['newer'] and not card['can_update']
+    assert card['text'] == f"{boost.BUILDS[boost.DEFAULT]['label']}: a newer build is out. Play NHL 19 gets it."
     sc.setup_play()
-    assert pathlib.Path(boost.exe_path('native2')).read_bytes() == HEAD + b' native 2 newer'
+    assert pathlib.Path(boost.exe_path(boost.DEFAULT)).read_bytes() == HEAD + b' native newer'
     assert not any(b['newer'] for b in card_of(sc)['builds'])
 
 
@@ -322,10 +339,10 @@ def test_offline_play_starts_the_build_here(sc, served, world, started):  # noqa
     packdownload.forget()
     kravbuild.forget()
     sc._scan()
-    sc.boost['sha']['native2'] = 'cd' * 32                          # and the record names another build
-    sc.boost_table = {packdownload.NATIVE2_PACK: type('R', (), {'digest': 'ef' * 32, 'size': 1})()}
+    sc.boost['sha'][boost.DEFAULT] = 'cd' * 32                      # and the record names another build
+    sc.boost_table = {boost.BUILDS[boost.DEFAULT]['pack']: type('R', (), {'digest': 'ef' * 32, 'size': 1})()}
     sc.setup_play()
-    assert started == [boost.exe_path('native2')] * 2
+    assert started == [boost.exe_path(boost.DEFAULT)] * 2
 
 
 @pytest.mark.windows_only
@@ -365,7 +382,7 @@ def test_the_play_button_is_grey_until_a_game_is_found(sc, world):  # noqa: F811
 def test_an_old_boost_record_reads_as_the_kravickas_build(sc):  # noqa: F811
     sc.ctl.prefs['setup'] = {'boost': {'sha256': 'ef' * 32, 'emulator': 'D:/own.exe', 'selected': 'x'}}
     again = SC.SetupController(sc.ctl)
-    assert again.boost == {'emulator': 'D:/own.exe', 'sha': {'kravickas': 'ef' * 32}} and again.build == 'native2'
+    assert again.boost == {'emulator': 'D:/own.exe', 'sha': {'kravickas': 'ef' * 32}} and again.build == boost.DEFAULT
 
 
 def test_every_help_box_has_heads_and_items():
@@ -377,10 +394,10 @@ def test_every_help_box_has_heads_and_items():
 
 
 def test_a_build_not_published_says_so(sc, served, world, started):  # noqa: F811
-    release(served, native2=None)
+    release(served, **{boost.DEFAULT: None})
     packdownload.forget()
     sc.setup_set_emulator(str(world['emu']))
-    card = card_of(sc)                                              # Overtime Native v2, the default, is not served
+    card = card_of(sc)                                              # the default Overtime Native build is not served
     assert not card['can_update'] and 'not available' in card['text']
     sc.setup_play()
     assert sc.emulator == str(world['emu']) and sc.ctl.said[-1][1] == 'bad' and started == []
@@ -390,18 +407,18 @@ def test_a_build_not_published_says_so(sc, served, world, started):  # noqa: F81
 def test_an_online_ready_switches_to_the_lobby_build_with_no_click_and_keeps_it_current(sc, served, world):  # noqa: F811
     # owner 2026-11-08: "make it automated to boost performance for the online"; sonku's other build desynced.
     # owner 2026-11-13: the lobby build is Overtime Native, also for a player who chose Kravickas (the choice stays);
-    # owner 2026-11-16: "push everybody to use native v2 on the lobbies"
+    # owner 2026-11-16: "push everybody to use native v2 on the lobbies"; owner 2026-11-21: v3 replaces v2 (Windows)
     own = str(world['emu'])
     sc.setup_set_emulator(own)
     sc.setup_build('kravickas')
     notes = []
     assert sc.online_boost(notes.append) == 'on'
-    n = boost.exe_path('native2')
+    n = boost.exe_path(boost.DEFAULT)
     assert sc.emulator == n and sc.boost['emulator'] == own and sc.ctl.busy is None and sc.build == 'kravickas'
-    assert pathlib.Path(n).read_bytes() == NATIVE2 and not os.path.exists(boost.exe_path('kravickas'))
+    assert pathlib.Path(n).read_bytes() == DEFAULT_BYTES and not os.path.exists(boost.exe_path('kravickas'))
     assert notes and notes[-1].endswith('100 %')
     assert sc.online_boost() == 'already'
-    release(served, native2=HEAD + b' newer')
+    release(served, **{boost.DEFAULT: HEAD + b' newer'})
     packdownload.forget()
     kravbuild.forget()
     sc._scan()
@@ -441,6 +458,10 @@ def test_a_github_file_without_its_sha256_is_not_installed(tmp_path):
     zipped.write_bytes(b'PK one')
     table, _info = kravbuild.parse([github_release(zipped, digest=False)])
     assert not table[kravbuild.PACK].can_install()
+    old = github_release(zipped, 'NHL19-Build-2026-11-10-aaaaaaa', '2026-11-10T08:00:00Z')
+    new = github_release(zipped, 'NHL19-Build-2026-11-14-749170d', '2026-11-14T10:00:00Z', digest=False)
+    table, info = kravbuild.parse([new, old])       # the newest one with a sha256 instead
+    assert table[kravbuild.PACK].can_install() and info['tag'] == 'NHL19-Build-2026-11-10-aaaaaaa'
 
 
 @pytest.mark.windows_only    # the Kravickas build is a Windows build (boost.BUILDS elsewhere: v2)

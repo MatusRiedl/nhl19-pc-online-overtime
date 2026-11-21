@@ -21,11 +21,12 @@ from . import durable, net
 
 BASE = 'https://api-web.nhle.com/v1'
 ROSTER_TTL = 20 * 60
-# All at once (a first update: 32 rosters, 32 schedules, the player pages it reads), backing off when NHL.com asks.
+# A few at once (a first update: 32 rosters, 32 schedules, the player pages it reads), backing off when NHL.com asks.
 # Before, one request at a time, each a second after the one before had answered: the 64 club requests alone were over
-# a minute.
-MIN_INTERVAL = 0.0
-WORKERS = 64
+# a minute. Public PR #4 (Kravickas) asked 64 at once with no spacing; 0.99.0 keeps 8, 50 ms apart: NHL.com's API is
+# unofficial, a block would reach every player behind the same address, and 8 keep most of the gain.
+MIN_INTERVAL = 0.05
+WORKERS = 8
 TRIES = 4                   # a request answered 429 / 5xx is asked again up to 3 times
 BACKOFF = 1.0               # seconds before the first try again without a Retry-After: 1, 2, 4
 MAX_WAIT = 30.0             # the longest Retry-After waited for

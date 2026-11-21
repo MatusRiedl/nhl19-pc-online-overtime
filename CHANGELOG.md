@@ -2,56 +2,50 @@
 
 What changed in each version, for players.
 
-## 0.98.1 (2026-11-20)
+## 0.99.0 (2026-11-21)
 
-### Changed
+### New
 
-- **The Kravickas build comes straight from his GitHub.** Play NHL 19 checks Kravickas's GitHub for his newest
-  NHL19-Build and downloads it by itself; Get newest on the Boost card gets it now. The card shows which build is the
-  newest.
-- **Jerseys, numbers, logos and photos are made faster on your PC** (none of this changes a byte of them):
-  - a block that comes more than once in a texture is compressed once (about a third of a jersey's patterned blocks
-    repeat, more on numbers and socks): compressing the national pack's 200 made textures took 99 s instead of 156 s
-    on one core, a whole 2048 jersey 1.8 s instead of 2.3 s;
-  - mips of a picture with no see-through parts (3D jerseys, socks, pants) skip the alpha work;
-  - the game's own normal and coeff maps with their old crest covered are made 5 times faster, the flat number
-    normals 10 times;
-  - the player photos the packs lack are made on every core (the roster update); the ones made before are only
-    read.
-- **Patch is faster.** The default roster is made while Patch reads the game and makes the jerseys (after a roster
-  update that is up to about 20 s off the wait), and the new team art archive is hashed while it is written instead
-  of in turn (2 GB written 1.6 times faster in a test; on a hard disk the gain is smaller).
-- **The roster update reads NHL.com all at once.** It asked for one thing at a time, each a second after the one
-  before had answered: the 32 rosters and 32 schedules of a first update (and every player page it reads) took over a
-  minute of waiting. Now they are all asked for at once (those 64 took 0.5 s instead of 79 s in a test where each
-  answer took 0.25 s). When NHL.com says it is too many (429) or has trouble for a moment (5xx), every request waits
-  what it asks and that one is asked again, 4 times at most. What the update gets is the same.
-- **Packs download all at the same time**, and every file inside a pack is read back and checked (its CRC32) before
-  the pack is used. A pack that comes down damaged is downloaded again, 3 times at most.
-- **Submit draw interval 1000.** Overtime sets shadPS4's Submit draw interval (GPU) to 1000 for NHL 19, like
-  Readbacks: Game settings shows it locked, and Unpatch puts your own value back.
-- **Patch's count in the bottom bar has two decimals** (Patched 10.34 GB): it moves every 0.01 GB, about 10 MB,
-  so you see it is still writing.
+- **Overtime Native v3** is the new default and lobby build on Windows. It is Overtime Native v2 plus optional picture
+  options; with them off it runs as fast as v2. Players on v2 move to v3 once. v2, v1 and Kravickas's build stay
+  selectable.
+- **Picture options** on Setup's Boost performance card (Overtime Native v3), all off until you turn them on:
+  - Upscaler: Off, FSR 1 or DLSS (NVIDIA RTX cards; add your own `nvngx_dlss.dll` with "Add DLSS file").
+  - DLSS 5: NVIDIA's neural rendering model over the picture. Add your own `nvngx_dlssnr.dll` with "Add DLSS 5 file".
+    RTX 20, 30 and 40 cards need a compatible build of that file. Overtime never ships or downloads NVIDIA files.
+  - They cost frames: on an RTX 5080 at 1440p a match ran at about 100 fps with DLSS and 75 with DLSS 5 or with
+    both, against 134 with them off.
+- **Shader cache fixes in Overtime Native v3**: a shader cache left by an older build, another graphics card or a
+  driver change is rebuilt instead of being ignored (with v2 such a cache meant no shader cache at all, on every
+  start). v3 keeps its cache in folders of its own (one for when DLSS or DLSS 5 is on), so v2's and Kravickas's
+  build's caches stay as they are and turning a picture option on or off keeps the cache. Also fixes against
+  stutter, from upstream shadPS4.
+- **Faster downloads and NHL.com reads** (public PR #4 by Kravickas): packs download in parallel and NHL.com rosters
+  load in parallel, with the checks and retries kept.
+- **Kravickas build from his GitHub releases** (PR #4): the Boost card's "Get newest" takes his newest build and checks
+  GitHub's sha256. Play keeps the build that is already there.
 
-### Fixed
+### Thanks
 
-- **Jersey numbers in two colours have smooth edges.** Where the fill meets the outline, each pixel kept the colour
-  nearest to it, which gave stair-stepped edges, and a team with a third number colour got a thin ring of it there.
-- **Things that ran at the same moment no longer get in each other's way:**
-  - Patch's roster update plans again when you edited the roster while it was getting ready, so it works on the
-    roster as it is now and not as it was;
-  - the window no longer shows an older state after a newer one (a progress bar stepping back, a log that cleared
-    itself) when two updates of the screen crossed;
-  - the game and saves folders cannot be changed while a job (Patch, Save, the roster update) is
-    using them; Setup says to wait;
-  - the patch file is written by one thing at a time: Patch waits while Play is starting NHL 19, and a lobby start,
-    a match setup, the online start's clean-up and the network refresh wait for a Patch (or say to wait) instead of
-    writing over it;
-  - an edit made just as you pressed Save is in the saved roster and no longer shows as unsaved;
-  - two errors at once no longer drop the older half of error.log.
-- **Patch's bar no longer stands at 99 % while the team art is written.** After a Patch that kept the team art as it
-  was, the next one that writes it again left its GBs out of the bar until the write began, so the longest step got
-  the last 1 %. Patch now measures them before it starts.
+- Kravickas for PR #4 and for his DLSS branch: Overtime Native v3's motion inputs and the DLSS 5 pass are his work.
+- The upstream shadPS4 authors whose fixes are in Overtime Native v3: Sergey K. (#4929), SpacyRainbow (#5577),
+  k3n0b1 (#5692), River Zhou (#5583) and nikmparis217-ux (#5155).
+- thegh0sts (NHL 19 PS4 port for Windows), whose port made the same change as #5577, and HajDEO (nhl24pc), whose
+  fork's fixes we checked v3 against.
+
+### How to get it
+
+- The app updates itself and downloads Overtime Native v3 on the next Play. No Patch needed.
+
+### Known limits
+
+- Overtime Native v3 is Windows only for now; Linux and macOS stay on v2.
+- The first match on Overtime Native v3 builds its shader cache, so it can stutter a little once (and once more the
+  first time DLSS or DLSS 5 is on).
+- Online, Windows players on 0.99.0 (Native v3) are matched with each other until the server pairs v3 with v2;
+  until then they do not meet players on 0.98.0 or on Linux and macOS.
+- DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice.
+- Frame generation is not in this version.
 
 ## 0.98.0 (2026-11-20)
 

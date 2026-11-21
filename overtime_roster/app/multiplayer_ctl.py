@@ -651,7 +651,8 @@ class MultiplayerCtl(Part):
     @staticmethod
     def _lobby_exe():
         """The lobby build's shadPS4 when it is on this PC, else None. Every lobby match plays on boost.DEFAULT
-        (Overtime Native v2, owner 2026-11-16; before, the copy the server pinned, onlineemu): the server's pin is not
+        (Overtime Native v3 on Windows from 0.99.0, owner 2026-11-21; v2 from 2026-11-16 and still on Linux and macOS;
+        before, the copy the server pinned, onlineemu): the server's pin is not
         read. Without it here the game starts on the player's own build, and the lobby compares the tags."""
         return boost.here(boost.DEFAULT) or None
 
@@ -689,7 +690,7 @@ class MultiplayerCtl(Part):
 
     def ready(self, value=True):
         """Ready: first the game is made fit for online play with no click (owner 2026-11-08: "we just handle all
-        things for him"): the published lobby build of shadPS4 (Setup.online_boost: Overtime Native v2, in every
+        things for him"): the published lobby build of shadPS4 (Setup.online_boost: boost.DEFAULT, in every
         lobby), the patch file of this version (patch_ctl.refresh_network) and, for a game without the patch, the eboot
         patch alone (patch_ctl.online_minimum). Then the lobby is told. A job: the card shows what it does (`prep`)."""
         with self.mlock:

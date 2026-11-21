@@ -66,3 +66,20 @@ def test_a_wrong_input_is_refused_and_leaves_no_pack(tmp_path, capsys):
     assert 'is not a Linux program' in capsys.readouterr().err and not (tmp_path / 'x.zip').exists()
     assert make_emu_pack.main(['--platform', 'windows', '--input', str(src), '--out', str(tmp_path / 'w.zip')]) == 0
     assert 'the matchmaking tag hashes this' in capsys.readouterr().out
+
+
+def test_a_windows_pack_holds_the_program_and_only_the_files_named_beside_it(tmp_path):
+    # 0.99.0: Overtime Native v3's DLSS 5 forwarder goes beside shadPS4.exe; nothing else from the build folder
+    build = tmp_path / 'build'
+    (build / 'sub').mkdir(parents=True)
+    (build / 'shadPS4.exe').write_bytes(EXE)
+    (build / 'nvngx.dll_dlssnr.dll').write_bytes(b'MZ forwarder')
+    (build / 'shadPS4.pdb').write_bytes(b'symbols')
+    (build / 'sub' / 'nvngx.dll_dlssnr.dll').write_bytes(b'MZ not this one')
+    got = make_emu_pack.make(str(build), str(tmp_path / 'shadps4_native3.zip'), 'win32')
+    with zipfile.ZipFile(got['pack']) as z:
+        assert z.namelist() == ['shadPS4.exe', 'nvngx.dll_dlssnr.dll'] and got['files'] == 2
+    target = tmp_path / 'native3' / 'shadPS4.exe'
+    target.parent.mkdir()
+    emufile.unpack(got['pack'], str(target), 'win32')
+    assert target.read_bytes() == EXE and (target.parent / 'nvngx.dll_dlssnr.dll').read_bytes() == b'MZ forwarder'

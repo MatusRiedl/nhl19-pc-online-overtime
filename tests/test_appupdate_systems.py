@@ -56,7 +56,8 @@ def test_the_switch_file_decides_cross_play(srv, tmp_path, monkeypatch):
     monkeypatch.setenv('OVERTIME_ROSTER_HOME', str(tmp_path / 'home'))
     (srv.dir / 'crossplay.json').write_text(json.dumps({LIN: WIN}))
     crossplay.remember(json.loads(get(srv, '/app/latest.json')[2]).get('crossplay'))   # what the app does on a read
-    assert crossplay.stands_for(LIN, 'linux') == WIN and crossplay.stands_for(LIN, 'win32') is None
+    assert crossplay.stands_for(LIN, 'linux') == WIN
+    assert crossplay.stands_for(LIN, 'win32') == WIN    # 0.99.0: the map is read on Windows too (v3 as v2)
 
 
 def test_the_linux_and_macos_files_are_served_with_their_types(srv):

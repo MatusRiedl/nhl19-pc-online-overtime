@@ -1,5 +1,6 @@
 """The online emulator copy for lobby matches (overtime_roster/app/onlineemu.py)."""
 import hashlib
+import sys
 import os
 import zipfile
 
@@ -95,7 +96,8 @@ def test_start_dir_follows_the_players_own_data(home, monkeypatch):
 
 def test_the_pack_follows_the_servers_pin(monkeypatch):
     """0.90.2: lobbies play whichever pack the server pins. 0.92.0 (owner 2026-11-13): with no pin or an unknown
-    digest it is the Overtime Native pack (Kravickas before). Every pack this system serves is pinnable."""
+    digest it is the Overtime Native pack (Kravickas before; v3 on Windows from 0.99.0, v2 elsewhere). Every pack
+    this system serves is pinnable."""
     class Rel:
         def __init__(self, digest):
             self.digest = digest
@@ -103,7 +105,8 @@ def test_the_pack_follows_the_servers_pin(monkeypatch):
     table = {name: Rel(digest.upper()) for name, digest in digests.items()}
     for name, digest in digests.items():
         assert onlineemu.pack_for(digest, table) == name
-    assert onlineemu.pack_for('c' * 64, table) == onlineemu.PACK == packdownload.NATIVE2_PACK   # v2: the default
+    default = packdownload.NATIVE3_PACK if sys.platform == 'win32' else packdownload.NATIVE2_PACK
+    assert onlineemu.pack_for('c' * 64, table) == onlineemu.PACK == default
     assert onlineemu.pack_for(None, table) == onlineemu.PACK
     assert onlineemu.pack_for('b' * 64, {}) == onlineemu.PACK
 

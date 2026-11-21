@@ -129,15 +129,22 @@ function WhereCard({ s }) {
 // --- Boost performance: the shadPS4 build the green Play NHL 19 button starts, Overtime Native v2 / v1 or Kravickas ----------
 const BOOST_INFO = [
   { head: 'What it does', items: ['Picks the shadPS4 build that the green Play NHL 19 button starts.',
-    "Overtime Native v2 (the default): v1 plus six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread. New, so tell us when something looks wrong.",
+    'Overtime Native v3 (the default on Windows): v2 plus the Picture options below the build choice, all off until you turn one on. With them off the game runs as on v2.',
+    "Overtime Native v2: v1 plus six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread.",
     "Overtime Native v1: Overtime's own build of shadPS4 for NHL 19, with less RAM reserved, lighter controller polling, steadier frames and the fix for the \"Out of order flip IRQ\" crash.",
-    'Both Overtime Native builds come with Overtime releases.',
+    'The Overtime Native builds come with Overtime releases.',
     "Kravickas: Kravickas's NHL 19 build, with his fix for the same crash: the newest one his GitHub publishes (branch NHL19-Build). Get newest gets it now.",
     'Play downloads the chosen build the first time, and again when a newer one is published.',
     'Saves, patch and ShadNet login stay the same with either build.'] },
-  { head: 'Online', items: ['Multiplayer lobbies play on Overtime Native v2 for everyone, whichever build is chosen here.',
+  { head: 'Picture (Overtime Native v3)', items: ['Upscaler: what scales the picture up to your window. FSR 1 runs on any card. DLSS needs an NVIDIA RTX card and your own nvngx_dlss.dll (many PC games have one in their folder): Add DLSS file. Without them the game uses FSR 1.',
+    "DLSS 5: NVIDIA's DLSS 5 over the picture. Needs an NVIDIA RTX card and your own nvngx_dlssnr.dll: Add DLSS 5 file. RTX 20, 30 and 40 cards need the compat build of it.",
+    'Overtime never ships these NVIDIA files: you add your own, and Overtime keeps its own copy.',
+    'They change only the picture, not the game. DLSS and DLSS 5 cost frames: on an RTX 5080 at 1440p a match ran at about 92 fps with DLSS and 70 with DLSS 5, against 134 with them off.',
+    "Kravickas's DLSS work (the motion inputs and the DLSS 5 pass) is in Overtime Native v3, with his credit."] },
+  { head: 'Online', items: ['Multiplayer lobbies play on the default build for everyone, whichever build is chosen here.',
     'Open matchmaking pairs you with players on the same build.'] },
-  { head: 'Source code (GPL-2.0)', items: ['Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
+  { head: 'Source code (GPL-2.0)', items: ['Overtime Native v3: github.com/MatusRiedl/shadPS4, branch overtime-native-v3.',
+    'Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
     'Overtime Native v1: github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
     'Kravickas: Source code, beside the build choice on the card.'] },
   { head: 'Your own shadPS4', items: ['It stays where it is, untouched.',
@@ -161,13 +168,50 @@ const FRAMERATES = [
   { value: 9999, label: 'Unlocked', title: 'As fast as your PC runs it, each frame shown when it is done (the default)' },
 ];
 
+// The Boost card's Picture rows (Overtime Native v3, 0.99.0): the upscaler, DLSS 5 and the player's own DLSS files.
+// In a browser (no window for the picker) Python answers {type: true} and the path is typed.
+const DLSS_FILES = { dlss: ['DLSS file', 'nvngx_dlss.dll'], dlss5: ['DLSS 5 file', 'nvngx_dlssnr.dll'] };
+async function addDlssFile(kind) {
+  const reply = await call('setup_dlss_file', kind);
+  if (!reply || !reply.type) return;
+  const typed = window.prompt(`The full path of your ${DLSS_FILES[kind][1]}:`, '');
+  if (typed && typed.trim()) call('setup_dlss_file_set', kind, typed.trim());
+}
+function DlssFile({ kind, here }) {
+  const [label, name] = DLSS_FILES[kind];
+  return html`<span class="su-bacts">
+    ${here ? html`<span class="su-bal" title=${`Your ${name}, kept in Overtime's folder`}>${label} added</span>
+      <${Button} small kind="link" title=${`Remove Overtime's copy of ${name}`} onClick=${() => call('setup_dlss_file_remove', kind)}>Remove<//>`
+      : html`<${Button} small kind="link" title=${`Choose your own ${name}: Overtime never ships it`} onClick=${() => addDlssFile(kind)}>Add ${label}<//>`}
+  </span>`;
+}
+function PictureRows({ p, off }) {
+  const card = p.gpu ? `Graphics card: ${p.gpu}` : 'Graphics card not found';
+  const ups = (p.upscalers || []).map((u) => ({ value: u.id, label: u.label,
+    disabled: u.id === 'dlss' && !p.can_dlss,
+    title: u.id === 'dlss' ? (p.can_dlss ? 'NVIDIA DLSS with your nvngx_dlss.dll' : 'DLSS needs an NVIDIA RTX card') : undefined }));
+  return html`<div class="su-state su-res su-pic" title=${card}>
+      <span class="su-st">Upscaler</span>
+      <${Segmented} options=${ups} value=${p.upscaler} disabled=${off || !p.ready} onChange=${(v) => call('setup_upscaler', v)}/>
+      ${p.can_dlss && html`<${DlssFile} kind="dlss" here=${p.files.dlss}/>`}
+    </div>
+    <div class="su-state su-res su-pic" title=${p.can_dlss5 ? card : 'DLSS 5 needs an NVIDIA RTX card'}>
+      <span class="su-st">DLSS 5</span>
+      <${Switch} on=${!!p.dlss5} disabled=${off || !p.ready || !p.can_dlss5 || (!p.dlss5 && !p.files.dlss5)}
+        onChange=${(on) => call('setup_dlss5', on)}>Over the picture<//>
+      ${p.can_dlss5 && html`<${DlssFile} kind="dlss5" here=${p.files.dlss5}/>`}
+    </div>
+    ${(p.notes || []).length > 0 && html`<div class="su-news">${p.notes.join(' ')}</div>`}`;
+}
+
 function BoostCard({ s }) {
   const b = s.boost;
   const [view, setView] = useState(null);     // 'game' | 'pad' | 'keys': the open settings view
   const noEmu = !(s.emulator && s.emulator.path);
   const why = noEmu ? 'Find NHL 19 first' : undefined;
   const shut = () => setView(null);
-  const BUILD_TITLES = { native2: 'Overtime Native v1 plus six speed changes (the default, and the lobby build)',
+  const BUILD_TITLES = { native3: 'Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default, and the lobby build)',
+    native2: 'Overtime Native v1 plus six speed changes (no Picture options)',
     nightly: "Overtime's own build of shadPS4 for NHL 19 (the default until v2)", kravickas: "Kravickas's NHL 19 build" };
   const builds = (b.builds || []).map((x) => ({ value: x.id, label: x.label, title: BUILD_TITLES[x.id] || x.label }));
   return html`<${Card} title="Boost performance" className="su-boost"
@@ -182,7 +226,7 @@ function BoostCard({ s }) {
           onChange=${(v) => call('setup_build', v)}/>
         <span class="su-bacts"><span class="su-bal">Kravickas build:</span>
         <${Button} small kind="link" disabled=${!b.can_update}
-          title=${b.updatable ? "Download Kravickas's newest build from his GitHub now" : 'For the Kravickas build. Overtime Native v1 and v2 come with Overtime releases: Play NHL 19 gets a new one by itself'}
+          title=${b.updatable ? "Download Kravickas's newest build from his GitHub now" : 'For the Kravickas build. The Overtime Native builds come with Overtime releases: Play NHL 19 gets a new one by itself'}
           onClick=${() => call('setup_build_update')}>Get newest<//>
         ${(b.builds || []).filter((x) => x.updatable).map((x) => html`<${Button} small kind="link" title=${`The ${x.label} build's source code (GPL-2.0)`}
           onClick=${() => call('setup_boost_source', x.id)}>Source code ↗<//>`)}</span>
@@ -200,6 +244,7 @@ function BoostCard({ s }) {
           <${Switch} on=${!!b.everywhere} onChange=${(on) => call('setup_everywhere', on)}>Also replays and cutscenes<//>
         </span>
       </div>
+      ${b.picture && html`<${PictureRows} p=${b.picture} off=${noEmu}/>`}
       <div class="su-state su-emu">
         <span class="su-st">Settings</span>
         <${Button} small disabled=${noEmu} title=${why || "shadPS4's settings for NHL 19"} onClick=${() => setView('game')}>

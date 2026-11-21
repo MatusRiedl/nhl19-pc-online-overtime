@@ -1,9 +1,12 @@
 """The shadPS4 builds the app plays with (Setup's Boost performance card, the header's Play NHL 19 button). Three builds,
 each a pack pinned by its sha256 (the release host's latest.json; Kravickas's: his GitHub's), never in the exe (owner
-2026-11-11, 0.90.2; order, default and packs from 0.92.0, owner 2026-11-13; v2 from 2026-11-16):
-- 'native2', shown as "Overtime Native v2" (the default, first in the dropdown, the lobby build): v1's commits on
-  Kravickas's nhl-perf-test plus six speed items (fork branch overtime-native-v2, docs/notes/native-v2.md)
-  (packdownload.NATIVE2_PACK);
+2026-11-11, 0.90.2; order, default and packs from 0.92.0, owner 2026-11-13; v2 from 2026-11-16; v3 from 0.99.0):
+- 'native3', shown as "Overtime Native v3" (Windows: the default, first in the dropdown, the lobby build; owner
+  2026-11-21): v2 plus the Picture options, each off until the player turns it on: DLSS, DLSS 5, the motion inputs they
+  read (Kravickas's DLSS branch; fork branch overtime-native-v3, docs/notes/native-v3.md) (packdownload.NATIVE3_PACK);
+- 'native2', shown as "Overtime Native v2" (the default and lobby build from 0.95.0 to 0.98.0, and still on Linux and
+  macOS): v1's commits on Kravickas's nhl-perf-test plus six speed items (fork branch overtime-native-v2,
+  docs/notes/native-v2.md) (packdownload.NATIVE2_PACK);
 - 'nightly', shown as "Overtime Native v1" (the default and lobby build from 0.92.0 to 0.97.0): Overtime's
   build of upstream nightly 4788f0b + lazy RAM commit, the input poll thread, Kravickas's flip fix and the texture
   collector by seconds (fork branch overtime-nightly, docs/notes/perf-ram.md, native-port.md)
@@ -11,7 +14,7 @@ each a pack pinned by its sha256 (the release host's latest.json; Kravickas's: h
   (prefs, installed folders and the server's pin URL name them);
 - 'kravickas': Kravickas's own CI build of his NHL19-Build branch, the newest release his GitHub publishes
   (kravbuild.py: the API's sha256 of the file, no release host in between), with Kravickas's yes (owner, 2026-11-01)
-  (packdownload.KRAVICKAS_PACK). Play takes a newer one by itself; the card's Update gets it now.
+  (packdownload.KRAVICKAS_PACK). Only the card's Get newest takes a newer one (owner 2026-11-21).
 Each one's shadPS4.exe goes into the app's own folder (a player's own exe is never touched); every shadPS4 there uses
 %APPDATA%\\shadPS4, so saves, patch and ShadNet login stay what they are. QtLauncher is not changed (0.90.2; the
 "NHL 19 Boost" entry older apps added stays). Standard library only.
@@ -23,9 +26,15 @@ from overtime_core import overlay
 
 from . import emufile, gamesetup, kravbuild, packdownload, paths
 
-NATIVE2, NIGHTLY, KRAVICKAS = 'native2', 'nightly', 'kravickas'
-DEFAULT = NATIVE2   # 2026-11-16 (owner): Overtime Native v2 is the default and what every lobby plays on
+NATIVE3, NATIVE2, NIGHTLY, KRAVICKAS = 'native3', 'native2', 'nightly', 'kravickas'
+# 2026-11-21 (owner): Overtime Native v3 is the default and what every lobby plays on (v2 from 2026-11-16); Linux and
+# macOS keep v2, the one build made for them
+DEFAULT = NATIVE3 if sys.platform == 'win32' else NATIVE2
 BUILDS = {      # GPL-2.0: each build's source code; the card's dropdown shows them in this order
+    # Overtime Native v3 (docs/notes/native-v3.md): v2 + Kravickas's motion inputs and DLSS 5 pass + DLSS, all off by
+    # default (the game runs as on v2 until a Picture option is on)
+    NATIVE3: {'pack': packdownload.NATIVE3_PACK, 'label': 'Overtime Native v3', 'folder': ('boost', 'native3'),
+              'source': 'https://github.com/MatusRiedl/shadPS4/tree/overtime-native-v3', 'picture': True},
     # Overtime Native v2 (docs/notes/native-v2.md): Kravickas's nhl-perf-test + Overtime's v1 commits + six speed
     # items, each with an OVERTIME_* off switch
     NATIVE2: {'pack': packdownload.NATIVE2_PACK, 'label': 'Overtime Native v2', 'folder': ('boost', 'native2'),
@@ -35,7 +44,7 @@ BUILDS = {      # GPL-2.0: each build's source code; the card's dropdown shows t
     KRAVICKAS: {'pack': packdownload.KRAVICKAS_PACK, 'label': 'Kravickas', 'folder': ('boost',),
                 'source': f'https://github.com/{kravbuild.REPO}/tree/{kravbuild.BRANCH}'},
 }
-if sys.platform != 'win32':     # Linux and macOS (0.97.0): Overtime Native v2 is the one build made for them
+if sys.platform != 'win32':     # Linux and macOS (0.97.0): Overtime Native v2 is the one build made for them (v3 too)
     BUILDS = {NATIVE2: BUILDS[NATIVE2]}
 # the card's Update button: Overtime Native v1/v2 come with Overtime's releases (Play gets them)
 UPDATABLE = tuple(b for b in (KRAVICKAS,) if b in BUILDS)

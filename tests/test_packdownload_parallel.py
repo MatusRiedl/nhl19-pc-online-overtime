@@ -87,6 +87,17 @@ def test_the_packs_come_down_at_the_same_time_each_checked(tmp_path, opened):
     assert not list(cache.glob('*.part'))
 
 
+def test_a_pack_switched_off_stops_while_the_others_come_down(tmp_path, opened):
+    made = {name: _pack(tmp_path / f'made_{name}', name.split('.')[0]) for name in PACKS}
+    url = _release(tmp_path / 'site', made)
+    cache = tmp_path / 'cache'
+    got = P.download(list(PACKS), str(cache), release=url, cancelled=lambda: False,
+                     dropped=lambda name: name == 'rink.zip')
+    assert got == [('looks.zip', True, 'Downloaded.'), ('rink.zip', False, P.STOPPED),
+                   ('ice_all.zip', True, 'Downloaded.')]
+    assert not (cache / 'rink.zip').exists() and not list(cache.glob('*.part'))
+
+
 def test_a_pack_published_with_a_damaged_file_is_tried_three_times_then_refused(tmp_path, opened):
     good = _pack(tmp_path / 'good.zip', 'looks')
     bad = _spoil(good, 'nhl/looks/a.gnf')
@@ -120,4 +131,4 @@ def test_damaged_names_the_first_file_that_does_not_read_back(tmp_path):
     (tmp_path / 'junk.zip').write_bytes(b'not a zip')
     assert P.damaged(str(tmp_path / 'ok.zip')) is None
     assert P.damaged(str(tmp_path / 'bad.zip'), workers=2) == 'nhl/looks/b.gnf'
-    assert P.damaged(str(tmp_path / 'junk.zip')) == '(the zip)'
+    assert P.damaged(str(tmp_path / 'junk.zip')) is None      # no zip: the pack check says so, no download again
