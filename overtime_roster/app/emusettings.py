@@ -204,7 +204,8 @@ FIELDS = [
     _f('Experimental', 'Console', 'General', 'dev_kit_mode', 'Devkit console mode', 'check', False,
        'Runs the game as on a developer console.'),
     _f('Experimental', 'Console', 'General', 'extra_dmem_in_mbytes', 'Additional DMem (MB)', 'number', 0,
-       'Extra memory for the game. 1440p needs 3500 MB or more: Overtime sets it with the Resolution choice.',
+       'Extra memory for the game. 1440p and 2160p need 3500 MB or more, 2880p 6000, 4320p 12000: Overtime sets it '
+       'with the Resolution choice.',
        min=0, max=100000),
 ]
 BY_ID = {f['id']: f for f in FIELDS}
@@ -369,8 +370,8 @@ def view(user_dir, resolution=1080):
             out['options'], note = _choices(f, value)
             if note:
                 out['help'] = f"{f['help']} {note}"
-        if f['id'] == 'General.' + gamesetup.DMEM_KEY and resolution == 1440:
-            out['min'] = gamesetup.DMEM_1440
+        if f['id'] == 'General.' + gamesetup.DMEM_KEY and resolution in gamesetup.DMEM_FOR:
+            out['min'] = gamesetup.DMEM_FOR[resolution]
         if f['id'] == FPS_ID and not any(str(o['value']) == str(value) for o in f['options']):
             out['options'] = f['options'] + [{'value': value, 'label': f'{value} Hz (set by hand)', 'disabled': True}]
         fields.append(out)
@@ -410,8 +411,8 @@ def coerce(f, v, resolution=1080):
             return int(v)
         v = float(v) if f.get('real') else round(v)
         low = f.get('min', 0)
-        if f['id'] == 'General.' + gamesetup.DMEM_KEY and resolution == 1440:
-            low = gamesetup.DMEM_1440
+        if f['id'] == 'General.' + gamesetup.DMEM_KEY and resolution in gamesetup.DMEM_FOR:
+            low = gamesetup.DMEM_FOR[resolution]
         if not low <= v <= f.get('max', low):
             shown = f.get('scale') or 1
             raise SettingsError(f'{label}: from {low / shown:g} to {f["max"] / shown:g}')
@@ -447,7 +448,7 @@ def _backup(path):
 # causes most of the long hitches, docs/notes/smooth-motion.md; the Log tab turns it back on for a crash report).
 # Additional DMem is not one of them any more (2026-11-13, docs/notes/perf-ram.md): NHL 19 sizes its heaps to all the
 # direct memory there is (it maps about 8.1 GB with 3500 extra), so 3500 for everyone cost 3.5 GB of RAM commit at
-# 1080p; only the 1440p patch needs it, and Setup's Resolution sets it with that patch (gamesetup.DMEM_1440).
+# 1080p; only the 1440p and higher patches need it, and Setup's Resolution sets it with them (gamesetup.DMEM_FOR).
 # The locked GPU keys (gamesetup.GPU_SETTINGS) are written at every look.
 FIRST_DEFAULTS = {('General', 'neo_mode'): True, ('Vulkan', 'pipeline_cache_enabled'): True,
                   ('GPU', 'direct_memory_access_enabled'): True, ('GPU', 'vblank_frequency'): 9999,

@@ -30,6 +30,13 @@ What changed in each version, for players.
   the pack is used. A pack that comes down damaged is downloaded again, 3 times at most.
 - **Submit draw interval 1000.** Overtime sets shadPS4's Submit draw interval (GPU) to 1000 for NHL 19, like
   Readbacks: Game settings shows it locked, and Unpatch puts your own value back.
+- **More resolutions: 2160p (4K), 2880p (5K) and 4320p (8K)**, Kravickas's patches beside his 720p and 1440p on the
+  Boost card. They set Additional DMem to what each needs (3500 MB for 2160p, 6000 MB for 2880p, 12000 MB for 4320p,
+  more of your own stays); 720p and 1080p put your own value back. 4320p is the newest and may not run on every PC.
+- **Compute off**, a switch beside Resolution: Kravickas's patch turns the game's compute-shader mesh features off
+  (cloth physics, compute blend shapes, the dynamic mesh output) for a slight speed gain. Off by default; each
+  player's own, online too.
+- **The Kravickas build's Get newest and Source code links show only while his build is chosen.**
 - **Patch's count in the bottom bar has two decimals** (Patched 10.34 GB): it moves every 0.01 GB, about 10 MB,
   so you see it is still writing.
 

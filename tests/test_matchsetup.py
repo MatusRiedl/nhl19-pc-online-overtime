@@ -382,3 +382,16 @@ def test_the_match_view_layers_keep_the_text_file_the_patch_used(monkeypatch):
     monkeypatch.setattr(overlay, 'status', lambda gd, **kw: {'layers': {'league': {}}})
     MS._add_layers('game', ['league', 'menus'])
     assert calls == [(('names', 'text', 'menus'), {'lang': 'eng_gb'}), (('league', 'menus'), {})]
+
+
+@pytest.mark.parametrize('value,need', [(1080, None), (1440, 3500), (2160, 3500), (2880, 6000), (4320, 12000)])
+def test_a_match_keeps_my_resolutions_additional_dmem(value, need):
+    """My resolution is a local-only block of the match patch: the match's config gets the Additional DMem it needs
+    (gamesetup.DMEM_FOR), a bigger value of mine stays."""
+    from overtime_roster.app import gamesetup
+    xml = xmlpatch.with_resolution(xmlpatch.build('ot.example.org', 'https://10.0.0.2/'), value)
+    cfg = MS._config_values({'General': {'extra_dmem_in_mbytes': 100}}, '', xml, {})
+    assert cfg['General']['extra_dmem_in_mbytes'] == (need or 100)
+    cfg = MS._config_values({'General': {'extra_dmem_in_mbytes': 50000}}, '', xml, {})
+    assert cfg['General']['extra_dmem_in_mbytes'] == 50000
+    assert gamesetup.dmem_needed(xml) == (need or 0)

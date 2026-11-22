@@ -356,3 +356,13 @@ def test_input_save_says_when_the_bindings_apply(ready, monkeypatch):
     assert got['ok'] and ready.ctl.said[-1][0].endswith('Press F8 in NHL 19 to use them now.')
     bad = dict(model, bindings=dict(model['bindings'], cross=['kp2']))
     assert 'Cross' in ready.emu_input_save('keys', bad)['error']
+
+
+@pytest.mark.parametrize('value,need', [(1440, 3500), (2160, 3500), (2880, 6000), (4320, 12000)])
+def test_dmem_floor_follows_the_resolution(user, value, need):
+    dmem = emusettings.BY_ID['General.' + gamesetup.DMEM_KEY]
+    assert _field(emusettings.view(str(user), value), 'General.' + gamesetup.DMEM_KEY)['min'] == need
+    with pytest.raises(emusettings.SettingsError, match=f'from {need}'):
+        emusettings.coerce(dmem, need - 1, resolution=value)
+    assert emusettings.coerce(dmem, need, resolution=value) == need
+    assert emusettings.coerce(dmem, 0, resolution=720) == 0

@@ -37,6 +37,8 @@ LOCAL_VERSION = 2                       # versions.json: a version added by hand
 PATCH_FOLDER, PATCH_FILE = 'Overtime', 'overtime.xml'
 NETWORK = {'connected_to_network': True, 'shad_net_enabled': True}  # custom_configs\CUSA11126.json, "General"
 DMEM_KEY, DMEM_1440 = 'extra_dmem_in_mbytes', 3500   # "General": what the 1440p block (xmlpatch res1440) needs
+# the Additional DMem each resolution block needs at least (Kravickas's notes in NHL19.xml); 720p / 1080p none
+DMEM_FOR = {1440: DMEM_1440, 2160: 3500, 2880: 6000, 4320: 12000}
 # "General": shadPS4's static patching, which swaps Intel's rcpps/rsqrtps for its AMD tables; on Windows it runs only
 # with this per-game key on (off by default; docs/notes/cross-vendor-desync.md). install() turns it on where
 # amd_math_needed(), and an AMD PC keeps its own value.
@@ -137,6 +139,15 @@ def display_keys(match=False):
     if match and mode == 'Fullscreen':
         mode = DISPLAY_DEFAULT
     return {'full_screen': mode != 'Windowed', 'full_screen_mode': mode}
+
+
+def dmem_needed(xml_text):
+    """The Additional DMem (MB) the patch file's resolution block needs (DMEM_FOR), 0 for 720p / 1080p or a file that
+    does not say one resolution."""
+    try:
+        return DMEM_FOR.get(xmlpatch.resolution(xml_text), 0)
+    except xmlpatch.PatchError:
+        return 0
 
 
 def gpu_wanted(match=False):
@@ -1199,9 +1210,10 @@ def install(emu_exe, xml_text, running=None):
     section = cfg.get('Network') or {}   # shadPS4 reads it before "General"
     kept = dict((entries.get(cfg_path) or {}).get('previous') or {})
     dmem_now = general.get(DMEM_KEY)
-    if xmlpatch.res1440(xml_text):     # Kravickas: 1440p needs Additional DMem 3500 MB or more
-        dmem_want = dmem_now if isinstance(dmem_now, int) and dmem_now >= DMEM_1440 else DMEM_1440
-    else:                               # 1080p: the player's own value comes back
+    need = dmem_needed(xml_text)
+    if need:                            # Kravickas: 1440p and up need Additional DMem (DMEM_FOR) or more
+        dmem_want = dmem_now if isinstance(dmem_now, int) and dmem_now >= need else need
+    else:                               # 720p / 1080p: the player's own value comes back
         dmem_want = kept[DMEM_KEY] if DMEM_KEY in kept else dmem_now
     amd_now = general.get(AMD_MATH_KEY)
     amd = amd_math_needed()             # Intel on Windows: on; else the player's own value (back, if we set it)
@@ -1214,7 +1226,7 @@ def install(emu_exe, xml_text, running=None):
         previous = kept or {k: general.get(k) for k in NETWORK}
         if dmem_want != dmem_now and DMEM_KEY not in previous:
             previous[DMEM_KEY] = dmem_now
-        elif not xmlpatch.res1440(xml_text):
+        elif not need:
             previous.pop(DMEM_KEY, None)
         if dmem_want is None:
             general.pop(DMEM_KEY, None)

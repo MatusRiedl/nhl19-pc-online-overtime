@@ -139,10 +139,12 @@ const BOOST_INFO = [
     'Open matchmaking pairs you with players on the same build.'] },
   { head: 'Source code (GPL-2.0)', items: ['Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
     'Overtime Native v1: github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
-    'Kravickas: Source code, beside the build choice on the card.'] },
+    'Kravickas: Source code, beside the build choice on the card while his build is chosen.'] },
   { head: 'Your own shadPS4', items: ['It stays where it is, untouched.',
     'A portable shadPS4 with its own "user" folder keeps playing itself: the builds would not find its saves.'] },
-  { head: 'Resolution', items: ["1080p is the game's own. 1440p renders at 2560x1440 (Kravickas's patch): sharper, needs a stronger GPU.", "720p renders at 1280x720 (Kravickas's patch): softer, for a weaker GPU.", '1440p also sets Additional DMem to 3500 MB; 720p and 1080p put your own value back.', 'Works with either build. Takes effect at the next start of NHL 19.'] },
+  { head: 'Resolution', items: ["1080p is the game's own. 1440p, 2160p (4K), 2880p (5K) and 4320p (8K) render at 2560x1440, 3840x2160, 5120x2880 and 7680x4320 (Kravickas's patches): sharper, each needs a stronger GPU. 4320p is the newest and may not run on every PC.", "720p renders at 1280x720 (Kravickas's patch): softer, for a weaker GPU.", 'They also set Additional DMem: 3500 MB for 1440p and 2160p, 6000 MB for 2880p, 12000 MB for 4320p; 720p and 1080p put your own value back.', 'Works with every build. Takes effect at the next start of NHL 19.'] },
+  { head: 'Compute off', items: ["On: Kravickas's patch turns the game's compute-shader mesh features off (cloth physics, compute blend shapes, the dynamic mesh output) for a slight speed gain.",
+    "Off (the default): the game's own.", 'Each player picks their own, online too. NHL 19 uses it from its next start.'] },
   { head: 'Frame rate', items: ['60, 120 or Unlocked (the default): how fast NHL 19 runs (shadPS4\'s vblank).',
     'Online, players on different frame rates play together fine. NHL 19 uses a new choice from its next start.'] },
   { head: 'Also replays and cutscenes', items: ["On (the default): Kravickas's patch shows replays, celebrations, cutscenes and menus at your frame rate too.",
@@ -152,7 +154,10 @@ const BOOST_INFO = [
 const RESOLUTIONS = [
   { value: 720, label: '720p', title: 'Renders at 1280x720 (Kravickas patch), for a weaker GPU' },
   { value: 1080, label: '1080p', title: "The game's own resolution" },
-  { value: 1440, label: '1440p', title: 'Renders at 2560x1440 (Kravickas patch), needs a stronger GPU' },
+  { value: 1440, label: '1440p', title: 'Renders at 2560x1440 (Kravickas patch), needs a stronger GPU and Additional DMem 3500 MB' },
+  { value: 2160, label: '2160p', title: 'Renders at 3840x2160, 4K (Kravickas patch), needs a strong GPU and Additional DMem 3500 MB' },
+  { value: 2880, label: '2880p', title: 'Renders at 5120x2880, 5K (Kravickas patch), needs a very strong GPU and Additional DMem 6000 MB' },
+  { value: 4320, label: '4320p', title: 'Renders at 7680x4320, 8K (Kravickas patch, the newest: may not run on every PC), needs Additional DMem 12000 MB' },
 ];
 
 const FRAMERATES = [
@@ -180,17 +185,20 @@ function BoostCard({ s }) {
         <span class="su-st">Build</span>
         <${Select} className="su-buildpick" options=${builds} value=${b.build} disabled=${!b.can} title=${BUILD_TITLES[b.build] || ''}
           onChange=${(v) => call('setup_build', v)}/>
-        <span class="su-bacts"><span class="su-bal">Kravickas build:</span>
+        ${b.build === 'kravickas' && html`<span class="su-bacts"><span class="su-bal">Kravickas build:</span>
         <${Button} small kind="link" disabled=${!b.can_update}
-          title=${b.updatable ? "Download Kravickas's newest build from his GitHub now" : 'For the Kravickas build. Overtime Native v1 and v2 come with Overtime releases: Play NHL 19 gets a new one by itself'}
+          title="Download Kravickas's newest build from his GitHub now"
           onClick=${() => call('setup_build_update')}>Get newest<//>
-        ${(b.builds || []).filter((x) => x.updatable).map((x) => html`<${Button} small kind="link" title=${`The ${x.label} build's source code (GPL-2.0)`}
-          onClick=${() => call('setup_boost_source', x.id)}>Source code ↗<//>`)}</span>
+        <${Button} small kind="link" title="Kravickas's build: its source code on his GitHub (GPL-2.0)"
+          onClick=${() => call('setup_boost_source', 'kravickas')}>Source code ↗<//></span>`}
       </div>
       ${b.news && html`<div class="su-news" title=${b.upstream || ''}>${b.news}</div>`}
       <div class="su-state su-res">
         <span class="su-st">Resolution</span>
         <${Segmented} options=${RESOLUTIONS} value=${b.resolution || 1080} onChange=${(v) => call('setup_resolution', v)}/>
+        <span class="su-every" title="On: Kravickas's patch turns the game's compute-shader mesh features off (cloth physics, compute blend shapes) for a slight speed gain. Off (the default): the game's own.">
+          <${Switch} on=${!!b.compute_off} onChange=${(on) => call('setup_compute', on)}>Compute off<//>
+        </span>
       </div>
       <div class="su-state su-res">
         <span class="su-st">Frame rate</span>

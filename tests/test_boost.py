@@ -253,7 +253,9 @@ def test_players_on_overtime_native_v1_move_to_v2_once(sc):  # noqa: F811
 def test_the_card_shows_only_the_kravickas_source_button_and_no_experimental_text():
     page = (pathlib.Path(SC.__file__).parents[1] / 'web' / 'js' / 'tabs' / 'setup.js').read_text(encoding='utf-8')
     assert 'experimental' not in page.lower() and 'su-exp' not in page and 'Nightly' not in page
-    assert '.filter((x) => x.updatable)' in page                    # source buttons: the Kravickas one
+    # Get newest and Source code (his GitHub): only while the Kravickas build is chosen (Kravickas 2026-11-22)
+    assert "${b.build === 'kravickas' && html`<span class=\"su-bacts\">" in page
+    assert "call('setup_boost_source', 'kravickas')" in page and page.count('setup_boost_source') == 1
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-nightly' in page     # GPL-2.0: Native's source, in the Info
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-native-v2' in page
 

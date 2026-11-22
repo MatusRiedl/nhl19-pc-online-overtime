@@ -69,6 +69,57 @@
       <Line Type="bytes" Address="0x2D3BDAA" Value="41C7455800050000"/>
     </PatchList>
   </Metadata>
+  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 3840x2160 (16:9)", v1.60): res1440's
+       lines with 3840x2160, 8 294 400 pixels; the memory cave scales by 2 as for 1440p. Off by default: the Setup tab's
+       Resolution choice turns it on, with Additional DMem 3500 MB or more (gamesetup.DMEM_FOR). -->
+  <Metadata Name="Resolution 3840x2160 (Kravickas)" AppVer="01.60" AppElf="eboot.bin" isEnabled="false">
+    <PatchList>
+      <Line Type="bytes" Address="0x2D3BD70" Value="B8000F0000"/>
+      <Line Type="bytes" Address="0x2D3BD75" Value="BA000F0000"/>
+      <Line Type="bytes" Address="0x2D3BD7A" Value="B970080000"/>
+      <Line Type="bytes" Address="0x2D3BD7F" Value="BE70080000"/>
+      <Line Type="bytes" Address="0x2D3BDAA" Value="41C74558000F0000"/>
+      <Line Type="bytes" Address="0x5736EA" Value="E988198C049090"/>
+      <Line Type="bytes" Address="0x4E35077" Value="483D00000040721348B90000C090000000004839C8740448C1E001498B0E483B4DE8E953E673FB"/>
+    </PatchList>
+  </Metadata>
+  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 5120x2880 (16:9)", v1.60): res1440's
+       lines with 5120x2880, 14 745 600 pixels; the memory cave scales by 3 (imul rax, rax, 3 for shl rax, 1). Off by
+       default: the Setup tab's Resolution choice turns it on, with Additional DMem 6000 MB or more. -->
+  <Metadata Name="Resolution 5120x2880 (Kravickas)" AppVer="01.60" AppElf="eboot.bin" isEnabled="false">
+    <PatchList>
+      <Line Type="bytes" Address="0x2D3BD70" Value="B800140000"/>
+      <Line Type="bytes" Address="0x2D3BD75" Value="BA00140000"/>
+      <Line Type="bytes" Address="0x2D3BD7A" Value="B9400B0000"/>
+      <Line Type="bytes" Address="0x2D3BD7F" Value="BE400B0000"/>
+      <Line Type="bytes" Address="0x2D3BDAA" Value="41C7455800140000"/>
+      <Line Type="bytes" Address="0x5736EA" Value="E988198C049090"/>
+      <Line Type="bytes" Address="0x4E35077" Value="483D00000040721348B90000C090000000004839C87404486BC003498B0E483B4DE8E953E673FB"/>
+    </PatchList>
+  </Metadata>
+  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 7680x4320 (16:9)", v1.60,
+       experimental): res1440's lines with 7680x4320, 33 177 600 pixels; the memory cave scales by 5 (imul rax, rax, 5).
+       Off by default: the Setup tab's Resolution choice turns it on, with Additional DMem 12000 MB or more. -->
+  <Metadata Name="Resolution 7680x4320 (Kravickas)" AppVer="01.60" AppElf="eboot.bin" isEnabled="false">
+    <PatchList>
+      <Line Type="bytes" Address="0x2D3BD70" Value="B8001E0000"/>
+      <Line Type="bytes" Address="0x2D3BD75" Value="BA001E0000"/>
+      <Line Type="bytes" Address="0x2D3BD7A" Value="B9E0100000"/>
+      <Line Type="bytes" Address="0x2D3BD7F" Value="BEE0100000"/>
+      <Line Type="bytes" Address="0x2D3BDAA" Value="41C74558001E0000"/>
+      <Line Type="bytes" Address="0x5736EA" Value="E988198C049090"/>
+      <Line Type="bytes" Address="0x4E35077" Value="483D00000040721348B90000C090000000004839C87404486BC005498B0E483B4DE8E953E673FB"/>
+    </PatchList>
+  </Metadata>
+  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Disable compute features - Slight Performance
+       boost", v1.60): mov byte [rip+0x3885e81], 0 at 0x2937dc0 sets ren_compute_enabled false, so the compute-shader
+       mesh features are off (cloth physics, compute blend shapes, the dynamic mesh output). Off by default: the Setup
+       tab's Compute off switch turns it on. -->
+  <Metadata Name="Compute features off (Kravickas)" AppVer="01.60" AppElf="eboot.bin" isEnabled="false">
+    <PatchList>
+      <Line Type="bytes" Address="0x2D37DC0" Value="C605815E880300"/>
+    </PatchList>
+  </Metadata>
   <!-- Online Threes' setup builds the unlock lists (herounlocks / mascotunlocks) in 0x1406990: each hero or mascot
        reward's player id is looked up (equal_range) in a sorted {id, def} vector with no not-found check, so a missing
        id reads the def pointer one entry past the end (heap garbage; 0xc0000005 at 0x1406fc5 in most runs, docs/notes/

@@ -287,10 +287,11 @@ def _config_values(cfg, user, xml_text, timing):
     if gamesetup.amd_math_needed():
         general[AMD_MATH_KEY] = True
     cfg['Log'] = dict(cfg['Log'] if isinstance(cfg.get('Log'), dict) else {}, **MATCH_LOG)
-    if xmlpatch.res1440(xml_text):
+    need = gamesetup.dmem_needed(xml_text)     # the player's own resolution (a local-only block of the match patch)
+    if need:
         dmem = general.get(gamesetup.DMEM_KEY)
-        if not (isinstance(dmem, int) and dmem >= gamesetup.DMEM_1440):
-            general[gamesetup.DMEM_KEY] = gamesetup.DMEM_1440
+        if not (isinstance(dmem, int) and dmem >= need):
+            general[gamesetup.DMEM_KEY] = need
     return cfg
 
 

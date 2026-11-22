@@ -24,6 +24,13 @@ loaded eboot only. `build` makes the file from the FEATURES table below; `build(
   res720      render at 1280x720, by Kravickas ("Resolution 1280x720 (16:9)"): res1440's five in-place lines with
               1280x720 (below the stock 1600x900, so no memory line and no Additional DMem). Written off; with_resolution turns
               on at most one of the two. Local only, like res1440
+  res2160, res2880, res4320  render at 3840x2160 / 5120x2880 / 7680x4320, by Kravickas (the same file's "Resolution
+              3840x2160 / 5120x2880 / 7680x4320 (16:9)"): res1440's lines with that size, its memory cave scaling by 2
+              (2160, as 1440), 3 (2880) or 5 (4320). Written off; with_resolution turns on at most one block. They need
+              Additional DMem 3500 / 6000 / 12000 MB (gamesetup.DMEM_FOR). 4320 is experimental. Local only
+  compute_off ren_compute_enabled false, by Kravickas ("Disable compute features - Slight Performance boost"): the
+              compute-shader mesh features off (cloth physics, compute blend shapes, the dynamic mesh output). Written
+              off; Setup's Compute off switch (with_compute_off). Local only (it changes only how this game draws)
   threes_rewards  a not-found check on the hero/mascot lookup of Online Threes' unlock lists (0x1406990), whose miss read
               past the vector's end and crashed the setup at 0x1406fc5 (docs/notes/threes-otp.md 10.4). Local only
   ledger_cap  a capacity check on the Franchise per-team list append in 0x423ad80 (a daily per-team ledger, cleared at
@@ -62,6 +69,10 @@ BAP32_TITLE = 'BAP32: Seattle in Be a Pro'
 REPLAYS60_TITLE = '60 FPS replays (Kravickas)'
 RES1440_TITLE = 'Resolution 2560x1440 (Kravickas)'
 RES720_TITLE = 'Resolution 1280x720 (Kravickas)'
+RES2160_TITLE = 'Resolution 3840x2160 (Kravickas)'
+RES2880_TITLE = 'Resolution 5120x2880 (Kravickas)'
+RES4320_TITLE = 'Resolution 7680x4320 (Kravickas)'
+COMPUTE_OFF_TITLE = 'Compute features off (Kravickas)'
 THREES_REWARDS_TITLE = 'T1: not-found check on the Threes unlock lookup'
 CROSSVENDOR_TITLE = crossvendor.TITLE
 WOC_UNLOCK_TITLE = 'WoC: every customization item unlocked'
@@ -113,6 +124,41 @@ FEATURES = {
        memory line is needed. Off by default: the Setup tab's Resolution choice turns it on (res1440 off). -->""",
         [('0x2D3BD70', 'B800050000'), ('0x2D3BD75', 'BA00050000'), ('0x2D3BD7A', 'B9D0020000'),
          ('0x2D3BD7F', 'BED0020000'), ('0x2D3BDAA', '41C7455800050000')],
+        enabled=False),
+    'res2160': Feature(
+        RES2160_TITLE,
+        """  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 3840x2160 (16:9)", v1.60): res1440's
+       lines with 3840x2160, 8 294 400 pixels; the memory cave scales by 2 as for 1440p. Off by default: the Setup tab's
+       Resolution choice turns it on, with Additional DMem 3500 MB or more (gamesetup.DMEM_FOR). -->""",
+        [('0x2D3BD70', 'B8000F0000'), ('0x2D3BD75', 'BA000F0000'), ('0x2D3BD7A', 'B970080000'),
+         ('0x2D3BD7F', 'BE70080000'), ('0x2D3BDAA', '41C74558000F0000'), ('0x5736EA', 'E988198C049090'),
+         ('0x4E35077', '483D00000040721348B90000C090000000004839C8740448C1E001498B0E483B4DE8E953E673FB')],
+        enabled=False),
+    'res2880': Feature(
+        RES2880_TITLE,
+        """  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 5120x2880 (16:9)", v1.60): res1440's
+       lines with 5120x2880, 14 745 600 pixels; the memory cave scales by 3 (imul rax, rax, 3 for shl rax, 1). Off by
+       default: the Setup tab's Resolution choice turns it on, with Additional DMem 6000 MB or more. -->""",
+        [('0x2D3BD70', 'B800140000'), ('0x2D3BD75', 'BA00140000'), ('0x2D3BD7A', 'B9400B0000'),
+         ('0x2D3BD7F', 'BE400B0000'), ('0x2D3BDAA', '41C7455800140000'), ('0x5736EA', 'E988198C049090'),
+         ('0x4E35077', '483D00000040721348B90000C090000000004839C87404486BC003498B0E483B4DE8E953E673FB')],
+        enabled=False),
+    'res4320': Feature(
+        RES4320_TITLE,
+        """  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Resolution 7680x4320 (16:9)", v1.60,
+       experimental): res1440's lines with 7680x4320, 33 177 600 pixels; the memory cave scales by 5 (imul rax, rax, 5).
+       Off by default: the Setup tab's Resolution choice turns it on, with Additional DMem 12000 MB or more. -->""",
+        [('0x2D3BD70', 'B8001E0000'), ('0x2D3BD75', 'BA001E0000'), ('0x2D3BD7A', 'B9E0100000'),
+         ('0x2D3BD7F', 'BEE0100000'), ('0x2D3BDAA', '41C74558001E0000'), ('0x5736EA', 'E988198C049090'),
+         ('0x4E35077', '483D00000040721348B90000C090000000004839C87404486BC005498B0E483B4DE8E953E673FB')],
+        enabled=False),
+    'compute_off': Feature(
+        COMPUTE_OFF_TITLE,
+        """  <!-- By Kravickas (github.com/Kravickas/ps4_cheats, PATCHES/NHL19.xml "Disable compute features - Slight Performance
+       boost", v1.60): mov byte [rip+0x3885e81], 0 at 0x2937dc0 sets ren_compute_enabled false, so the compute-shader
+       mesh features are off (cloth physics, compute blend shapes, the dynamic mesh output). Off by default: the Setup
+       tab's Compute off switch turns it on. -->""",
+        [('0x2D37DC0', 'C605815E880300')],
         enabled=False),
     'nucleus': Feature(
         'Nucleus hosts: $nucleus',
@@ -197,13 +243,14 @@ FEATURES = {
         list(crossvendor.LINES)),
 }
 # bap32 and expansion32 stay last: DEFAULT[:-2] is the patch without the 32-team switch (xmlpatch.expansion32_off)
-DEFAULT = ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
-           'crossvendor', 'woc_unlock', 'ledger_cap', 'bap32', 'expansion32')
+DEFAULT = ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
+           'res4320', 'compute_off', 'threes_rewards', 'crossvendor', 'woc_unlock', 'ledger_cap', 'bap32', 'expansion32')
 # DEFAULT for an eboot the cross-vendor block does not name (for_eboot): the same file without it
 NO_CROSSVENDOR = tuple(f for f in DEFAULT if f != 'crossvendor')
 # what earlier versions wrote: repoint takes such a file as its own and writes today's DEFAULT (a player's next Play
 # brings new blocks in without Patch). The third is 0.80.0's DEFAULT (also 0.81.0's NO_CROSSVENDOR), the last 0.81.0's
-# DEFAULT (a candidate testers ran; neither has res720), the last 0.90.0's (no woc_unlock).
+# DEFAULT (a candidate testers ran; neither has res720), the fifth 0.90.0's (no woc_unlock), the last two 0.98.0's
+# DEFAULT and NO_CROSSVENDOR (no res2160 / res2880 / res4320 / compute_off).
 EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'threes_rewards', 'ledger_cap',
@@ -211,10 +258,15 @@ EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32'
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'threes_rewards', 'crossvendor',
             'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
-            'crossvendor', 'ledger_cap', 'bap32', 'expansion32'))
+            'crossvendor', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
+            'crossvendor', 'woc_unlock', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
+            'woc_unlock', 'ledger_cap', 'bap32', 'expansion32'))
 # the Resolution choice: 1080 is the game's own (no block on), the others one block each
-RESOLUTION_BLOCKS = {720: RES720_TITLE, 1440: RES1440_TITLE}
-RESOLUTIONS = (720, 1080, 1440)
+RESOLUTION_BLOCKS = {720: RES720_TITLE, 1440: RES1440_TITLE, 2160: RES2160_TITLE, 2880: RES2880_TITLE,
+                     4320: RES4320_TITLE}
+RESOLUTIONS = (720, 1080, 1440, 2160, 2880, 4320)
 
 _HOST = re.compile(r'[A-Za-z0-9.-]+\Z')
 _URL = re.compile(r'(https?)://([A-Za-z0-9.-]+(?::\d{1,5})?)/\Z')
@@ -346,8 +398,8 @@ def res1440(text):
 
 
 def resolution(text):
-    """The resolution a patch file renders at: 720, 1440 (its block enabled) or 1080 (the game's own). Both blocks on
-    (they write the same lines) is a PatchError."""
+    """The resolution a patch file renders at: one of RESOLUTIONS (its block enabled), or 1080 (the game's own). Two
+    blocks on (they write the same lines) is a PatchError."""
     on = [r for r, title in RESOLUTION_BLOCKS.items() if any(b['enabled'] and b['name'] == title for b in parse(text))]
     if len(on) > 1:
         raise PatchError('the patch file turns on more than one resolution')
@@ -355,9 +407,9 @@ def resolution(text):
 
 
 def with_resolution(text, value):
-    """The patch file rendering at `value` (RESOLUTIONS): that block on, the other off; 1080 both off. A file without
-    the blocks comes back as it is for 1080; asking another resolution there is a PatchError (an earlier version's
-    file: repoint brings it up)."""
+    """The patch file rendering at `value` (RESOLUTIONS): that block on, the others off; 1080 all off. A file without
+    the blocks comes back as it is for 1080; asking a resolution whose block it lacks is a PatchError (an earlier
+    version's file: repoint brings it up)."""
     if value not in RESOLUTIONS:
         raise PatchError(f'no resolution {value!r}')
     out = text
@@ -386,6 +438,28 @@ def with_replays60(text, on):
     return out
 
 
+def compute_off(text):
+    """Whether a patch file's Compute features off block (compute_off) is there and enabled."""
+    return any(b['enabled'] and b['name'] == COMPUTE_OFF_TITLE for b in parse(text))
+
+
+def with_compute_off(text, on):
+    """The patch file with its Compute features off block on or off: Setup's Compute off switch (Kravickas 2026-11-22;
+    off by default, the game's own compute features). A file without the block comes back as it is for off; asking on
+    there is a PatchError (an earlier version's file: repoint brings it up)."""
+    want = 'true' if on else 'false'
+    out = re.sub(f'(<Metadata Name="{re.escape(COMPUTE_OFF_TITLE)}"[^>]*?isEnabled=")(?:true|false)"',
+                 rf'\g<1>{want}"', text)
+    if compute_off(out) != bool(on):
+        raise PatchError('the patch file has no Compute features off block this tool can switch')
+    return out
+
+
+def _local(text, res, r60, compute):
+    """`text` with the player's own switches: the Resolution, Apply everywhere (60 FPS replays), Compute off."""
+    return with_compute_off(with_replays60(with_resolution(text, res), r60), compute)
+
+
 def _switched(text, e32, bap):
     """`text` (a build) with the 32-team switch / Be a Pro block as a patch file had them (patch_ctl.one_click)."""
     if not e32:
@@ -407,19 +481,23 @@ def repoint(text, host, nucleus_url=None, features=DEFAULT):
     e32, bap, res = expansion32(text), bap32(text), resolution(text)
     # the Apply everywhere switch; a file without the block (an earlier version's) gets today's default, on
     r60 = replays60(text) or all(b['name'] != REPLAYS60_TITLE for b in parse(text))
-    plain = with_replays60(with_resolution(text, 1080), False)      # both sides compared with the block off
+    compute = compute_off(text)     # a file without the block: off, today's default
+
+    def plain(t):       # both sides compared with the player's own switches off (1080, no replays block, compute on)
+        t = with_replays60(with_resolution(t, 1080), False)
+        return with_compute_off(t, False) if any(b['name'] == COMPUTE_OFF_TITLE for b in parse(t)) else t
+    mine = plain(text)
     same = False
     for known in (DEFAULT, NO_CROSSVENDOR) + EARLIER:
         try:
-            same = with_replays60(_switched(build(old['redirector'], nucleus, known, newline), e32, bap), False) == plain
+            same = plain(_switched(build(old['redirector'], nucleus, known, newline), e32, bap)) == mine
         except PatchError:
             same = False
         if same:
             break
     if not same:
         raise PatchError('the patch file is not the one this Overtime writes; Patch the game again')
-    return with_replays60(with_resolution(_switched(build(host, nucleus_url, features, newline=newline), e32, bap),
-                                          res), r60)
+    return _local(_switched(build(host, nucleus_url, features, newline=newline), e32, bap), res, r60, compute)
 
 
 def for_eboot(sha256):
@@ -436,12 +514,14 @@ def has_crossvendor(text):
                for b in parse(text))
 
 
-# Blocks and lines that never reach the other game: the picture size (Setup's Resolution), the 60 FPS replays flip rate
+# Blocks and lines that never reach the other game: the picture size (Setup's Resolution), the compute-shader mesh
+# features (Setup's Compute off: how this game draws its own players), the 60 FPS replays flip rate
 # (Setup's Apply everywhere, 0.91.1: how often a frame is shown, like shadPS4's vblank, which players already mix
 # online), Be a Pro (offline only, off with the league switch), the Threes unlock guard (only a lookup that would crash
 # changes), the WoC item unlock (menus only) and the server's name (one lobby is one server, whatever name or address
 # the app was given).
-LOCAL_ONLY_TITLES = (RES1440_TITLE, RES720_TITLE, REPLAYS60_TITLE, BAP32_TITLE, THREES_REWARDS_TITLE, WOC_UNLOCK_TITLE)
+LOCAL_ONLY_TITLES = (RES1440_TITLE, RES720_TITLE, RES2160_TITLE, RES2880_TITLE, RES4320_TITLE, COMPUTE_OFF_TITLE,
+                     REPLAYS60_TITLE, BAP32_TITLE, THREES_REWARDS_TITLE, WOC_UNLOCK_TITLE)
 LOCAL_ONLY_LINES = (REDIRECTOR,) + NUCLEUS
 # Blocks both games must have (they count in netplay_fingerprint) that each game carries itself: the lobby recipe leaves
 # them out (the cross-vendor block alone is ~30 KB, near the server's 32 KiB per patch text) and the match patch takes
