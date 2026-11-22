@@ -32,6 +32,7 @@ class Change:
     # sets the rest when it first sees the change (the tab in view and the rail's team then)
     tab: str = None     # the tab's label ('Roster', 'Lines', ...)
     team: int = None    # the rail id of the team it belongs to (None: no one team, e.g. the update)
+    moved: tuple = ()   # game_ids a Move / trade change moved (trade_ctl: Bring in game moves keeps these the app's)
 
 
 def clean(s):

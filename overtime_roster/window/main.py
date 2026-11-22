@@ -22,7 +22,7 @@ TABS = ('setup', 'patch', 'update', 'roster', 'lines', 'strategy', 'jerseys', 'c
 NEEDED = [os.path.join(WEB, *p) for p in (
     ('index.html',), ('css', 'app.css'), ('css', 'tokens.css'), ('img', 'logo.png'),
     *(('js', f'{name}.js') for name in ('boot', 'main', 'bridge', 'store', 'lib', 'ui', 'shell', 'rail', 'savebar')),
-    *(('js', 'tabs', f'{name}.js') for name in TABS + ('roster-face', 'roster-gear')),
+    *(('js', 'tabs', f'{name}.js') for name in TABS + ('roster-face', 'roster-gear', 'roster-trade')),
     *(('css', 'tabs', f'{name}.css') for name in TABS),
     ('vendor', 'react.production.min.js'), ('vendor', 'react-dom.production.min.js'), ('vendor', 'htm.module.js'))]
 BACKGROUND = '#111116'

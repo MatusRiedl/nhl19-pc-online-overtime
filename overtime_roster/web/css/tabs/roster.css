@@ -194,3 +194,49 @@
   .ro-face .ro-frow { grid-template-columns: 94px minmax(0, 1fr) 62px; gap: 6px; }
   .ro-face .ro-frow .field { padding-right: 20px; padding-left: 8px; }
 }
+
+/* --- Move / trade, Bring in game moves (roster-trade.js), and the next-step note -------------------------------------- */
+.tab-roster .ro-import-btn { flex: none; margin-left: auto; }
+.tab-roster .ro-teamnote + .ro-import-btn { margin-left: 0; }
+.tab-roster .ro-next { flex: none; margin: 0 12px 8px; padding: 9px 12px 10px; font-size: 13px; line-height: 1.45;
+  color: var(--text-2); background: rgba(255, 255, 255, .03); box-shadow: inset 3px 0 0 var(--good), inset 0 0 0 1px var(--line); }
+.tab-roster .ro-next.unsaved { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--line); }
+.tab-roster .ro-next-head { display: flex; align-items: center; gap: 8px; }
+.tab-roster .ro-next-head b { font-size: 14px; font-weight: 600; color: var(--text); }
+.tab-roster .ro-next ol { margin: 4px 0 0; padding-left: 20px; }
+.tab-roster .ro-next .note { margin-top: 6px; }
+.ro-next-x, .ro-tr-drop { margin-left: auto; width: 24px; height: 24px; border: 0; font: inherit; font-size: 16px; line-height: 1;
+  color: var(--text-3); background: transparent; cursor: pointer; }
+.ro-next-x:hover, .ro-tr-drop:hover:not(:disabled) { color: var(--text); background: var(--tile-hi); }
+
+.modal.ro-trade .m-body, .modal.ro-import .m-body { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
+.modal.ro-trade .m-body > p, .modal.ro-import .m-body > p { margin: 0; }
+.modal.ro-trade .m-buttons, .modal.ro-import .m-buttons { align-items: center; flex-wrap: wrap; }
+.ro-trade .ro-tr-rows { display: flex; flex-direction: column; gap: 6px; }
+.ro-trade .ro-tr-row { display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; background: rgba(255, 255, 255, .03);
+  box-shadow: inset 0 0 0 1px var(--line); }
+.ro-trade .ro-tr-row.open { box-shadow: inset 0 0 0 1px rgba(248, 191, 0, .4); }
+.ro-trade .ro-tr-who { display: flex; align-items: baseline; gap: 8px; font-size: 14.5px; color: var(--text); }
+.ro-trade .ro-tr-who .faint { font-size: 12.5px; }
+.ro-trade .ro-tr-move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.ro-trade .ro-tr-from { color: var(--text-2); white-space: nowrap; }
+.ro-trade .ro-tr-arrow { color: var(--text-3); }
+.ro-trade .ro-tr-where { display: inline-flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ro-trade .ro-tr-league { width: 170px; }
+.ro-trade .ro-tr-team { width: 220px; }
+.ro-trade .ro-tr-line { margin: 0; }
+.ro-trade .ro-tr-add { display: flex; flex-direction: column; gap: 6px; }
+.ro-trade .ro-tr-search { max-width: 340px; height: 32px; }
+.ro-trade .ro-tr-found { display: flex; flex-wrap: wrap; gap: 4px; }
+.ro-trade .ro-tr-hit { display: inline-flex; align-items: baseline; gap: 7px; padding: 5px 10px; border: 0; font: inherit;
+  font-size: 13px; color: var(--text-soft); background: var(--tile); cursor: pointer; }
+.ro-trade .ro-tr-hit:hover:not(:disabled) { color: var(--text); background: var(--tile-hi); }
+.ro-trade .ro-tr-problems, .ro-import .note { margin: 0; }
+.ro-import .ro-im-pick { display: flex; align-items: center; gap: 10px; }
+.ro-import .ro-im-pick .field { flex: 1; min-width: 0; max-width: 520px; }
+.ro-import .ro-im-rows { display: flex; flex-direction: column; gap: 3px; }
+.ro-import .ro-im-row { padding: 5px 9px; background: rgba(255, 255, 255, .03); }
+.ro-import .ro-im-row .check { gap: 8px; font-size: 13.5px; }
+.ro-import .ro-im-row .check b { font-weight: 600; color: var(--text); }
+.ro-import .ro-im-row.mine { box-shadow: inset 3px 0 0 var(--caution); }
+.ro-import .ro-im-row .small-note { margin: 2px 0 0 26px; }

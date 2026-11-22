@@ -29,7 +29,8 @@ const WHERE_INFO = [
     'Nothing else to install: Overtime gets the renderer chosen under Boost performance by itself.',
     'Using your own renderer (shadPS4)? Folders, Renderer, Change... picks shadPS4QtLauncher.exe or shadPS4.exe.',
     'The program finds and handles the rest by itself: the renderer and your roster saves.'] },
-  { head: 'Installing from PKG', items: ['Pick the game PKG first, then the update 1.60 PKG. One at a time.',
+  { head: 'Installing from PKG', items: ['Pick the game PKG. With the update 1.60 PKG in the same folder, it installs right after the game by itself.',
+    'No update 1.60 PKG there? Press Find game again and pick it once the game is in.',
     'The game goes into a new folder next to its PKG, the update into a new folder beside the game. Nothing is overwritten.',
     'It needs free space on that drive about the size of the PKG.',
     'The PKG tool is shadPS4Plus\'s pkg_extractor (GPL-2.0), downloaded from its GitHub page the first time: github.com/AzaharPlus/shadPS4Plus.'] },
@@ -122,6 +123,7 @@ function WhereCard({ s }) {
           : html`<span class="su-st">${st.text}</span>`}
         ${s.emulator.path && html`<${Button} small disabled=${busy} onClick=${() => call('setup_refresh')}>Check again<//>`}
       </div>
+      ${st.note && html`<div class="su-state info"><span class="su-st">${st.note}</span></div>`}
     </div>
   <//>`;
 }

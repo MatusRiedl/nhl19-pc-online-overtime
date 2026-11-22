@@ -272,7 +272,7 @@ class RosterCtl(Part):
                     empty = SEATTLE_CUSTOM
             note = ''
             if not searching and c.team == L.FREE_AGENTS:
-                note = 'Free agents. Edit one here. Signing him to a team comes later.'
+                note = 'Free agents. Edit one here; Move / trade... on his card signs him with a club.'
             elif not searching and c.team == SEATTLE:
                 note = 'Seattle is added by Overtime. Most Kraken have a generic head: give them a face in Face & type.'
             elif not searching and c.team == COACHELLA:

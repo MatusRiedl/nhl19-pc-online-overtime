@@ -24,6 +24,13 @@ What changed in each version, for players.
   load in parallel, with the checks and retries kept.
 - **Kravickas build from his GitHub releases** (PR #4): the Boost card's "Get newest" takes his newest build and checks
   GitHub's sha256. Play keeps the build that is already there.
+- **The game PKG installs its 1.60 update by itself**: pick the game PKG in Setup's "Find game"; when the update
+  1.60 PKG is in the same folder, it installs right after the game. No second pick.
+- **Move / trade players** (Roster tab, player card): move a player to another club or to free agency, or swap
+  players between clubs, with one Undo. **Bring in game moves** (Players card): take the trades you made in NHL 19
+  from one of your roster saves into the app's roster. Save, then play that roster in NHL 19; no Patch needed.
+- **World of Chel: created players at 99** in every attribute. Our server gives no XP, so created players now start
+  maxed. Comes in on your next Ready or Play.
 
 ### Thanks
 
@@ -46,6 +53,8 @@ What changed in each version, for players.
   until then they do not meet players on 0.98.0 or on Linux and macOS.
 - DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice.
 - Frame generation is not in this version.
+- World of Chel: update to play CHEL. A player on 0.98.0 and a player on 0.99.0 in one CHEL game have different
+  ratings for created players, and the game can fall out of sync.
 
 ## 0.98.0 (2026-11-20)
 

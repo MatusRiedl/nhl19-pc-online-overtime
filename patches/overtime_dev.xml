@@ -366,6 +366,19 @@
       <Line Type="bytes" Address="0x6F8905" Value="C6055C25C50501"/>
     </PatchList>
   </Metadata>
+  <!-- 0x43597f0 fills a player class's attribute list (25 skater or 20 goalie values, count at out+0x68) from the
+       onlineplayerclass.brk kernel; mode 0 = the class base, 1 = the height/weight delta, 2 = the total. Its two store
+       loops (goalie 0x435a400, skater 0x435a7c0) begin with: mov esi, 99; cmp ebx, 1; jnz store; xor esi, esi;
+       jmp store (14 bytes; the store is each loop's own mov [r12], esi at +0x22). Every caller is World of Chel class
+       code: the loadout attributes service 0x11f8ae0 (menus) and the class branch of the match setup's player info
+       0x1301890 (class id >= 0; NHL players keep their own ratings). So every created player, old and new, plays at
+       99; traits and specialties still add on top, and the in-game rating 0x569ac0 clamps to 36..99. -->
+  <Metadata Name="WoC: every attribute of a created player at 99" AppVer="01.60" AppElf="eboot.bin" isEnabled="true">
+    <PatchList>
+      <Line Type="bytes" Address="0x475A400" Value="BE6300000083FB01751831F6EB14"/>
+      <Line Type="bytes" Address="0x475A7C0" Value="BE6300000083FB01751831F6EB14"/>
+    </PatchList>
+  </Metadata>
   <!-- 0x423ad80 appends a 0x38 entry to a team's fixed list (32 slots of 366 inline entries, header begin/end/cap)
        with no capacity check; a full list's next entry zeroes the next team's begin/end and that team's next append
        writes to 0 (0xc0000005 at 0x423ce8c after "Too few players"). Hook 0x423ce71 -> cave 0x56eb000 (text padding):

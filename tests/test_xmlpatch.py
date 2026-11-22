@@ -31,7 +31,7 @@ def test_targets_and_blocks():
         'QoS coordinator: skip TLS cert validation', 'Nucleus hosts: ot.puckpeak.com, 91.98.195.150',
         '60 FPS replays (Kravickas)', 'Resolution 2560x1440 (Kravickas)', 'Resolution 1280x720 (Kravickas)',
         xmlpatch.THREES_REWARDS_TITLE, 'Cross-vendor exact math (rcp/rsqrt)', xmlpatch.WOC_UNLOCK_TITLE,
-        'R1: cap check on the Franchise per-team list append', 'BAP32: Seattle in Be a Pro', 'E32: 32 teams in every mode']
+        xmlpatch.CHEL_MAX_TITLE, 'R1: cap check on the Franchise per-team list append', 'BAP32: Seattle in Be a Pro', 'E32: 32 teams in every mode']
     off = (xmlpatch.RES1440_TITLE, xmlpatch.RES720_TITLE)
     assert all(b['enabled'] == (b['name'] not in off) and b['app_ver'] == '01.60' for b in blocks)
 
@@ -328,6 +328,51 @@ def test_bap32_matches_the_stock_eboot(game_dir):
     assert all(va + memsz <= at and at + len(v) <= page_end for at, v in p.items() if at not in BAP32_STOCK)
 
 
+def test_chel_max_is_default_wired_and_counts_in_netplay():
+    """owner 2026-11-21 (docs/notes/chel-max-stats.md): both store loops of the class kernel 0x43597f0 start with
+    mov esi, 99 / cmp ebx, 1 / jnz store / xor esi, esi / jmp store, so mode 1 (the height/weight delta) gives 0 and
+    modes 0 / 2 (the base, the total) give 99; both jumps land on the loop's own store at +0x22. It changes the ratings
+    played, so it counts in the netplay fingerprint (not local only) and sits before the 32-team pair."""
+    assert xmlpatch.DEFAULT.index('woc_unlock') < xmlpatch.DEFAULT.index('chel_max') < xmlpatch.DEFAULT.index('ledger_cap')
+    assert 'chel_max' in xmlpatch.NO_CROSSVENDOR and xmlpatch.CHEL_MAX_TITLE not in xmlpatch.LOCAL_ONLY_TITLES
+    lines = xmlpatch.FEATURES['chel_max'].lines
+    assert [a for a, _v in lines] == list(xmlpatch.CHEL_MAX_LOOPS) == ['0x475A400', '0x475A7C0']
+    for addr, value in lines:
+        at, code = int(addr, 16) - 0x400000, bytes.fromhex(value)
+        assert at in (0x435a400, 0x435a7c0) and len(code) == 14
+        assert code[:5] == bytes.fromhex('BE63000000') and code[5:8] == bytes.fromhex('83FB01')    # mov esi, 99; cmp ebx, 1
+        assert code[8] == 0x75 and at + 10 + code[9] == at + 0x22                                   # jnz store
+        assert code[10:12] == bytes.fromhex('31F6')                                                 # xor esi, esi
+        assert code[12] == 0xEB and at + 14 + code[13] == at + 0x22                                 # jmp store
+    block = next(b for b in xmlpatch.parse(xmlpatch.build('localhost', newline='\n')) if b['name'] == xmlpatch.CHEL_MAX_TITLE)
+    assert block['enabled'] and block['lines'] == lines
+    base = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    without = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
+                             tuple(f for f in xmlpatch.DEFAULT if f != 'chel_max'))
+    assert xmlpatch.netplay_fingerprint(base) != xmlpatch.netplay_fingerprint(without)
+
+
+# sha256[:16] of the stock 0x26 bytes from each chel_max loop start through its store (mov [r12], esi at +0x22)
+CHEL_MAX_STOCK = {0x435a400: '4211970f86744e27', 0x435a7c0: 'ade53e80b6b6146d'}
+
+
+@pytest.mark.game
+def test_chel_max_matches_the_stock_eboot(game_dir):
+    import hashlib
+    import struct
+    path = os.path.join(game_dir, 'eboot.bin-decrypted')
+    if not os.path.exists(path):
+        pytest.skip('no decrypted eboot')
+    with open(path, 'rb') as f:
+        elf = f.read()
+    phoff, phnum = struct.unpack_from('<Q', elf, 0x20)[0], struct.unpack_from('<H', elf, 0x38)[0]
+    text = [struct.unpack_from('<IIQQQQQQ', elf, phoff + k * 56) for k in range(phnum)]
+    _t, _fl, off, va, _pa, _filesz, memsz, _align = next(h for h in text if h[0] == 1 and h[1] & 1)
+    for at, sha in CHEL_MAX_STOCK.items():
+        window = elf[off + at - va:off + at - va + 0x26]
+        assert hashlib.sha256(window).hexdigest()[:16] == sha and window[0x22:] == bytes.fromhex('41893424'), hex(at)
+
+
 def test_repoint_keeps_every_switch_and_the_line_ends():
     nucleus = 'https://91.98.195.150/'
     for newline in ('\r\n', '\n'):
@@ -419,7 +464,7 @@ def test_the_resolution_blocks_are_written_off_and_switch_one_at_a_time():
         xmlpatch.resolution(both)
     with pytest.raises(xmlpatch.PatchError):
         xmlpatch.with_resolution(text, 900)
-    for old in (xmlpatch.build('localhost', features=f) for f in xmlpatch.EARLIER[:-1]):   # the last has res720
+    for old in (xmlpatch.build('localhost', features=f) for f in xmlpatch.EARLIER[:4]):   # the fifth on have res720
         assert xmlpatch.with_resolution(old, 1080) == old
         with pytest.raises(xmlpatch.PatchError):
             xmlpatch.with_resolution(old, 720)                    # no 720p block before 0.80.1
@@ -477,17 +522,34 @@ def test_repoint_keeps_apply_everywhere():
 
 def test_repoint_brings_a_0_70_7_or_0_80_0_file_up_with_its_resolution():
     nucleus = 'https://91.98.195.150/'
-    for features, value in ((f, v) for f in xmlpatch.EARLIER[1:-1] for v in (1080, 1440)):
+    for features, value in ((f, v) for f in xmlpatch.EARLIER[1:4] for v in (1080, 1440)):
         old = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features), value)
         assert xmlpatch.RES720_TITLE not in old
         new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus)
         assert new == xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), value)
     # 0.90.0's file (no WoC item unlock) gets the block on the next Play, its resolution kept
     for value in xmlpatch.RESOLUTIONS:
-        old = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, xmlpatch.EARLIER[-1]), value)
+        old = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, xmlpatch.EARLIER[4]), value)
         assert xmlpatch.WOC_UNLOCK_TITLE not in old
         new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus)
         assert new == xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), value)
+
+
+def test_repoint_brings_a_0_98_file_up_with_chel_max():
+    """0.98.0's files (DEFAULT and NO_CROSSVENDOR, no CHEL max block) get the block on the next Play (Ready and Play
+    repoint with for_eboot's features), every switch kept."""
+    nucleus = 'https://91.98.195.150/'
+    assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f != 'chel_max')
+    assert xmlpatch.EARLIER[6] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f != 'chel_max')
+    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in xmlpatch.RESOLUTIONS for e in (True, False)):
+        def make(features):
+            text = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features, newline), value)
+            return text if e32 else xmlpatch.expansion32_off(text)
+        for old, features in ((make(xmlpatch.EARLIER[5]), xmlpatch.DEFAULT),
+                              (make(xmlpatch.EARLIER[6]), xmlpatch.NO_CROSSVENDOR)):
+            assert xmlpatch.CHEL_MAX_TITLE not in old
+            new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, features=features)
+            assert new == make(features) and xmlpatch.CHEL_MAX_TITLE in new
 
 
 def test_netplay_fingerprint_counts_only_what_reaches_the_other_game():
@@ -501,20 +563,27 @@ def test_netplay_fingerprint_counts_only_what_reaches_the_other_game():
     assert xmlpatch.netplay_fingerprint(xmlpatch.bap32_off(base)) == fp               # league switch off: Be a Pro only
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('91.98.195.150')) == fp         # the same server by its address
     assert xmlpatch.netplay_fingerprint(base.replace('\r\n', '\n')) == fp
+    # the CHEL max block changes the ratings played: it counts, so the files before it compare with today's without it
+    no_max = xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
+                                                         features=tuple(f for f in xmlpatch.DEFAULT if f != 'chel_max')))
+    assert no_max != fp and xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
+                                                                        features=xmlpatch.EARLIER[5])) == no_max
     # the Threes unlock guard only changes a lookup that would crash: a game without it still plays one with it
-    no_xv = xmlpatch.netplay_fingerprint(xmlpatch.build('91.98.195.150', features=xmlpatch.NO_CROSSVENDOR))
+    no_xv = xmlpatch.netplay_fingerprint(xmlpatch.build('91.98.195.150', features=xmlpatch.EARLIER[6]))
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
                                                        features=xmlpatch.EARLIER[1])) == no_xv
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
                                                        features=xmlpatch.EARLIER[2])) == no_xv   # 0.80.0: no 720p block
-    # the 720p block is local (Setup's Resolution): the 0.81.0 candidate's file, without it, plays today's
+    # the 720p block is local (Setup's Resolution): the 0.81.0 candidate's file, without it, plays 0.98.0's
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
-                                                       features=xmlpatch.EARLIER[3])) == fp
-    # the WoC item unlock only changes menus: 0.90.0's file, without it, plays today's
+                                                       features=xmlpatch.EARLIER[3])) == no_max
+    # the WoC item unlock only changes menus: 0.90.0's file, without it, plays 0.98.0's
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/',
-                                                       features=xmlpatch.EARLIER[4])) == fp
+                                                       features=xmlpatch.EARLIER[4])) == no_max
     # the cross-vendor block counts: a game without it (0.80, another eboot) never plays one with it
-    assert no_xv != fp
+    assert no_xv != no_max
+    assert xmlpatch.netplay_fingerprint(xmlpatch.build('91.98.195.150', features=xmlpatch.NO_CROSSVENDOR)) not in (
+        no_xv, fp)
     # the 32-team switch changes the online team list: that one counts, and so does any other game byte
     assert xmlpatch.netplay_fingerprint(xmlpatch.expansion32_off(base)) != fp
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/', features=xmlpatch.EARLIER[0])) != fp

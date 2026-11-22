@@ -9,6 +9,7 @@ import { Code } from '../rail.js';
 import { cardDraft } from '../savebar.js';
 import { FaceWindow } from './roster-face.js';
 import { GearWindow } from './roster-gear.js';
+import { TradeModals, NextNote } from './roster-trade.js';
 
 export const tip = 'Pick a player, change his card, then Apply. Ctrl+F finds a player.';   // Alt+Up / Down: the rail's title
 
@@ -23,7 +24,7 @@ export function onKey(e) {
 }
 
 export function Modals() {
-  return html`<${Fragment}><${FaceWindow}/><${GearWindow}/><//>`;
+  return html`<${Fragment}><${FaceWindow}/><${GearWindow}/><${TradeModals}/><//>`;
 }
 
 // --- the players --------------------------------------------------------------------------------------------------
@@ -69,6 +70,7 @@ function Players({ s, onPick }) {
   const [box, width] = useWidth();
   const notes = s.rows.some((r) => r.note);
   const columns = columnsFor(width, s.searching, notes);
+  const t = useSlice('trade');
   return html`<${Card} title=${s.title} className="ro-players"
       aside=${html`${!s.searching && html`<${Code} team=${s.team} small/>`}<span>${s.count}</span>`}>
     <div class="ro-find">
@@ -76,7 +78,10 @@ function Players({ s, onPick }) {
         onChange=${(t) => call('roster_search', t)}/>
       ${s.searching && html`<${Button} small onClick=${() => call('roster_search', '')}>Show the team<//>`}
       ${s.note && html`<span class="ro-teamnote" title=${s.note}>${s.note}</span>`}
+      <${Button} small className="ro-import-btn" disabled=${s.busy} onClick=${() => call('trade_import_open')}
+        title="Moved players in NHL 19 and saved the roster there? Bring those moves into this roster">Bring in game moves...<//>
     </div>
+    <${NextNote} note=${t && t.note}/>
     <div class="card-body fill ro-table" ref=${box}>
       <${Table} columns=${columns} rows=${s.rows} sel=${s.selected} onPick=${(r) => onPick(r.id)} empty=${s.empty}/>
     </div>
@@ -157,6 +162,8 @@ function PlayerCard({ s, c, form, set, setRating, dirty, onApply, onUndo }) {
           title="His player type, head, hair, beard and colours, or another player's face">Face & type...<//>
         <${Button} small className="ro-gear-btn" disabled=${off || !c.gear.length} onClick=${() => call('roster_gear_open')}
           title=${c.gear_note || 'Stick, helmet, gloves, skates, visor, the tucks and the tape'}>Equipment...<//>
+        <${Button} small className="ro-trade-btn" disabled=${off} onClick=${() => call('trade_open', c.id)}
+          title="Move him to another club or the free agents, or trade him for other players">Move / trade...<//>
         <span class="ro-pair"><${Button} small kind="gold-line" disabled title=${c.contract.title}>Contract...<//>
           <span class="ro-later">comes later</span></span>
       </div>

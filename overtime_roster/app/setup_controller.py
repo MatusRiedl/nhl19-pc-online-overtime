@@ -189,6 +189,7 @@ class SetupController(Part):
         self.found = None  # the last look: emulators, build, games, status, network, users, firewall, server, ...
         self.verify_result = None
         self.play = None  # {'state', 'pid', 'log'} while / after Play
+        self.pkg_update = None  # the last game PKG's own update step: {'game', 'file', 'note'} for the card (this session)
         self._launching = False  # a Play click is starting the emulator (a second click must not start another)
         self.checking = False   # a look (_scan) runs
         self._looks = 0         # the newest look's number (an older one that ends later is dropped)
@@ -660,41 +661,85 @@ class SetupController(Part):
     def setup_install_pkg(self, path):
         """Find game picked a .pkg: install it (pkginstall.install, a job; the base beside the PKG, the update beside
         the game), the game folder follows, and with no shadPS4 on this PC the chosen build is set up in the same
-        job."""
+        job. A game PKG brings its update along when the 1.60 one is in the same folder (pkginstall.add_update, owner
+        2026-11-21: no second pick); without it the player is asked for it as before."""
         if self._wait():
             return None
         c = self.ctl
+        with c.lock:
+            self.pkg_update = None      # a new pick: the card's note on the last one goes
         game_dir, emu = c.game_dir, self.known_emulator()
+        needed = gamesetup.APP_VER.lstrip('0')
 
         def progress(stage, done, total):
             part = min(1.0, done / total) if total else 0.0
+            what = f'the update {needed} PKG' if stage == 'update' else 'the PKG'
             c.say('Downloading the PKG tool...' if stage == 'tool' else
-                  f'Extracting the PKG... {round(part * 100)} % of {_gigabytes(total)}', 'info', part)
+                  f'Extracting {what}... {round(part * 100)} % of {_gigabytes(total)}', 'info', part)
 
         def work():
             use, kind, game = pkginstall.install(path, game_dir, progress)
             c.set_game_dir(use, job=True)  # this job holds the busy flag
+            picked, auto = game.get('app_ver'), None
+            if kind == pkginstall.BASE and not game.get('ok'):
+                use, game, auto = pkginstall.add_update(path, use, game, progress)
+                if auto['installed']:
+                    c.set_game_dir(use, job=True)  # the game's files now include the update folder
             got = None if emu else self._install_build()
-            return use, kind, game, got
+            return use, kind, picked, game, auto, got
 
         def said(out):
-            use, kind, game, got = out
+            use, kind, picked, game, auto, got = out
             c.host.log(f"PKG installed: {path} -> {use} ({'update' if kind == pkginstall.UPDATE else 'game'}, "
-                       f"version {game.get('app_ver')})")
+                       f"version {picked})")
+            if auto and auto['file']:
+                c.host.log(f"Update PKG beside it: {auto['file']} -> "
+                           + (f"installed, version {game.get('app_ver')}" if auto['installed'] else
+                              f"not installed: {auto['error']}"))
             if got is not None:
                 self._boost_applied(*got)
             also = f' shadPS4 (the {self._build_label(got[0])} build) is set up too.' if got is not None else ''
             version = (game.get('app_ver') or '').lstrip('0') or '?'
-            needed = gamesetup.APP_VER.lstrip('0')
+            note = self._pkg_note(auto)
+            with c.lock:        # the card keeps what the update step met (the Help bar line is easy to miss)
+                self.pkg_update = {'game': use, 'file': auto['file'] if auto['installed'] else None,
+                                   'note': note} if auto and (auto['file'] or auto['others']) else None
             if game.get('ok'):
-                return f'NHL 19 {version} is ready in {use}.{also}', 'good'
+                came = f" Update {needed} came from {auto['file']}, found beside the game PKG." if auto and \
+                    auto['installed'] else ''
+                return f'NHL 19 {version} is ready in {use}.{came}{also}', 'good'
             if kind == pkginstall.BASE:
-                return f'NHL 19 is in {use}.{also} Now press Find game again and pick the update {needed} PKG.', 'caution'
+                return f'NHL 19 is in {use}.{also} {note}', 'caution'
             return (f'Update {version} is installed, but Overtime needs {needed}: pick that update PKG with Find '
                     f'game.{also}', 'caution')
         self._job(f'Installing {os.path.basename(path)}...', work, said,
                   expected=(pkginstall.PkgError, boost.BoostError), after=self._boost_done)
         return {'ok': True}
+
+    @staticmethod
+    def _pkg_note(auto):
+        """While the update is still missing after a game PKG: what its own update step (pkginstall.add_update's dict)
+        met in the PKG's folder, then the ask for the update PKG."""
+        needed = gamesetup.APP_VER.lstrip('0')
+        ask = f'press Find game again and pick the update {needed} PKG'
+        if auto and auto['file'] and auto['error']:
+            return f"The update {auto['file']} beside it did not install: {auto['error'].rstrip('.')}. Then {ask}."
+        if auto and auto['file'] and auto['installed']:
+            return f"The update {auto['file']} beside it went in, but NHL 19 is still not {needed}: {ask}."
+        if auto and auto['others']:
+            name, version = auto['others'][0]
+            more = f" (and {len(auto['others']) - 1} more)" if len(auto['others']) > 1 else ''
+            return f"{name} beside it is update {version.lstrip('0') or '?'}{more}, not {needed}. Now {ask}."
+        return f'Now {ask}.'
+
+    def _pkg_done(self, game):
+        """The last game PKG's update step (pkg_update) when it was for this game folder, else None."""
+        done = self.pkg_update
+        path = (game or {}).get('path')
+        if not done or not path:
+            return None
+        same = os.path.normcase(os.path.abspath(done['game'])) == os.path.normcase(os.path.abspath(path))
+        return done if same else None
 
     def setup_pkg_source(self):
         webbrowser.open(pkginstall.SOURCE)
@@ -2331,16 +2376,18 @@ class SetupController(Part):
         return tile('emulator', build['version'], 'good',
                     f"Found shadPS4 {build['version']} ({build['branch']}, {build['rev'][:7]}).")
 
-    @staticmethod
-    def _game_tile(f, tile):
+    def _game_tile(self, f, tile):
         game = f.get('game') or {}
         version = (game.get('app_ver') or '').lstrip('0') or '?'
         needed = gamesetup.APP_VER.lstrip('0')
+        done = self._pkg_done(game)      # a game PKG's own update step for this folder (setup_install_pkg)
         if game.get('ok'):
+            came = f", installed from {done['file']}" if done and done['file'] else ''
             return tile('game', f"{version} · {game['title_id']}", 'good',
-                        f"NHL 19 ({game['title_id']}) with update {version}.")
+                        f"NHL 19 ({game['title_id']}) with update {version}{came}.")
         if game.get('title_id') in gamesetup.TITLE_IDS and game.get('app_ver') != gamesetup.APP_VER:
             return tile('game', f'Version {version}', 'bad',
+                        f"NHL 19 is version {version}. {done['note']}" if done else
                         f'NHL 19 is version {version}. Install update {needed}: pick its PKG with Find game.')
         if game.get('title_id') in gamesetup.TITLE_IDS:
             return tile('game', 'Not complete', 'bad',
@@ -2399,15 +2446,21 @@ class SetupController(Part):
         if self.checking or self.found is None:
             return {'tone': 'info', 'text': 'Checking shadPS4, NHL 19, ShadNet and the Overtime server...',
                     'get': False}
+        # the update a game PKG brought along (setup_install_pkg): named on its own line under the card's state, also
+        # while another check (ShadNet sign-in, say) is the line
+        game = (self.found or {}).get('game') or {}
+        done = self._pkg_done(game)
+        note = (f"Update {gamesetup.APP_VER.lstrip('0')} installed from {done['file']}, found beside the game PKG."
+                if done and done['file'] and game.get('ok') else '')
         for tone in ('bad', 'caution'):
             bad = next((c for c in checks if c['tone'] == tone), None)
             if bad:
-                return {'tone': tone, 'text': bad['text'], 'get': False}
+                return {'tone': tone, 'text': bad['text'], 'get': False, 'note': note}
         # the firewall no longer gates "ready" (0.83.0): matches go through the Overtime relay, which the game reaches
         # first, so Windows lets the replies in without a rule. The rule stays optional, for a direct link.
         if not roster_open:
-            return {'tone': 'good', 'text': 'Ready. Now pick the roster you work on.', 'get': False}
-        return {'tone': 'good', 'text': 'Everything is ready. Go to Patch.', 'get': False}
+            return {'tone': 'good', 'text': 'Ready. Now pick the roster you work on.', 'get': False, 'note': note}
+        return {'tone': 'good', 'text': 'Everything is ready. Go to Patch.', 'get': False, 'note': note}
 
     @staticmethod
     def _firewall(emulator, allows):

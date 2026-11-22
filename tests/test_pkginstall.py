@@ -33,11 +33,42 @@ def _game_files(folder, app_ver):
         (folder / 'databigs' / 'inxp_10.big').write_bytes(b'x' * 100)
 
 
+def _full_pkg(path, title='CUSA11126', category='gp', app_ver='01.60'):
+    """A PKG with an entry table and its param.sfo (entry 0x1000), laid out as the real NHL 19 ones are; no game data."""
+    content = f'UP0006-{title}_00-NHLICEHOCKEY2019'.encode().ljust(36, b'\0')[:36]
+    data = sfo.build([sfo.Entry('APP_VER', sfo.FMT_UTF8, app_ver, 8), sfo.Entry('CATEGORY', sfo.FMT_UTF8, category, 4),
+                      sfo.Entry('TITLE_ID', sfo.FMT_UTF8, title, 12)])
+    head = bytearray(0x200)
+    head[:4] = pkginstall.MAGIC
+    head[0x10:0x14] = (2).to_bytes(4, 'big')            # two entries
+    head[0x18:0x1c] = (0x100).to_bytes(4, 'big')        # the table at 0x100
+    head[0x40:0x64] = content
+    entries = [(0x0001, 0x400, 4), (pkginstall.SFO_ENTRY, 0x200, len(data))]
+    for i, (entry, offset, size) in enumerate(entries):
+        at = 0x100 + i * 32
+        for n, value in enumerate((entry, 0, 0, 0, offset, size)):
+            head[at + n * 4:at + n * 4 + 4] = value.to_bytes(4, 'big')
+    path.write_bytes(bytes(head) + data.ljust(0x200, b'\0') + b'body')
+    return path
+
+
+def _kind_from_sfo(pkg):
+    """What the real tool says, from the synthetic PKG's CATEGORY: gp an update, anything else the game."""
+    try:
+        return pkginstall.UPDATE if pkginstall.sfo_of(pkg).get('CATEGORY') == 'gp' else pkginstall.BASE
+    except pkginstall.PkgError:
+        return pkginstall.BASE
+
+
 class FakeTool:
-    """popen for pkg_extractor: --check-type exits `kind`; an extract writes what a real one writes (or nothing)."""
+    """popen for pkg_extractor: --check-type exits `kind` (a number, or kind(pkg) per file); an extract writes what a
+    real one writes (or nothing)."""
 
     def __init__(self, kind=pkginstall.BASE, writes=True):
         self.kind, self.writes, self.calls = kind, writes, []
+
+    def kind_of(self, pkg):
+        return self.kind(pkg) if callable(self.kind) else self.kind
 
     def __call__(self, args, **kw):
         self.calls.append(args)
@@ -47,13 +78,14 @@ class FakeTool:
             returncode = None
 
             def __init__(self):
+                kind = tool.kind_of(args[1])
                 if args[-1] == '--check-type':
-                    self.returncode, self.stdout = tool.kind, io.StringIO('pkg is a base game\n')
+                    self.returncode, self.stdout = kind, io.StringIO('pkg is a base game\n')
                     return
                 title = pkginstall.title_of(args[1])
                 if tool.writes:
-                    out = os.path.join(args[2], title + ('-patch' if tool.kind == pkginstall.UPDATE else ''))
-                    _game_files(pathlib.Path(out), '01.60' if tool.kind == pkginstall.UPDATE else '01.00')
+                    out = os.path.join(args[2], title + ('-patch' if kind == pkginstall.UPDATE else ''))
+                    _game_files(pathlib.Path(out), '01.60' if kind == pkginstall.UPDATE else '01.00')
                     self.stdout = io.StringIO(f'Extracting file 1 of 1 to {out}\n\nTHE END {args[1]}\n')
                 else:
                     self.stdout = io.StringIO('Cannot extract PKG file : Failed to decrypt\n\nTHE END x\n')
@@ -145,6 +177,95 @@ def test_a_failed_extract_leaves_nothing_and_says_the_tools_reason(home):
     with pytest.raises(pkginstall.PkgError, match='Failed to decrypt'):
         _install(_pkg(home / 'g.pkg'), None, FakeTool(writes=False))
     assert sorted(os.listdir(home)) == ['g.pkg']
+
+
+# --- the update installs by itself after the game PKG (owner 2026-11-21) ---------------------------------------------
+def test_param_sfo_comes_from_the_pkgs_entry_table(tmp_path):
+    values = pkginstall.sfo_of(str(_full_pkg(tmp_path / 'u.pkg')))
+    assert (values['TITLE_ID'], values['APP_VER'], values['CATEGORY']) == ('CUSA11126', '01.60', 'gp')
+    (tmp_path / 'junk.pkg').write_bytes(b'not a pkg' * 20)
+    (tmp_path / 'ps3.pkg').write_bytes(b'\x7fPKG' + b'\0' * 200)
+    whole = (tmp_path / 'u.pkg').read_bytes()
+    (tmp_path / 'cut.pkg').write_bytes(whole[:0x220])                   # the sfo cut short
+    (tmp_path / 'nosfo.pkg').write_bytes(_pkg(tmp_path / 'h.pkg').read_bytes())     # a header with no table
+    for name in ('junk.pkg', 'ps3.pkg', 'cut.pkg', 'nosfo.pkg'):
+        with pytest.raises(pkginstall.PkgError):
+            pkginstall.sfo_of(str(tmp_path / name))
+
+
+def test_find_update_takes_the_one_overtime_needs_beside_the_game_pkg(tmp_path):
+    dl = tmp_path / 'dl'
+    dl.mkdir()
+    game = _full_pkg(dl / 'NHL.19.PS4.pkg', category='gd', app_ver='01.00')
+    _full_pkg(dl / 'a-old.pkg', app_ver='01.05')                         # an older update: named, not used
+    _full_pkg(dl / 'b-other.pkg', title='CUSA00001')                     # another game's update
+    _full_pkg(dl / 'c-us.pkg', title='CUSA11116')                        # the other region's update
+    (dl / 'd-junk.pkg').write_bytes(b'junk')
+    (dl / 'e-folder.pkg').mkdir()
+    _full_pkg(dl / 'NHL.19.Update.v1.60.PS4.PKG')                        # upper-case extension too
+    _full_pkg(tmp_path / 'elsewhere.pkg')                                # another folder: not looked at
+    found, others = pkginstall.find_update(str(game), 'CUSA11126')
+    assert found == str(dl / 'NHL.19.Update.v1.60.PS4.PKG') and others == [('a-old.pkg', '01.05')]
+    assert pkginstall.find_update(str(game), 'CUSA11116')[0] == str(dl / 'c-us.pkg')
+    assert pkginstall.find_update(str(tmp_path / 'elsewhere.pkg'), 'CUSA11126') == (None, [])
+
+
+def test_the_game_pkg_brings_its_update_from_the_same_folder(home, monkeypatch):
+    dl = home / 'dl'
+    dl.mkdir()
+    game_pkg = _full_pkg(dl / 'NHL.19.PS4.pkg', category='gd', app_ver='01.00')
+    _full_pkg(dl / 'NHL.19.Update.v1.60.PS4.pkg')
+    tool, stages = FakeTool(_kind_from_sfo), []
+    use, kind, game = _install(game_pkg, None, tool)
+    assert kind == pkginstall.BASE and not game['ok']
+    real = pkginstall.extract
+
+    def extract(exe, pkg, scratch, progress=None, popen=None):     # one progress call (the watcher's poll is 1 s)
+        if progress:
+            progress(1, 2)
+        return real(exe, pkg, scratch, None, popen)
+    monkeypatch.setattr(pkginstall, 'extract', extract)
+    use2, game2, auto = pkginstall.add_update(str(game_pkg), use, game, lambda s, d, t: stages.append(s),
+                                              running=lambda: False, popen=tool)
+    assert use2 == use == str(dl / 'CUSA11126') and game2['ok'] and game2['app_ver'] == '01.60'
+    assert auto == {'file': 'NHL.19.Update.v1.60.PS4.pkg', 'others': [], 'installed': True, 'error': None}
+    assert sorted(os.listdir(dl)) == ['CUSA11126', 'CUSA11126-patch', 'NHL.19.PS4.pkg', 'NHL.19.Update.v1.60.PS4.pkg']
+    assert stages == ['update']
+    assert [c[1] for c in tool.calls if c[-1] == '--check-type'] == [str(game_pkg), str(dl / 'NHL.19.Update.v1.60.PS4.pkg')]
+
+
+def test_no_update_or_another_version_installs_nothing_more(home):
+    dl = home / 'dl'
+    dl.mkdir()
+    game_pkg = _full_pkg(dl / 'game.pkg', category='gd', app_ver='01.00')
+    tool = FakeTool(_kind_from_sfo)
+    use, _kind, game = _install(game_pkg, None, tool)
+    assert pkginstall.add_update(str(game_pkg), use, game, popen=tool)[2] == \
+        {'file': None, 'others': [], 'installed': False, 'error': None}
+    _full_pkg(dl / 'update-105.pkg', app_ver='01.05')
+    calls = len(tool.calls)
+    use2, game2, auto = pkginstall.add_update(str(game_pkg), use, game, popen=tool)
+    assert use2 == use and game2 is game and auto['file'] is None and auto['others'] == [('update-105.pkg', '01.05')]
+    assert len(tool.calls) == calls and sorted(os.listdir(dl)) == ['CUSA11126', 'game.pkg', 'update-105.pkg']
+
+
+def test_a_failed_update_keeps_the_game(home):
+    """The tool reads the file beside the game as a game, not an update: refused before anything is extracted (no
+    second game folder), and the game stays as installed."""
+    dl = home / 'dl'
+    dl.mkdir()
+    game_pkg = _full_pkg(dl / 'game.pkg', category='gd', app_ver='01.00')
+    _full_pkg(dl / 'update.pkg')
+    tool = FakeTool(pkginstall.BASE)
+    use, _kind, game = _install(game_pkg, None, tool)
+    use2, game2, auto = pkginstall.add_update(str(game_pkg), use, game, running=lambda: False, popen=tool)
+    assert use2 == use and game2 is game and not auto['installed'] and auto['file'] == 'update.pkg'
+    assert 'reads update.pkg as the game, not as an update' in auto['error']
+    assert sorted(os.listdir(dl)) == ['CUSA11126', 'game.pkg', 'update.pkg']
+    # a refusal from install() itself (here: an -UPDATE folder shadPS4 prefers) is said too
+    (dl / 'CUSA11126-UPDATE').mkdir()
+    auto = pkginstall.add_update(str(game_pkg), use, game, running=lambda: False, popen=FakeTool(_kind_from_sfo))[2]
+    assert '-UPDATE' in auto['error'] and not auto['installed']
 
 
 @pytest.mark.windows_only

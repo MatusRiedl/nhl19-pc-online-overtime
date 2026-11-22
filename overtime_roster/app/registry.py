@@ -35,6 +35,7 @@ PARTS = (
     ('strategy', 'strategy_ctl', 'StrategyCtl'),
     ('calendar', 'calendar_ctl', 'CalendarCtl'),
     ('office', 'office_ctl', 'OfficeCtl'),
+    ('trade', 'trade_ctl', 'TradeCtl'),
     ('multiplayer', 'multiplayer_ctl', 'MultiplayerCtl'),
 )
 
@@ -79,10 +80,11 @@ def part_classes():
     module), and by name (not importlib): the exe's builder must see them."""
     from . import (calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, lines_ctl, multiplayer_ctl, office_ctl, patch_ctl,
                    patchall_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell, strategy_ctl,
-                   update_ctl)
+                   trade_ctl, update_ctl)
     modules = {m.__name__.rsplit('.', 1)[-1]: m for m in (
         calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, lines_ctl, multiplayer_ctl, office_ctl, patch_ctl,
-        patchall_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell, strategy_ctl, update_ctl)}
+        patchall_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell, strategy_ctl, trade_ctl,
+        update_ctl)}
     return [(key, getattr(modules[module], name)) for key, module, name in PARTS]
 
 

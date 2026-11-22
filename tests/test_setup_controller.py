@@ -265,6 +265,68 @@ def test_a_pkg_refused_says_why(sc, monkeypatch, tmp_path):
     assert sc.ctl.said[-1] == ('This PKG is CUSA00001, not NHL 19 (CUSA11126 or CUSA11116).', 'bad')
 
 
+def _game_pkg_then(sc, monkeypatch, tmp_path, found, others=(), update_fails=None):
+    """Find game picks the game PKG; pkginstall.find_update answers `found` / `others`; install is the test's."""
+    from overtime_roster.app import pkginstall
+    game_pkg = tmp_path / 'NHL.19.PS4.pkg'
+    game_pkg.write_bytes(b'x')
+    game, calls = str(sc.world['game']), []
+
+    def install(path, game_dir=None, progress=None, *a, want=None, **kw):
+        calls.append((os.path.basename(path), game_dir, want))
+        if path != str(game_pkg):
+            if update_fails:
+                raise pkginstall.PkgError(update_fails)
+            progress('extract', 1, 4)
+            return game, pkginstall.UPDATE, {'ok': True, 'app_ver': '01.60', 'title_id': 'CUSA11126', 'path': game}
+        return game, pkginstall.BASE, {'ok': False, 'app_ver': '01.00', 'title_id': 'CUSA11126', 'path': game}
+    monkeypatch.setattr(pkginstall, 'install', install)
+    monkeypatch.setattr(pkginstall, 'find_update', lambda pkg, title: (found and str(tmp_path / found), list(others)))
+    assert sc.setup_set_emulator(str(game_pkg)) == {'ok': True}
+    return calls, [t for t, _ in sc.ctl.said]
+
+
+def test_a_game_pkg_brings_its_update_from_the_same_folder(sc, monkeypatch, tmp_path):
+    """Owner 2026-11-21: no second pick. The 1.60 update beside the game PKG installs right after it (as an update,
+    into the new game), and the card names the file."""
+    from overtime_roster.app import pkginstall
+    name = 'NHL.19.Update.v1.60.PS4.pkg'
+    calls, said = _game_pkg_then(sc, monkeypatch, tmp_path, name)
+    game = str(sc.world['game'])
+    assert calls == [('NHL.19.PS4.pkg', sc.ctl.game_dir and calls[0][1], None), (name, game, pkginstall.UPDATE)]
+    assert any('Extracting the update 1.60 PKG... 25 %' in t for t in said)
+    assert f'NHL 19 1.60 is ready in {game}. Update 1.60 came from {name}, found beside the game PKG.' in said[-1]
+    assert any(f'Update PKG beside it: {name} -> installed, version 01.60' in x for x in sc.ctl.host.logs)
+    checks = sc._checks(sc.found, False)
+    tile = next(c for c in checks if c['key'] == 'game')
+    assert tile['tone'] == 'good' and tile['text'].endswith(f'with update 1.60, installed from {name}.')
+    note = f'Update 1.60 installed from {name}, found beside the game PKG.'
+    assert sc._state(False, [], True)['note'] == note
+    # also while another check is the card's line (a fresh PC: not signed in to ShadNet yet)
+    shadnet = next(c for c in checks if c['key'] == 'shadnet')
+    shadnet.update(tone='caution', text='Sign in to ShadNet on the Multiplayer tab to play online.')
+    state = sc._state(False, checks, True)
+    assert state['tone'] == 'caution' and state['text'].startswith('Sign in to ShadNet') and state['note'] == note
+
+
+def test_a_game_pkg_without_its_update_asks_for_it(sc, monkeypatch, tmp_path):
+    calls, said = _game_pkg_then(sc, monkeypatch, tmp_path, None, [('NHL.19.Update.v1.05.pkg', '01.05')])
+    assert len(calls) == 1 and sc.pkg_update['file'] is None
+    assert said[-1].endswith('NHL.19.Update.v1.05.pkg beside it is update 1.05, not 1.60. Now press Find game again and '
+                             'pick the update 1.60 PKG.')
+    sc.ctl.said.clear()
+    calls, said = _game_pkg_then(sc, monkeypatch, tmp_path, 'u.pkg', update_fails='Close the shadPS4 launcher first.')
+    assert len(calls) == 2 and sc.pkg_update['file'] is None
+    assert said[-1].endswith('The update u.pkg beside it did not install: Close the shadPS4 launcher first. Then press '
+                             'Find game again and pick the update 1.60 PKG.')
+    # the card keeps it while that game is still 1.00
+    game = {'path': str(sc.world['game']), 'title_id': 'CUSA11126', 'app_ver': '01.00', 'ok': False}
+    tile = sc._game_tile({'game': game}, lambda k, v, tone, text: {'tone': tone, 'text': text})
+    assert tile == {'tone': 'bad', 'text': 'NHL 19 is version 1.00. The update u.pkg beside it did not install: Close '
+                                           'the shadPS4 launcher first. Then press Find game again and pick the update '
+                                           '1.60 PKG.'}
+
+
 def test_assets_store_says_the_total_and_the_wait(sc):
     sc.packs = [{'name': 'people.zip', 'size': 2 * 2**30, 'local_size': 300 * 2**20, 'removable': True},
                 {'name': 'photos.zip', 'size': 2**29, 'local_size': 0},

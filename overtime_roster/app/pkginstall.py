@@ -11,12 +11,17 @@ Standard library only.
 Linux (0.97.0): the same release's AppImage, run with APPIMAGE_EXTRACT_AND_RUN (no FUSE needed). macOS: that release
 has no build for it, so a PKG is refused there in words until Overtime builds the tool from its source
 (docs/notes/macos-support.md); an extracted game folder works as everywhere.
+
+The update installs by itself (owner 2026-11-21): after the game PKG, add_update looks in the same folder for the update
+Overtime needs (find_update reads each PKG's own param.sfo, no tool) and installs it with install()'s checks.
+docs/notes/pkg-auto-update.md.
 """
 import hashlib
 import http.client
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -24,7 +29,7 @@ import time
 import urllib.error
 import zipfile
 
-from overtime_core import gamefiles, overlay
+from overtime_core import gamefiles, overlay, sfo
 
 from . import gamesetup, packdownload, paths, selfupdate
 
@@ -51,11 +56,18 @@ def tool_for(system=None):
 TOOL_URL, TOOL_SHA256, TOOL_SIZE, TOOL_EXE = tool_for() or (None, None, 0, 'pkg_extractor')
 SOURCE = 'https://github.com/AzaharPlus/shadPS4Plus/tree/PKG_EXTRACTOR_1_1/extractor'     # GPL-2.0, its source
 BASE, UPDATE, DLC = 101, 102, 103      # pkg_extractor --check-type's exit codes; 0 = not a PKG it reads
+_WHAT = {BASE: 'the game', UPDATE: 'an update', DLC: 'DLC'}
 MAGIC = b'\x7fCNT'                     # a PS4 PKG's first four bytes; the content id is at 0x40 (36 bytes)
 SPARE = 1.05                           # free space wanted: the PKG's size and 5 %
 SCRATCH = '.overtime-pkg-'
 KINDS = 'NHL 19 PKG (*.pkg)'
 _FILE_LINE = re.compile(r'Extracting file (\d+) of (\d+)')
+# a PKG's entry table (big-endian): the count at 0x10, the table's offset at 0x18, 32 bytes per entry (id, name offset,
+# flags 1, flags 2, offset, size, 8 spare). sce_sys/param.sfo is entry 0x1000 and is not encrypted (read 2026-11-21 from
+# NHL 19's game and 1.60 update PKGs: CATEGORY gd / APP_VER 01.00, and gp / 01.60)
+SFO_ENTRY = 0x1000
+PATCH = 'gp'                           # param.sfo CATEGORY of an update; the game itself is 'gd'
+_MAX_ENTRIES, _MAX_SFO = 4096, 1 << 16
 
 
 class PkgError(RuntimeError):
@@ -76,6 +88,68 @@ def title_of(pkg):
     if not m:
         raise PkgError(f'{os.path.basename(pkg)} names no game ({content or "no content id"}).')
     return m.group(1)
+
+
+def sfo_of(pkg):
+    """The param.sfo values a PKG carries ({'TITLE_ID', 'APP_VER', 'CATEGORY', ...}), read from its entry table without
+    the tool; PkgError when there is none Overtime reads (not a PS4 PKG, cut short, the entry encrypted)."""
+    name = os.path.basename(pkg)
+    try:
+        with open(pkg, 'rb') as f:
+            head = f.read(0x20)
+            if len(head) < 0x20 or head[:4] != MAGIC:
+                raise PkgError(f'{name} is not a PS4 PKG.')
+            count, table = struct.unpack_from('>I', head, 0x10)[0], struct.unpack_from('>I', head, 0x18)[0]
+            if not 0 < count <= _MAX_ENTRIES:
+                raise PkgError(f'{name} has no entry table Overtime reads.')
+            whole = os.fstat(f.fileno()).st_size
+            f.seek(table)
+            raw = f.read(count * 32)
+            if len(raw) < count * 32:
+                raise PkgError(f'{name} is cut short.')
+            for i in range(count):
+                entry, _name, _flags1, _flags2, offset, size = struct.unpack_from('>6I', raw, i * 32)
+                if entry != SFO_ENTRY:
+                    continue
+                if not 0 < size <= _MAX_SFO or offset + size > whole:
+                    raise PkgError(f'{name} is cut short.')
+                f.seek(offset)
+                return sfo.values(f.read(size))
+    except OSError as err:
+        raise PkgError(f'The PKG does not open: {err.strerror or err}') from err
+    except (struct.error, ValueError, IndexError, KeyError) as err:       # sfo.SfoError is a ValueError
+        raise PkgError(f'{name} has no param.sfo Overtime reads ({err}).') from err
+    raise PkgError(f'{name} has no param.sfo.')
+
+
+def find_update(pkg, title):
+    """The update PKG Overtime needs for game `title` (APP_VER gamesetup.APP_VER, CATEGORY gp, that title id) in the
+    folder of the game PKG `pkg`, top level only. Returns (its path or None, [(file name, version)] of the updates for
+    that game at another version seen there). Only headers are read; a file that is no PKG Overtime reads is passed
+    over."""
+    pkg = os.path.abspath(pkg)
+    folder = os.path.dirname(pkg)
+    try:
+        names = sorted(os.listdir(folder), key=str.lower)
+    except OSError:
+        return None, []
+    found, others = None, []
+    for name in names:
+        path = os.path.join(folder, name)
+        if (not name.lower().endswith('.pkg') or os.path.normcase(path) == os.path.normcase(pkg)
+                or not os.path.isfile(path)):
+            continue
+        try:
+            values = sfo_of(path)
+        except PkgError:
+            continue
+        if values.get('TITLE_ID') != title or values.get('CATEGORY') != PATCH:
+            continue
+        if values.get('APP_VER') != gamesetup.APP_VER:
+            others.append((name, values.get('APP_VER') or '?'))
+        elif found is None:
+            found = path
+    return found, others
 
 
 # --- the tool ---------------------------------------------------------------------------------------------------------
@@ -271,10 +345,11 @@ def _why(lines):
     return ''
 
 
-def install(pkg, game_dir=None, progress=None, running=None, popen=subprocess.Popen, opener=None):
+def install(pkg, game_dir=None, progress=None, running=None, popen=subprocess.Popen, opener=None, want=None):
     """Install one NHL 19 PKG. The base: a new folder next to the PKG. The update: a new `<game>-patch` folder beside
     `game_dir` (the base must be there). Returns (folder of the game to use, BASE | UPDATE, read_game's dict).
-    progress(stage 'tool' | 'extract', done, total). PkgError in words for everything that stops it."""
+    progress(stage 'tool' | 'extract', done, total). `want` (BASE or UPDATE): any other kind the tool reads is refused
+    before anything is extracted. PkgError in words for everything that stops it."""
     pkg = os.path.abspath(pkg)
     title = title_of(pkg)
     if title not in gamesetup.TITLE_IDS:
@@ -284,6 +359,8 @@ def install(pkg, game_dir=None, progress=None, running=None, popen=subprocess.Po
         raise PkgError('Close the shadPS4 launcher first.')
     exe = ensure_tool((lambda d, t: progress('tool', d, t)) if progress else None, opener)
     k = kind(exe, pkg, popen)
+    if want is not None and k != want:
+        raise PkgError(f'The PKG tool reads {os.path.basename(pkg)} as {_WHAT[k]}, not as {_WHAT[want]}.')
     if k == DLC:
         raise PkgError('This PKG is DLC. NHL 19 needs only the game and its update 1.60.')
     if k == UPDATE:
@@ -314,3 +391,27 @@ def install(pkg, game_dir=None, progress=None, running=None, popen=subprocess.Po
         shutil.rmtree(scratch, ignore_errors=True)
     use = base if k == UPDATE else target
     return use, k, gamesetup.read_game(use)
+
+
+def add_update(pkg, use, game, progress=None, running=None, popen=subprocess.Popen, opener=None):
+    """Right after the game PKG `pkg` went into `use` (read_game's `game`): the update Overtime needs, found beside
+    `pkg` (find_update) and installed with install()'s checks; the tool must read it as an update. progress(stage
+    'tool' | 'update', done, total). Never raises: a failed update leaves the game as it is.
+    Returns (folder of the game, read_game's dict, what happened): {'file': the update's file name or None, 'others':
+    [(file name, version)] updates of another version seen there, 'installed': bool, 'error': why not, or None}."""
+    try:
+        title = game.get('title_id') or title_of(pkg)
+    except PkgError:
+        return use, game, {'file': None, 'others': [], 'installed': False, 'error': None}
+    found, others = find_update(pkg, title)
+    auto = {'file': found and os.path.basename(found), 'others': others, 'installed': False, 'error': None}
+    if not found:
+        return use, game, auto
+    step = (lambda stage, d, t: progress('update' if stage == 'extract' else stage, d, t)) if progress else None
+    try:
+        use, _kind, game = install(found, use, step, running, popen, opener, want=UPDATE)
+    except (PkgError, gamesetup.SetupError, OSError) as err:
+        auto['error'] = str(err)
+        return use, game, auto
+    auto['installed'] = True
+    return use, game, auto

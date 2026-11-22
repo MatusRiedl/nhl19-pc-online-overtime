@@ -32,6 +32,10 @@ loaded eboot only. `build` makes the file from the FEATURES table below; `build(
   crossvendor exact rcp/rsqrt at the 262 estimate sites shadPS4's own pass cannot reach (overtime_core/crossvendor.py,
               generated): Intel and AMD then agree in lockstep. Netplay (in the fingerprint) but carried by each player,
               not in the lobby recipe (SHARED_LOCAL_TITLES); left out for an eboot the block does not name (for_eboot)
+  chel_max    every World of Chel created player at 99 in every attribute, new and old characters (owner 2026-11-21: no
+              XP on our server, so nobody can upgrade): the player class kernel's base is 99 with no height/weight
+              penalty, in the menus and in the match setup. Netplay: in the fingerprint and the lobby recipe (the ratings played)
+              (docs/notes/chel-max-stats.md)
 
 A string slot holds as many characters as the stock string it replaces (its NUL follows), so the address must fit:
 `https://ot.puckpeak.com/` (24) fits only the accounts slot, `https://91.98.195.150/` (22) fits all three
@@ -65,6 +69,9 @@ RES720_TITLE = 'Resolution 1280x720 (Kravickas)'
 THREES_REWARDS_TITLE = 'T1: not-found check on the Threes unlock lookup'
 CROSSVENDOR_TITLE = crossvendor.TITLE
 WOC_UNLOCK_TITLE = 'WoC: every customization item unlocked'
+CHEL_MAX_TITLE = 'WoC: every attribute of a created player at 99'
+# the player class kernel's two attribute store loops (0x43597f0): goalie 0x435a400, skater 0x435a7c0
+CHEL_MAX_LOOPS = ('0x475A400', '0x475A7C0')
 
 
 class Feature:
@@ -141,6 +148,17 @@ FEATURES = {
        Default 1 = every World of Chel customization item (gear, casual clothes) unlocked: the owner's "every WoC item is
        owned" (docs/notes/woc.md). The server's Rewards items carry no customization ids (they are not known). -->""",
         [('0x6F8905', 'C6055C25C50501')]),
+    'chel_max': Feature(
+        CHEL_MAX_TITLE,
+        """  <!-- 0x43597f0 fills a player class's attribute list (25 skater or 20 goalie values, count at out+0x68) from the
+       onlineplayerclass.brk kernel; mode 0 = the class base, 1 = the height/weight delta, 2 = the total. Its two store
+       loops (goalie 0x435a400, skater 0x435a7c0) begin with: mov esi, 99; cmp ebx, 1; jnz store; xor esi, esi;
+       jmp store (14 bytes; the store is each loop's own mov [r12], esi at +0x22). Every caller is World of Chel class
+       code: the loadout attributes service 0x11f8ae0 (menus) and the class branch of the match setup's player info
+       0x1301890 (class id >= 0; NHL players keep their own ratings). So every created player, old and new, plays at
+       99; traits and specialties still add on top, and the in-game rating 0x569ac0 clamps to 36..99. -->""",
+        [(CHEL_MAX_LOOPS[0], 'BE6300000083FB01751831F6EB14'),
+         (CHEL_MAX_LOOPS[1], 'BE6300000083FB01751831F6EB14')]),
     'ledger_cap': Feature(
         'R1: cap check on the Franchise per-team list append',
         """  <!-- 0x423ad80 appends a 0x38 entry to a team's fixed list (32 slots of 366 inline entries, header begin/end/cap)
@@ -198,12 +216,13 @@ FEATURES = {
 }
 # bap32 and expansion32 stay last: DEFAULT[:-2] is the patch without the 32-team switch (xmlpatch.expansion32_off)
 DEFAULT = ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
-           'crossvendor', 'woc_unlock', 'ledger_cap', 'bap32', 'expansion32')
+           'crossvendor', 'woc_unlock', 'chel_max', 'ledger_cap', 'bap32', 'expansion32')
 # DEFAULT for an eboot the cross-vendor block does not name (for_eboot): the same file without it
 NO_CROSSVENDOR = tuple(f for f in DEFAULT if f != 'crossvendor')
 # what earlier versions wrote: repoint takes such a file as its own and writes today's DEFAULT (a player's next Play
 # brings new blocks in without Patch). The third is 0.80.0's DEFAULT (also 0.81.0's NO_CROSSVENDOR), the last 0.81.0's
-# DEFAULT (a candidate testers ran; neither has res720), the last 0.90.0's (no woc_unlock).
+# DEFAULT (a candidate testers ran; neither has res720), the fifth 0.90.0's (no woc_unlock), the last two 0.98.0's
+# DEFAULT and NO_CROSSVENDOR (no chel_max).
 EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'threes_rewards', 'ledger_cap',
@@ -211,7 +230,11 @@ EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32'
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'threes_rewards', 'crossvendor',
             'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
-            'crossvendor', 'ledger_cap', 'bap32', 'expansion32'))
+            'crossvendor', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
+            'crossvendor', 'woc_unlock', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
+            'woc_unlock', 'ledger_cap', 'bap32', 'expansion32'))
 # the Resolution choice: 1080 is the game's own (no block on), the others one block each
 RESOLUTION_BLOCKS = {720: RES720_TITLE, 1440: RES1440_TITLE}
 RESOLUTIONS = (720, 1080, 1440)
