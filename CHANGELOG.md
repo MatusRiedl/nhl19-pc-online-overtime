@@ -39,6 +39,12 @@ What changed in each version, for players.
 - **World of Chel: created players at 99** in every attribute. Our server gives no XP, so created players now start
   maxed. Comes in on your next Ready or Play.
 
+### Fixed
+
+- **Linux: the window opens on newer systems.** On Fedora and other systems newer than Ubuntu 22.04 the app showed in
+  the task bar with no window. It carried its own old copies of system libraries (libstdc++, fontconfig and others),
+  and your graphics driver could not load beside them. It now uses your system's copies.
+
 ### Thanks
 
 - Kravickas for PR #4 and for his DLSS branch: Overtime Native v3's motion inputs and the DLSS 5 pass are his work.

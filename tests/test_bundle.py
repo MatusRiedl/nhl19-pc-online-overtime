@@ -151,8 +151,8 @@ def test_the_appdir_has_what_appimagetool_needs(tmp_path):
 
 
 def test_the_appimage_carries_the_system_libraries_not_every_desktop_has(tmp_path):
-    spec = _spec()
-    assert 'libwayland-server.so.0' in spec['libraries']['linux']      # Ubuntu 24.04 comes without it
+    spec = {'libraries': {'linux': ['libwayland-server.so.0', 'libxcb-cursor.so.0']}}
+    assert _spec()['libraries']['linux'] == ['libxcb-cursor.so.0']     # Qt's X11 window; wayland-server: from_host
     inner = tmp_path / 'app' / '_internal'
     inner.mkdir(parents=True)
     (inner / 'libxcb-cursor.so.0').write_bytes(b'PyInstaller took this one')
@@ -167,6 +167,37 @@ def test_the_appimage_carries_the_system_libraries_not_every_desktop_has(tmp_pat
     assert (inner / 'libwayland-server.so.0').read_bytes() == b'ELF the library'      # the file, not a link to it
     assert (inner / 'libxcb-cursor.so.0').read_bytes() == b'PyInstaller took this one'
     assert build_unix.carry_libraries(spec, str(tmp_path / 'app'), dirs=(str(libs),)) == []
+
+
+def test_the_appimage_leaves_the_graphics_and_font_libraries_to_the_players_system(tmp_path):
+    """Tester 2026-11-22 (Fedora, AMD): the build machine's libstdc++ (GLIBCXX_3.4.30 at most) stood before the
+    system's, the newer Mesa driver did not load (GLIBCXX_3.4.32 not found), Qt got no OpenGL, no window showed."""
+    spec = _spec()
+    host = spec['from_host']['linux']
+    for name in ('libstdc++.so.6', 'libgcc_s.so.1', 'libgbm.so.1', 'libwayland-server.so.0', 'libz.so.1',
+                 'libexpat.so.1', 'libfontconfig.so.1', 'libfreetype.so.6', 'libX11.so.6'):
+        assert name in host
+    assert not set(host) & set(spec['libraries']['linux'])
+    assert len(host) == len(set(host))
+    folder = tmp_path / 'app'
+    inner = folder / '_internal'
+    (inner / 'PySide6' / 'Qt' / 'lib').mkdir(parents=True)
+    for name in ('libstdc++.so.6', 'libgbm.so.1', 'libfontconfig.so.1', 'libQt6Core.so.6', 'libpython3.13.so.1.0'):
+        (inner / name).write_bytes(b'ELF')
+    (inner / 'PySide6' / 'Qt' / 'lib' / 'libgcc_s.so.1').write_bytes(b'ELF')     # wherever PyInstaller put it
+    (inner / 'libz.so.1').mkdir()                                                  # a folder by that name stays
+    assert build_unix.drop_host_libraries(spec, str(folder)) == [
+        '_internal/PySide6/Qt/lib/libgcc_s.so.1', '_internal/libfontconfig.so.1', '_internal/libgbm.so.1',
+        '_internal/libstdc++.so.6']
+    left = sorted(p.name for p in inner.iterdir())
+    assert left == ['PySide6', 'libQt6Core.so.6', 'libpython3.13.so.1.0', 'libz.so.1']
+    assert build_unix.drop_host_libraries(spec, str(folder)) == []
+
+
+def test_a_library_both_carried_in_and_left_to_the_system_stops_the_build(tmp_path):
+    spec = {'libraries': {'linux': ['libgbm.so.1']}, 'from_host': {'linux': ['libgbm.so.1', 'libz.so.1']}}
+    with pytest.raises(build_unix.BuildError, match='libgbm.so.1 in "libraries" and in "from_host"'):
+        build_unix.drop_host_libraries(spec, str(tmp_path))
 
 
 def test_a_build_machine_without_a_listed_library_stops_the_build(tmp_path):

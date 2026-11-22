@@ -17,7 +17,8 @@ Without --inputs the build has neither (a smoke build: the window and the patch 
 its files are named "-nodata" and must not be released.
 
 What goes in is packaging/bundle.json. No game data, picture or archive may be in it (packaging/check_bundle.py runs
-first). Writes <out>/SHA256SUMS-<system>.txt and <out>/release-<system>.json, the value of latest.json's "linux" or
+first). On Linux its "from_host" libraries are taken out again after PyInstaller: the player's system has them, and its
+graphics driver needs its own copies (drop_host_libraries). Writes <out>/SHA256SUMS-<system>.txt and <out>/release-<system>.json, the value of latest.json's "linux" or
 "macos" key. Standard library, plus Pillow for the icon (a build requirement anyway).
 """
 import argparse
@@ -209,8 +210,9 @@ LIB_DIRS = ('/usr/lib/x86_64-linux-gnu', '/usr/lib64', '/usr/lib')     # where a
 
 
 def carry_libraries(spec, folder, dirs=LIB_DIRS):
-    """System libraries Qt asks for that not every desktop has (bundle.json "libraries": Ubuntu 24.04 comes without
-    libwayland-server, which Qt's web view loads; Qt's X11 window needs libxcb-cursor). Each goes beside the app's own
+    """System libraries Qt asks for that not every desktop has (bundle.json "libraries": Qt's X11 window needs
+    libxcb-cursor; libwayland-server, carried until 0.98.0 for the build machine's libgbm, now comes from the player's
+    system with Mesa's own libgbm, see drop_host_libraries). Each goes beside the app's own
     libraries unless PyInstaller took it already; the names carried now. A build machine without one stops the build."""
     inner = os.path.join(folder, '_internal')
     carried = []
@@ -227,10 +229,35 @@ def carry_libraries(spec, folder, dirs=LIB_DIRS):
     return carried
 
 
+def drop_host_libraries(spec, folder):
+    """Take out of the app's folder the libraries that must come from the player's system (bundle.json "from_host":
+    the AppImage project's excludelist names that PyInstaller collects, and libwayland-server, which only Mesa's
+    libgbm and Qt's unused Wayland compositor ask for). The system's graphics driver (Mesa) loads into the app and
+    needs its own copies: with the build machine's libstdc++ first in the path, a newer driver did not load
+    (GLIBCXX_3.4.32 not found), Qt got no OpenGL and the window never showed (tester, Fedora, 2026-11-22). The build
+    machine is the oldest system the app supports, so a player's own copies are as new or newer. The paths taken out,
+    relative to `folder`; BuildError when a name is also in "libraries" (carried in, then taken out)."""
+    names = set(spec.get('from_host', {}).get('linux', []))
+    both = names & set(spec.get('libraries', {}).get('linux', []))
+    if both:
+        raise BuildError(f'packaging/bundle.json lists {", ".join(sorted(both))} in "libraries" and in "from_host"')
+    dropped = []
+    for dirpath, dirnames, filenames in os.walk(folder):
+        for name in sorted(n for n in filenames + dirnames if n in names):
+            path = os.path.join(dirpath, name)
+            if os.path.isdir(path) and not os.path.islink(path):
+                continue
+            os.remove(path)
+            dropped.append(os.path.relpath(path, folder).replace(os.sep, '/'))
+    return sorted(dropped)
+
+
 def build_linux(spec, args, png, work, nodata):
     folder = os.path.join(work, 'dist', spec['name'])
     carried = carry_libraries(spec, folder)
     print('system libraries carried:', ', '.join(carried) or 'none (PyInstaller took them)', flush=True)
+    dropped = drop_host_libraries(spec, folder)
+    print('left to the player\'s system:', ', '.join(dropped) or 'none (PyInstaller took none of them)', flush=True)
     appdir = make_appdir(spec, folder, os.path.join(work, 'AppDir'), png, 'Overtime Roster')
     if not args.appimagetool:
         raise BuildError('--appimagetool: the appimagetool AppImage is needed to pack the AppDir')
