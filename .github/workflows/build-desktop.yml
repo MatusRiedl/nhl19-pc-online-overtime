@@ -178,6 +178,26 @@ jobs:
           if grep 'not found' ldd.txt; then
             echo "::error::the system's graphics driver does not load beside the app's libraries"; exit 1
           fi
+      - name: The app starts on this system and its window draws the page
+        timeout-minutes: 15
+        env:
+          QT_QPA_PLATFORM: offscreen            # no screen here
+        run: |
+          app="$PWD/run/squashfs-root/usr/lib/overtime-nhl19"
+          I="$app/_internal"
+          keys="$app/OvertimeNHL19 $I/PySide6/Qt/libexec/QtWebEngineProcess $(ls $I/libQt6*.so.6 \
+            $I/PySide6/Qt/plugins/platforms/*.so $I/PySide6/Qt/plugins/xcbglintegrations/*.so $I/PySide6/*.abi3.so \
+            2>/dev/null || true)"
+          need=$(for f in $keys; do LD_LIBRARY_PATH="$I" ldd "$f" 2>/dev/null || true; done |
+                 awk '$2=="=>" && $3=="not" {print $1}' | sort -u)
+          echo "the app asks this system for:" $need
+          dnf -y install --skip-unavailable --setopt=install_weak_deps=False dejavu-sans-fonts \
+            $(for n in $need; do printf '%s()(64bit) ' "$n"; done) >/dev/null
+          # root here: the app turns Chromium's sandbox off inside an AppImage (APPDIR), as at a player's start
+          code=0
+          APPDIR="$PWD/run/squashfs-root" timeout 300 run/squashfs-root/AppRun --selftest-window || code=$?
+          cat ~/.local/share/OvertimeRoster/logs/selftest-window.txt 2>/dev/null || true
+          exit $code
 
   macos:
     if: ${{ !inputs.emulator }}
