@@ -154,7 +154,7 @@ jobs:
       - name: The system's graphics driver loads beside the app's libraries
         timeout-minutes: 15
         run: |
-          dnf -y install --setopt=install_weak_deps=False tar gzip glibc-common \
+          dnf -y install --setopt=install_weak_deps=False tar gzip gawk glibc-common \
             mesa-dri-drivers mesa-libEGL mesa-libGL mesa-libgbm mesa-va-drivers mesa-vulkan-drivers
           grep PRETTY_NAME /etc/os-release
           mkdir run && tar -xzf dist/OvertimeNHL19-linux*.tar.gz -C run
@@ -163,13 +163,16 @@ jobs:
           for f in /usr/lib64/libEGL_mesa.so.0 /usr/lib64/libGLX_mesa.so.0 /usr/lib64/libgbm.so.1 \
                    /usr/lib64/libgallium*.so /usr/lib64/dri/*.so /usr/lib64/libvulkan_*.so; do
             [ -e "$f" ] || continue
-            LD_LIBRARY_PATH="$app" ldd "$f" 2>&1 | sed "s|^|$f: |"
+            { LD_LIBRARY_PATH="$app" ldd "$f" 2>&1 || true; } | sed "s|^|$f: |"
           done > ldd.txt
           echo "$(cut -d: -f1 ldd.txt | sort -u | wc -l) driver files checked"
+          if ! grep -q '^/usr/lib64/libEGL_mesa.so.0: ' ldd.txt; then      # a path moved: nothing was checked
+            echo "::error::no Mesa EGL file to check (/usr/lib64/libEGL_mesa.so.0)"; exit 1
+          fi
           {
             echo "### $(grep PRETTY_NAME /etc/os-release | cut -d= -f2): the driver takes from the app's folder"
             echo '```'
-            grep -F "$app" ldd.txt | awk '{print $2}' | sort -u
+            { grep -F "$app" ldd.txt || true; } | awk '{print $2}' | sort -u
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           if grep 'not found' ldd.txt; then
