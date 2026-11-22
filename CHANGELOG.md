@@ -11,7 +11,7 @@ What changed in each version, for players.
   selectable.
 - **Play online on the build you choose**: Ready and Play use the build picked on the Boost card, and every build in
   its list plays with every other one. Lobbies no longer compare shadPS4 builds; the patch and the roster still
-  have to match. **Linux players now meet Windows players.**
+  have to match. **Linux and Mac players now meet Windows players.**
 - **Picture options** on Setup's Boost performance card (Overtime Native v3), all off until you turn them on:
   - Upscaler: Off, FSR 1 or DLSS (NVIDIA RTX cards).
   - DLSS quality (with DLSS on): Performance, Quality or DLAA and so on, named for your screen. It sets the game's
@@ -60,7 +60,7 @@ What changed in each version, for players.
   0.99.0 player, so update before you play.
 - On an Intel CPU, a shadPS4 build that is not in the Boost card's list and lacks the cross-CPU fix meets only
   players with the same setup.
-- A Mac meets only Mac players for now: the cross-CPU fix is not proven on Macs.
+- A Mac has not played an online match against a Windows PC yet (Apple chips run shadPS4 through Rosetta 2).
 - DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice.
 - Frame generation is not in this version.
 - World of Chel: update to play CHEL. A player on 0.98.0 and a player on 0.99.0 in one CHEL game have different

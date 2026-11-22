@@ -18,12 +18,12 @@ which no tag equals.
 
 Any build plays online from 0.99.0 (owner 2026-11-22: "no longer check the hash of the build in lobby; the games won't
 desync and we just restrict the gameplay"): the exe's sha256 left the tag (SALT overtime-tag-2, so no 0.98.0 tag meets
-these in a lobby), and so did the Linux / macOS letter of 0.97.0 (crossplay.pooled): Linux players meet Windows players.
-A Mac still plays a math class of its own (math_class: no key there), so it meets Macs; why() says so.
+these in a lobby), and so did the Linux / macOS letter of 0.97.0 (crossplay.pooled): Linux and macOS players meet Windows
+players (owner 2026-11-22: Macs join too).
 Open matchmaking pairs on the game's own version only (game_manager._base_version, owner 2026-11-12), so the tag keeps
 games apart in lobbies, not there.
-Off Windows shadPS4's static pass always runs (src/core/module.cpp), so a trusted Linux build plays AMD's math with or
-without the key.
+Off Windows shadPS4's static pass always runs (src/core/module.cpp), so a trusted Linux or macOS build plays AMD's math
+with or without the key.
 
 launch.start writes it before every start (apply), the lobby Ready sends the same value from the same inputs
 (start_inputs / match_inputs, then sent), Unpatch removes it (remove). Writes go through a temp file and os.replace:
@@ -171,10 +171,11 @@ def key_on(user_dir):
 
 def math_class(sha, vendor, key, system=None, trusted=False):
     """'amd' when the game plays AMD's math (an AMD CPU; an Intel one on a trusted build with the key on, or on a
-    trusted Linux build: its pass needs no key), else '<vendor>/key' or '<vendor>/nokey': its own class. macOS goes
-    by the key like Windows: what Apple's chips make of the pass is not known, so they stay a class of their own.
+    trusted Linux or macOS build: the pass runs there without the key), else '<vendor>/key' or '<vendor>/nokey': its
+    own class. macOS (owner 2026-11-22: Macs join): Apple chips run the x86-64 build through Rosetta 2, which no pair
+    run has checked yet.
     Trusted: `sha` in TRUSTED_EXES, or `trusted` (a build of the card's list, or one with the pass: inputs())."""
-    if vendor == 'amd' or ((trusted or sha in TRUSTED_EXES) and (key or (system or sys.platform) == 'linux')):
+    if vendor == 'amd' or ((trusted or sha in TRUSTED_EXES) and (key or (system or sys.platform) in ('linux', 'darwin'))):
         return 'amd'
     return f'{vendor or "?"}/{"key" if key else "nokey"}'
 
@@ -268,10 +269,7 @@ def why(inp):
     if inp.get('foreign'):
         return (f"Another mod's versioninfo.ini in the NHL 19-mods folder sets your online version "
                 f"({inp['foreign']}), so Overtime's matchmaking tag is not used: you meet only games with that one.")
-    if inp['math'] != 'amd' and sys.platform == 'darwin':
-        reasons.append("a Mac keeps its own CPU math for now (the cross-CPU fix is not proven on Macs), so you meet "
-                       'Mac players')
-    elif inp['math'] != 'amd' and not inp.get('trusted', True) and inp.get('vendor') != 'amd':
+    if inp['math'] != 'amd' and not inp.get('trusted', True) and inp.get('vendor') != 'amd':
         reasons.append("this shadPS4 lacks the cross-CPU pass an Intel PC needs (choose a build on Setup's Boost "
                        'performance card: every one there has it)')
     if not inp['crossvendor']:
