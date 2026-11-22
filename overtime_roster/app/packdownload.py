@@ -32,7 +32,7 @@ import urllib.request
 
 from overtime_core import art, clubart, durable, kitcompose
 
-from . import crossplay, defaultdb, emufile, paths, selfupdate, sources
+from . import crossplay, defaultdb, dlssfiles, emufile, paths, selfupdate, sources
 from .patch import (ART_ENV, ART_PACKS, CLUBART_PACK, EXTRA_PACKS, KITLAYER_PACKS, KITS_PACK, PEOPLE_PACK,
                     PHOTOS_PACK, mark_checked)
 
@@ -59,7 +59,10 @@ PACKS = {
     KITS_PACK: {'title': '3D jerseys for 30 teams', 'core': False},
     **{name: {'title': title, 'core': False} for name, title in EXTRA_PACKS.items()},
 }
-KNOWN = (*PACKS, *TOOL_PACKS)      # every name published() reads and download() takes
+# not art: the DLSS files of Native v3's Picture options (dlssfiles.fetch, 0.99.0: hosted by the Overtime server, owner
+# 2026-11-22), each one DLL, downloaded into app_dir('dlss'); never in the exe or staged with the release
+PICTURE_PACKS = tuple(f['name'] for f in dlssfiles.FILES.values())
+KNOWN = (*PACKS, *TOOL_PACKS, *PICTURE_PACKS)     # every name published() reads and download() takes
 CORE = tuple(name for name, pack in PACKS.items() if pack['core'])
 STATES = ('here', 'missing', 'newer', 'offline', 'wrong_roster', 'not_served')
 DEFAULT_FILE = 'packs/' + KITS_PACK
@@ -734,6 +737,14 @@ def check_cputest(path):
     _check_exe(path, CPUTEST_EXE)
 
 
+def check_dlss(path):
+    """A DLSS file (dlssfiles.content: a Windows DLL of its MIN_BYTES or more). ArtError otherwise."""
+    name = os.path.basename(path)
+    why = dlssfiles.content(name[:-len('.part')] if name.endswith('.part') else name, path)
+    if why:
+        raise art.ArtError(why)
+
+
 def check_clubart(path):
     """The club art source pack's manifest reads (clubart.Source). ArtError otherwise."""
     clubart.Source(path)
@@ -754,7 +765,18 @@ def check_kitlayers(path):
 
 CHECKS = {EMULATOR_PACK: check_emulator, KRAVICKAS_PACK: check_emulator, NIGHTLY_PACK: check_emulator,
           NATIVE2_PACK: check_emulator, NATIVE3_PACK: check_emulator, CPUTEST_PACK: check_cputest, CLUBART_PACK: check_clubart,   # not art packs
-          **{name: check_kitlayers for name in KITLAYER_PACKS}}
+          **{name: check_kitlayers for name in KITLAYER_PACKS}, **{name: check_dlss for name in PICTURE_PACKS}}
+
+
+def recorded(name, cache_dir):
+    """True when the file `name` in `cache_dir` is the one download() put there: the record's size and time, no
+    hashing (a DLSS file the player copied over it since has others). False for none."""
+    try:
+        st = os.stat(os.path.join(cache_dir, name))
+    except OSError:
+        return False
+    entry = _load(cache_dir).get(name)
+    return isinstance(entry, dict) and entry.get('size') == st.st_size and entry.get('mtime') == st.st_mtime_ns
 
 
 def located(name, cache_dir):

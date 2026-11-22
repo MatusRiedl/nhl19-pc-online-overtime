@@ -138,13 +138,14 @@ const BOOST_INFO = [
     "Kravickas: Kravickas's NHL 19 build, with his fix for the same crash: the newest one his GitHub publishes (branch NHL19-Build). Get newest gets it now.",
     'Play downloads the chosen build the first time, and again when a newer one is published.',
     'Saves, patch and ShadNet login stay the same with either build.'] },
-  { head: 'Picture (Overtime Native v3)', items: ['Upscaler: what scales the picture up to your window. FSR 1 runs on any card. DLSS needs an NVIDIA RTX card and your own nvngx_dlss.dll (many PC games have one in their folder): Add DLSS file. Without them the game uses FSR 1.',
-    "DLSS 5: NVIDIA's DLSS 5 over the picture. Needs an NVIDIA RTX card and your own nvngx_dlssnr.dll: Add DLSS 5 file. RTX 20, 30 and 40 cards need the compat build of it.",
-    'Overtime never ships these NVIDIA files: you add your own, and Overtime keeps its own copy.',
+  { head: 'Picture (Overtime Native v3)', items: ['Upscaler: what scales the picture up to your window. FSR 1 runs on any card. DLSS needs an NVIDIA RTX card and nvngx_dlss.dll. Without them the game uses FSR 1.',
+    "DLSS quality (with DLSS): the size the game renders at before DLSS scales it up. Each choice is a Resolution that fits your screen, named by NVIDIA's mode: DLAA, Quality, Balanced, Performance or Ultra Performance. It sets the Resolution row too.",
+    "DLSS 5: NVIDIA's DLSS 5 over the picture. Needs an NVIDIA RTX card and nvngx_dlssnr.dll.",
+    "The first time you turn DLSS or DLSS 5 on, the app downloads NVIDIA's file from the Overtime server (Download beside it gets it again). If the server has none, add your own: Add DLSS file, Add DLSS 5 file (RTX 20, 30 and 40 cards need the compat build of nvngx_dlssnr.dll). Overtime keeps its own copy.",
     'They change only the picture, not the game. DLSS and DLSS 5 cost frames: on an RTX 5080 at 1440p a match ran at about 92 fps with DLSS and 70 with DLSS 5, against 134 with them off.',
     "Kravickas's DLSS work (the motion inputs and the DLSS 5 pass) is in Overtime Native v3, with his credit."] },
-  { head: 'Online', items: ['Multiplayer lobbies play on the default build for everyone, whichever build is chosen here.',
-    'Open matchmaking pairs you with players on the same build.'] },
+  { head: 'Online', items: ['Multiplayer lobbies and open matchmaking play on the build chosen here. Every build in this list plays with every other, on Windows, Linux and macOS.',
+    'Your own shadPS4 plays online too. On an Intel PC it needs the cross-CPU fix (every build in this list has it); without it a lobby pairs you only with players with the same setup.'] },
   { head: 'Source code (GPL-2.0)', items: ['Overtime Native v3: github.com/MatusRiedl/shadPS4, branch overtime-native-v3.',
     'Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
     'Overtime Native v1: github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
@@ -179,30 +180,42 @@ async function addDlssFile(kind) {
   const typed = window.prompt(`The full path of your ${DLSS_FILES[kind][1]}:`, '');
   if (typed && typed.trim()) call('setup_dlss_file_set', kind, typed.trim());
 }
-function DlssFile({ kind, here }) {
+function DlssFile({ kind, here, offered, busy }) {
   const [label, name] = DLSS_FILES[kind];
   return html`<span class="su-bacts">
-    ${here ? html`<span class="su-bal" title=${`Your ${name}, kept in Overtime's folder`}>${label} added</span>
-      <${Button} small kind="link" title=${`Remove Overtime's copy of ${name}`} onClick=${() => call('setup_dlss_file_remove', kind)}>Remove<//>`
-      : html`<${Button} small kind="link" title=${`Choose your own ${name}: Overtime never ships it`} onClick=${() => addDlssFile(kind)}>Add ${label}<//>`}
+    ${here ? html`<span class="su-bal" title=${`${name}, kept in Overtime's folder`}>${label} added</span>
+      <${Button} small kind="link" disabled=${busy} title=${`Remove Overtime's copy of ${name}`} onClick=${() => call('setup_dlss_file_remove', kind)}>Remove<//>`
+      : html`${offered && html`<${Button} small kind="link" disabled=${busy} title=${`Download ${name} from the Overtime server`} onClick=${() => call('setup_dlss_file_get', kind)}>Download<//>`}
+      <${Button} small kind="link" disabled=${busy} title=${`Choose your own ${name}`} onClick=${() => addDlssFile(kind)}>Add ${label}<//>`}
   </span>`;
 }
 function PictureRows({ p, off }) {
   const card = p.gpu ? `Graphics card: ${p.gpu}` : 'Graphics card not found';
+  const offered = p.offered || {};
+  off = off || !!p.getting;           // a DLSS file downloading: the choices wait for it
   const ups = (p.upscalers || []).map((u) => ({ value: u.id, label: u.label,
     disabled: u.id === 'dlss' && !p.can_dlss,
-    title: u.id === 'dlss' ? (p.can_dlss ? 'NVIDIA DLSS with your nvngx_dlss.dll' : 'DLSS needs an NVIDIA RTX card') : undefined }));
+    title: u.id === 'dlss' ? (!p.can_dlss ? 'DLSS needs an NVIDIA RTX card'
+      : p.files.dlss ? 'NVIDIA DLSS with nvngx_dlss.dll'
+      : offered.dlss ? 'NVIDIA DLSS: nvngx_dlss.dll downloads from the Overtime server first'
+      : 'NVIDIA DLSS: add nvngx_dlss.dll first, or the game uses FSR 1') : undefined }));
   return html`<div class="su-state su-res su-pic" title=${card}>
       <span class="su-st">Upscaler</span>
       <${Segmented} options=${ups} value=${p.upscaler} disabled=${off || !p.ready} onChange=${(v) => call('setup_upscaler', v)}/>
-      ${p.can_dlss && html`<${DlssFile} kind="dlss" here=${p.files.dlss}/>`}
+      ${p.can_dlss && html`<${DlssFile} kind="dlss" here=${p.files.dlss} offered=${offered.dlss} busy=${off}/>`}
     </div>
+    ${(p.quality || []).length > 0 && html`<div class="su-state su-res su-pic"
+        title=${p.screen ? `Your screen is ${p.screen} pixels high` : 'Screen size not found: the render resolutions'}>
+      <span class="su-st">DLSS quality</span>
+      <${Segmented} options=${p.quality} value=${p.resolution} disabled=${off} onChange=${(v) => call('setup_resolution', v)}/>
+    </div>`}
     <div class="su-state su-res su-pic" title=${p.can_dlss5 ? card : 'DLSS 5 needs an NVIDIA RTX card'}>
       <span class="su-st">DLSS 5</span>
-      <${Switch} on=${!!p.dlss5} disabled=${off || !p.ready || !p.can_dlss5 || (!p.dlss5 && !p.files.dlss5)}
+      <${Switch} on=${!!p.dlss5} disabled=${off || !p.ready || !p.can_dlss5 || (!p.dlss5 && !p.files.dlss5 && !offered.dlss5)}
         onChange=${(on) => call('setup_dlss5', on)}>Over the picture<//>
-      ${p.can_dlss5 && html`<${DlssFile} kind="dlss5" here=${p.files.dlss5}/>`}
+      ${p.can_dlss5 && html`<${DlssFile} kind="dlss5" here=${p.files.dlss5} offered=${offered.dlss5} busy=${off}/>`}
     </div>
+    ${p.getting && html`<div class="su-news">Downloading the ${p.getting_label} from the Overtime server... ${Math.round((p.progress || 0) * 100)} %</div>`}
     ${(p.notes || []).length > 0 && html`<div class="su-news">${p.notes.join(' ')}</div>`}`;
 }
 
@@ -212,7 +225,7 @@ function BoostCard({ s }) {
   const noEmu = !(s.emulator && s.emulator.path);
   const why = noEmu ? 'Find NHL 19 first' : undefined;
   const shut = () => setView(null);
-  const BUILD_TITLES = { native3: 'Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default, and the lobby build)',
+  const BUILD_TITLES = { native3: 'Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default)',
     native2: 'Overtime Native v1 plus six speed changes (no Picture options)',
     nightly: "Overtime's own build of shadPS4 for NHL 19 (the default until v2)", kravickas: "Kravickas's NHL 19 build" };
   const builds = (b.builds || []).map((x) => ({ value: x.id, label: x.label, title: BUILD_TITLES[x.id] || x.label }));

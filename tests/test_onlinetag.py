@@ -2,12 +2,11 @@
 import json
 import os
 import re
-import sys
 
 import pytest
 
 from overtime_core import gamefiles, xmlpatch
-from overtime_roster.app import crossplay, gamesetup, launch, matchsetup, onlinetag
+from overtime_roster.app import gamesetup, launch, matchsetup, onlinetag
 
 from test_gamesetup import _versioninfo, world  # noqa: F401 (the fixture)
 
@@ -30,15 +29,6 @@ def game(world, monkeypatch):  # noqa: F811
     return world
 
 
-def _pool_remark(inp):
-    """why() on this system: '' on Windows; on Linux and macOS the one remark that players meet their own kind."""
-    if not inp['pool']:
-        return ''
-    name = crossplay.NAMES[sys.platform]
-    return ('Online you meet only players with the same setup: ' + f'{name} players meet {name} players for now (a match '
-            'with Windows players has to be played through first; it is switched on from the server, without an update).')
-
-
 def _key(user, on):
     path = gamesetup.custom_config_path(str(user))
     with open(path, 'w', encoding='utf-8') as f:
@@ -46,14 +36,15 @@ def _key(user, on):
 
 
 def test_the_tag_is_what_the_game_sends_and_the_lobby_takes():
-    t = onlinetag.compute('NHL19_1.60', 'f' * 20, TRUSTED, 'amd')
+    t = onlinetag.compute('NHL19_1.60', 'f' * 20, 'amd')
     assert len(t) == onlinetag.TAG_MAX == 15 and t.startswith('NHL19_1.60-')   # the game sends 15 characters
     assert gamesetup._IDENTITY_TEXT.fullmatch(t)                # never '?' on both sides (the lobby's charset)
-    assert t != 'NHL19_1.60' and t == onlinetag.compute('NHL19_1.60', 'f' * 20, TRUSTED, 'amd')
-    others = {onlinetag.compute('NHL19_1.60', 'e' * 20, TRUSTED, 'amd'), onlinetag.compute('NHL19_1.60', 'f' * 20,
-              '0' * 64, 'amd'), onlinetag.compute('NHL19_1.60', 'f' * 20, TRUSTED, 'intel/nokey')}
-    assert t not in others and len(others) == 3
-    assert onlinetag.compute('NHL19_1.60_long', 'f' * 20, TRUSTED, 'amd')[:11] == 'NHL19_1.60-'   # cut to 15
+    assert t != 'NHL19_1.60' and t == onlinetag.compute('NHL19_1.60', 'f' * 20, 'amd')
+    others = {onlinetag.compute('NHL19_1.60', 'e' * 20, 'amd'), onlinetag.compute('NHL19_1.60', 'f' * 20, 'intel/nokey')}
+    assert t not in others and len(others) == 2
+    assert onlinetag.compute('NHL19_1.60_long', 'f' * 20, 'amd')[:11] == 'NHL19_1.60-'   # cut to 15
+    # 0.99.0 (owner 2026-11-22): no exe sha in the tag, and a new salt, so 0.98.0's tags meet none of these
+    assert onlinetag.SALT == 'overtime-tag-2'
     # the server's "same base" advice splits at the first '-'
     assert t.split('-', 1)[0] == 'NHL19_1.60'
 
@@ -61,7 +52,7 @@ def test_the_tag_is_what_the_game_sends_and_the_lobby_takes():
 def test_the_lobby_takes_the_tag():
     """The server's own charset (overtime_server is not in the public tree: skipped there)."""
     lobby = pytest.importorskip('overtime_server.lobby')
-    t = onlinetag.compute('NHL19_1.60', 'f' * 20, TRUSTED, 'amd')
+    t = onlinetag.compute('NHL19_1.60', 'f' * 20, 'amd')
     assert lobby._GAME_TEXT.fullmatch(t) and lobby._game({'online': t}) == {'online': t}
     assert lobby._GAME_TEXT.pattern == gamesetup._IDENTITY_TEXT.pattern.replace('{1,80}', '{0,80}')
 
@@ -79,11 +70,31 @@ def test_an_intel_pc_on_a_trusted_linux_build_meets_amd_without_the_key():
     assert onlinetag.math_class('0' * 64, 'intel', False, 'linux') == 'intel/nokey'
 
 
+def test_any_exe_with_the_static_pass_is_trusted_like_the_listed_ones():
+    # owner 2026-11-22: the builds of the card's list, and any other exe that holds the static pass
+    assert onlinetag.math_class('0' * 64, 'intel', True, trusted=True) == 'amd'
+    assert onlinetag.math_class('0' * 64, 'intel', True, trusted=False) == 'intel/key'
+    assert onlinetag.math_class('0' * 64, 'amd', False, trusted=False) == 'amd'
+
+
+def test_has_cpu_pass_finds_both_strings_also_across_a_block_edge(tmp_path):
+    onlinetag._PASS.clear()
+    log, key = onlinetag.CPU_PASS_MARKS
+    yes = tmp_path / 'yes.exe'
+    yes.write_bytes(b'MZ' + b'\0' * ((1 << 20) - 5) + log + b'\0' * 100 + key + b'\0')    # log text across the 1 MiB edge
+    no = tmp_path / 'no.exe'
+    no.write_bytes(b'MZ' + log + b'\0' * 10)                  # the log text without the key: not the pass
+    assert onlinetag.has_cpu_pass(str(yes)) and not onlinetag.has_cpu_pass(str(no))
+    assert not onlinetag.has_cpu_pass(str(tmp_path / 'missing.exe')) and not onlinetag.has_cpu_pass(None)
+    no.write_bytes(b'MZ' + log + key)                           # rewritten: looked at again (size and time)
+    assert onlinetag.has_cpu_pass(str(no))
+
+
 def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd():
-    """0.82.0 moves Boost and lobbies to 749170d; an Intel player still on b23fb67 (own Boost copy) keeps the AMD class,
-    so the builds' tags differ only by the exe (the server's pin sets which one lobbies play). 0.90.0 adds Overtime's
-    smooth build on 749170d (same CPU math); 0.90.2 the upstream nightly 4788f0b (redzone patches merged upstream); 0.92.0
-    Kravickas's nhl-test d334436 and Overtime's nightly on 4788f0b (flip fix, no CPU math change)."""
+    """0.82.0 moves Boost and lobbies to 749170d; an Intel player still on b23fb67 (own Boost copy) keeps the AMD class.
+    0.90.0 adds Overtime's smooth build on 749170d (same CPU math); 0.90.2 the upstream nightly 4788f0b (redzone patches
+    merged upstream); 0.92.0 Kravickas's nhl-test d334436 and Overtime's nightly on 4788f0b (flip fix, no CPU math
+    change). Until 0.98.0 each exe was a tag of its own; from 0.99.0 the exe is not in the tag (owner 2026-11-22)."""
     assert sorted(onlinetag.TRUSTED_EXES.values()) == ['Kravickas NHL19-Build 749170d', 'Kravickas NHL19-Build b23fb67',
                                                       'Kravickas nhl-test d334436',
                                                       # 2026-11-13: + the collector's ages in seconds (texture cache)
@@ -107,14 +118,11 @@ def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd()
     # owner 2026-11-21: Overtime Native v3 is the Windows online build (v2 from 2026-11-16, still Linux's and macOS's and
     # older Windows apps'; v1, ours_gc, from 2026-11-13); every other trusted exe is another tag
     assert list(onlinetag.ONLINE_EXES) == [v3, v2, v2_linux, v2_mac]
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, v3, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, v2, 'amd')
     assert all(onlinetag.ONLINE_EXES[sha] == onlinetag.TRUSTED_EXES[sha] for sha in onlinetag.ONLINE_EXES)
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, v2, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, ours_gc, 'amd')
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, ours_gc, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, ours, 'amd')
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, krav_test, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, ours, 'amd')
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, nightly, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, new, 'amd')
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, smooth, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, new, 'amd')
-    assert onlinetag.compute('NHL19_1.60', 'f' * 20, new, 'amd') != onlinetag.compute('NHL19_1.60', 'f' * 20, old, 'amd')
+    # each of them on Intel with the key: the AMD class, so one tag for all
+    assert {onlinetag.compute('NHL19_1.60', 'f' * 20, onlinetag.math_class(sha, 'intel', True))
+            for sha in (new, old, krav_test, ours_gc, v2, v2_linux, v2_mac, v3, ours, smooth, nightly)} \
+        == {onlinetag.compute('NHL19_1.60', 'f' * 20, 'amd')}
 
 
 def test_apply_writes_the_tag_and_the_game_reads_it(game):
@@ -122,7 +130,7 @@ def test_apply_writes_the_tag_and_the_game_reads_it(game):
     own = (game['game'] / 'nhl' / 'data' / 'kettle' / 'config' / 'na_versioninfo.ini').read_bytes()
     t, inp = onlinetag.apply(emu, gd)
     assert t and t == onlinetag.tag(inp) == onlinetag.sent(onlinetag.start_inputs(emu, gd))
-    assert inp['crossvendor'] and inp['math'] == 'amd' and onlinetag.why(inp) == _pool_remark(inp)
+    assert inp['crossvendor'] and inp['math'] == 'amd' and onlinetag.why(inp) == ''
     assert gamesetup.online_version(gd) == ('na', t)
     assert gamesetup.online_version(gd, mods=False) == ('na', 'NHL19_1.60')    # the base stays the game's own
     with open(game['ini'], 'rb') as f:
@@ -186,31 +194,28 @@ def test_a_game_without_versioninfo_gets_no_tag(world):  # noqa: F811
     assert t is None and onlinetag.sent(inp) == '?' and not os.path.exists(gamefiles.mods_dir(str(world['game'])))
 
 
-def test_an_unknown_eboot_or_another_exe_meets_only_its_own_kind(game, monkeypatch):
+def test_an_unknown_eboot_meets_only_its_own_kind_and_any_exe_on_amd_meets_everyone(game, monkeypatch):
     gd, emu = str(game['game']), str(game['emu'])
     good = onlinetag.start_inputs(emu, gd)
+    monkeypatch.setattr(onlinetag, 'exe_sha', lambda path: '0' * 64)      # a build nobody knows (0.99.0: any build)
+    other = onlinetag.start_inputs(emu, gd)
+    assert not other['trusted'] and other['math'] == 'amd'
+    assert onlinetag.tag(other) == onlinetag.tag(good) and onlinetag.why(other) == ''
     with open(game['patch'], 'w', encoding='utf-8', newline='') as f:
         f.write(xmlpatch.build(*SERVER, features=xmlpatch.NO_CROSSVENDOR))
     bare = onlinetag.start_inputs(emu, gd)
     assert onlinetag.tag(bare) != onlinetag.tag(good) and 'v1.60 eboot.bin' in onlinetag.why(bare)
-    monkeypatch.setattr(onlinetag, 'exe_sha', lambda path: '0' * 64)
-    other = onlinetag.start_inputs(emu, gd)
-    assert onlinetag.tag(other) != onlinetag.tag(bare) and 'Boost performance' in onlinetag.why(other)
-    assert 'choose Overtime Native' in onlinetag.why(other)
 
 
-def test_only_overtime_native_is_the_online_build(game, monkeypatch):
-    # owner 2026-11-13 (0.92.0): Overtime Native is the default and lobby build; a Kravickas player is told they meet
-    # their own build, and nobody is sent to Kravickas any more
+def test_every_listed_build_meets_the_default_one(game, monkeypatch):
+    # owner 2026-11-22 (0.99.0): players choose their build; a Kravickas player meets an Overtime Native one
     gd, emu = str(game['game']), str(game['emu'])
     native = onlinetag.start_inputs(emu, gd)
-    assert onlinetag.why(native) == _pool_remark(native)
+    assert onlinetag.why(native) == ''
     krav = next(s for s, n in onlinetag.TRUSTED_EXES.items() if n == 'Kravickas nhl-test d334436')
     monkeypatch.setattr(onlinetag, 'exe_sha', lambda path: krav)
     other = onlinetag.start_inputs(emu, gd)
-    said = onlinetag.why(other)
-    assert onlinetag.tag(other) != onlinetag.tag(native) and other['math'] == native['math'] == 'amd'
-    assert f'does not run the {onlinetag.ONLINE_LABEL} build' in said and 'Nightly' not in said and 'choose' not in said
+    assert onlinetag.tag(other) == onlinetag.tag(native) and onlinetag.why(other) == ''
 
 
 @pytest.mark.windows_only
@@ -225,6 +230,28 @@ def test_intel_meets_amd_only_with_the_key_on_the_trusted_build(game, monkeypatc
     _key(game['user'], False)
     off = onlinetag.start_inputs(emu, gd)
     assert onlinetag.tag(off) != amd and 'AMD math is off' in onlinetag.why(off)
+
+
+@pytest.mark.windows_only
+def test_intel_on_an_unknown_exe_meets_amd_only_with_the_static_pass(game, monkeypatch):
+    """Owner 2026-11-22: a build outside the card's list is scanned for the static pass; without it an Intel PC stays
+    apart (its CPU math differs), with it the Intel PC meets AMD players as on a listed build."""
+    gd, emu = str(game['game']), str(game['emu'])
+    amd = onlinetag.tag(onlinetag.start_inputs(emu, gd))
+    monkeypatch.setattr(gamesetup, 'cpu_vendor', lambda: 'intel')
+    monkeypatch.setattr(gamesetup, 'WINDOWS', True)
+    monkeypatch.setattr(onlinetag, 'exe_sha', lambda path: '0' * 64)
+    _key(game['user'], True)
+    onlinetag._PASS.clear()
+    with open(emu, 'wb') as f:
+        f.write(b'MZ an older shadPS4')
+    lacking = onlinetag.start_inputs(emu, gd)
+    assert onlinetag.tag(lacking) != amd and lacking['math'] == 'intel/key'
+    assert 'lacks the cross-CPU pass' in onlinetag.why(lacking) and 'Boost performance' in onlinetag.why(lacking)
+    with open(emu, 'wb') as f:
+        f.write(b'MZ ' + b' '.join(onlinetag.CPU_PASS_MARKS))
+    passing = onlinetag.start_inputs(emu, gd)
+    assert onlinetag.tag(passing) == amd and passing['trusted'] and onlinetag.why(passing) == ''
 
 
 def test_ready_and_the_match_start_make_the_same_tag(game, monkeypatch, tmp_path):
@@ -261,7 +288,7 @@ def test_text_with_keeps_the_line_ends_and_skips_comments():
 def test_launch_start_writes_the_tag_and_refuses_when_a_stale_one_cannot_go(game, monkeypatch):
     gd, emu = str(game['game']), str(game['emu'])
     launch.start(emu, gd, running=lambda: False, popen=lambda cmd, **kw: 'proc')
-    assert re.fullmatch(r'NHL19_1\.6' + (crossplay.pool() or '0') + r'-[0-9A-Za-z]{4}', gamesetup.online_version(gd)[1])
+    assert re.fullmatch(r'NHL19_1\.60-[0-9A-Za-z]{4}', gamesetup.online_version(gd)[1])     # no system letter (0.99.0)
 
     def broken(*a, **k):
         raise OSError('denied')

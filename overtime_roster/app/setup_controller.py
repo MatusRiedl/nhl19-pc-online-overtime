@@ -152,6 +152,31 @@ V2_MOVE = 'v2_moved'     # setup pref: a player on Overtime Native v1 (the old d
 V3_MOVE = 'v3_moved'     # setup pref: a player on Overtime Native v2 (the old default) was put on v3 once (0.99.0)
 # the Boost card's Picture block (Overtime Native v3, 0.99.0): the upscaler choices and the player's DLSS files
 UPSCALERS = {'off': 'Off', 'fsr1': 'FSR 1', 'dlss': 'DLSS'}
+# DLSS quality (owner 2026-11-22): NVIDIA's modes by render height / screen height (DLAA 1, Quality 0.667, Balanced
+# 0.58, Performance 0.5, Ultra Performance 0.333), each ratio named by the first mode it reaches
+DLSS_MODES = ((0.99, 'DLAA'), (0.62, 'Quality'), (0.54, 'Balanced'), (0.42, 'Performance'), (0.0, 'Ultra Performance'))
+
+
+def dlss_quality(screen):
+    """The Picture block's DLSS quality choices for a screen `screen` px high: [{value, label, title}] of the
+    Resolution values (the game's render height) that fit it, named by the DLSS mode of their ratio (with the height
+    when two share a mode); plain resolutions when `screen` is None. DLSS scales the render up to the window, so a
+    pick is a Resolution pick (setup_resolution): no emulator key of its own."""
+    rows = []
+    for h in xmlpatch.RESOLUTIONS:
+        if screen and h > screen:
+            continue
+        size = f'{h * 16 // 9}x{h}'
+        if screen:
+            mode = next(name for at, name in DLSS_MODES if h / screen >= at)
+            rows.append({'value': h, 'label': mode, 'title': f'Renders at {size}; DLSS scales it up to your screen'})
+        else:
+            rows.append({'value': h, 'label': f'{h}p', 'title': f'Renders at {size}; DLSS scales it up to your window'})
+    names = [r['label'] for r in rows]
+    for r in rows:
+        if screen and names.count(r['label']) > 1:
+            r['label'] = f"{r['label']} {r['value']}p"
+    return rows
 DLSS_FILE_KINDS = {'dlss': ('DLSS file', 'nvngx_dlss.dll'), 'dlss5': ('DLSS 5 file', 'nvngx_dlssnr.dll')}
 
 
@@ -176,7 +201,8 @@ class SetupController(Part):
              'setup_cpu_check': 'cpu_check', 'setup_cpu_send': 'cpu_send',
              'setup_folder_pick': 'folder_pick', 'setup_folder_set': 'folder_set', 'setup_folder_auto': 'folder_auto',
              'setup_upscaler': 'setup_upscaler', 'setup_dlss5': 'setup_dlss5', 'setup_dlss_file': 'setup_dlss_file',
-             'setup_dlss_file_set': 'setup_dlss_file_set', 'setup_dlss_file_remove': 'setup_dlss_file_remove'}
+             'setup_dlss_file_set': 'setup_dlss_file_set', 'setup_dlss_file_remove': 'setup_dlss_file_remove',
+             'setup_dlss_file_get': 'setup_dlss_file_get'}
     TAB = 'setup'
 
     def __init__(self, ctl):
@@ -220,6 +246,8 @@ class SetupController(Part):
         self.boost = {'emulator': old.get('emulator') or '', 'sha': sha}
         self.boost_part = None  # how far a build's download is (0..1)
         self.boost_getting = ''     # the label of the build downloading
+        self.dlss_getting = ''      # the DLSS file downloading from the Overtime server ('dlss', 'dlss5'), and how far
+        self.dlss_part = None
         # the data folders (normcased) that got PS4 Pro mode and Shader cache once (emusettings.apply_defaults)
         self.defaults_done = [d for d in prefs.get('defaults_done') or [] if isinstance(d, str)]
         self.cpu = dict(CPU_IDLE)   # Check my CPU (cpucheck.py): the run and its last result, this session only
@@ -1453,39 +1481,42 @@ class SetupController(Part):
         self._use_build(build, exe)
 
     def online_boost(self, note=None):
-        """Before every online Ready in a lobby (multiplayer_ctl): NHL 19 on the published lobby build (boost.DEFAULT:
-        Overtime Native v3 on Windows from 0.99.0, v2 from 2026-11-16, v1 from 0.92.0, Kravickas before), switched on or
-        brought up to date with no
-        click (owner 2026-11-08: "we just handle all things for him"). Lockstep play needs the same shadPS4 on both
-        PCs. The build chosen on the card stays chosen: the next Play starts it again. Waits for the download. Returns
-        what it did: 'on', 'already', or why not ('none published', a refusal); the lobby compares what is there either
-        way."""
+        """Before every online Ready in a lobby (multiplayer_ctl): NHL 19 on what Play would start (_play_exe): the
+        build chosen on the card, switched on or brought up to date with no click (owner 2026-11-08: "we just handle
+        all things for him"), or the player's own portable shadPS4 as it is. Any build plays online from 0.99.0 (owner
+        2026-11-22: the tag holds no exe sha, onlinetag); before, every lobby switched to boost.DEFAULT. Kravickas's
+        build that is here plays as it is (its newest only on Get newest). Waits for a download. Returns what it did:
+        'on', 'already', or why not ('none published', a refusal); the lobby compares the tags either way."""
         c = self.ctl
-        k = boost.DEFAULT
-        pub = (self.boost_table or {}).get(boost.LOBBY_PACK)
-        current = self.known_emulator()
-        on = boost.build_of(current) == k
-        if on and (pub is None or pub.digest == self.boost['sha'].get(k)):
+        exe, k, _why = self._play_exe()
+        if k is None:                   # the player's own portable shadPS4
             return 'already'
-        if pub is None:
+        current = self.known_emulator()
+        if exe and boost.build_of(current) == k:    # here, on, and nothing newer to get
+            return 'already'
+        pub = self._published(k)
+        if not exe and pub is None:
             return 'none published'
         no = boost.refused(current, True)
         with c.lock:
             if not no and c.busy:
                 no = waiting(c.busy)
-            if not no:
-                c.busy = 'Getting the NHL 19 build of shadPS4 for online play...'
+            if not no and not exe:
+                c.busy = f'Getting the {self._build_label(k)} build of shadPS4 for online play...'
                 self.boost_getting = self._build_label(k)
         if no:
             c.host.log(f'Online: the {self._build_label(k)} build not switched on ({no})')
             return no
+        if exe:                         # here and current: only switched on
+            self._use_build(k, exe)
+            return 'on'
 
         def progress(_name, done, total):
             part = min(1.0, done / total) if total else 0.0
             with c.lock:
                 self.boost_part = part
             if note:
-                note(f'Getting the NHL 19 build of shadPS4 for online play... {round(part * 100)} %')
+                note(f'Getting the {self._build_label(k)} build of shadPS4 for online play... {round(part * 100)} %')
             c.changed('setup', 'app')
         try:
             self._boost_applied(k, boost.install(k, patch_cache(), progress))
@@ -1562,19 +1593,84 @@ class SetupController(Part):
             chosen, fsr, dlss5 = '', False, False
         upscaler = chosen if chosen in UPSCALERS else ('fsr1' if fsr else 'off')
         files = {k: bool(dlssfiles.here(k)) for k in DLSS_FILE_KINDS}
+        offered = {k: self._dlss_offered(k) is not None for k in DLSS_FILE_KINDS}
+        with self.ctl.lock:
+            getting, part = self.dlss_getting, self.dlss_part
+        screen = gpuinfo.screen_height() if upscaler == 'dlss' and gpu['dlss'] else None
         notes = []
         if upscaler == 'dlss' and not gpu['dlss']:
             notes.append('DLSS needs an NVIDIA RTX card: the game uses FSR 1 on this PC.')
-        elif upscaler == 'dlss' and not files['dlss']:
-            notes.append('DLSS needs your nvngx_dlss.dll: add it, or the game uses FSR 1.')
+        elif upscaler == 'dlss' and not files['dlss'] and getting != 'dlss':
+            notes.append('DLSS needs nvngx_dlss.dll: press Download beside it, or add your own. Until then the game '
+                         'uses FSR 1.' if offered['dlss'] else
+                         'DLSS needs nvngx_dlss.dll: add your own, or the game uses FSR 1.')
         if dlss5 and not files['dlss5']:
-            notes.append('DLSS 5 needs your nvngx_dlssnr.dll: add it, or DLSS 5 stays off.')
-        if dlss5 and gpu['dlss5_compat']:
+            notes.append('DLSS 5 needs nvngx_dlssnr.dll: add your own, or DLSS 5 stays off.')
+        if dlss5 and gpu['dlss5_compat'] and files['dlss5'] and not dlssfiles.downloaded('dlss5'):
             notes.append(f"On an RTX {gpu['rtx']} card DLSS 5 needs the compat build of nvngx_dlssnr.dll.")
         return {'gpu': gpu['name'], 'rtx': gpu['rtx'], 'can_dlss': gpu['dlss'], 'can_dlss5': gpu['dlss5'],
                 'dlss5_compat': gpu['dlss5_compat'], 'upscaler': upscaler,
                 'upscalers': [{'id': k, 'label': v} for k, v in UPSCALERS.items()],
-                'dlss5': dlss5, 'files': files, 'notes': notes, 'ready': bool(user)}
+                'dlss5': dlss5, 'files': files, 'offered': offered, 'notes': notes, 'ready': bool(user),
+                'getting': getting, 'getting_label': DLSS_FILE_KINDS[getting][0] if getting else '',
+                'progress': part, 'screen': screen or 0,
+                'quality': dlss_quality(screen) if upscaler == 'dlss' and gpu['dlss'] else [],
+                'resolution': self.resolution}
+
+    def _dlss_offered(self, kind):
+        """The Overtime server's DLSS file of `kind` (its packdownload Release, from the last look), or None: the
+        server has none now (never uploaded, or taken off: owner 2026-11-22), or it did not answer."""
+        return (self.boost_table or {}).get(dlssfiles.FILES[kind]['name'])
+
+    def _dlss_download(self, kind):
+        """True when switching on `kind` downloads its file first: an RTX card that can run it, no file here, and the
+        Overtime server offers one."""
+        can = self._gpu_info()['dlss' if kind == 'dlss' else 'dlss5']
+        return bool(can) and not dlssfiles.here(kind) and self._dlss_offered(kind) is not None
+
+    def _fetch_dlss(self, kind, save, always=False):
+        """Download the DLSS file of `kind` from the Overtime server in a job (the Help bar and the Picture block say
+        how far), then save() -> {'ok'} / {'error'} stores the choice that needs it. `always`: also when the download
+        failed (the upscaler: the game uses FSR 1 until the file is here, as with no file before)."""
+        c, label = self.ctl, DLSS_FILE_KINDS[kind][0]
+        if self._wait():
+            return {'error': waiting(c.busy)}
+        table = self.boost_table
+
+        def progress(_name, done, total):
+            part = min(1.0, done / total) if total else 0.0
+            with c.lock:
+                self.dlss_part = part
+            c.say(f'Downloading the {label}... {round(part * 100)} %', 'info', part)
+            c.changed('setup')
+
+        def work():
+            with c.lock:
+                self.dlss_getting, self.dlss_part = kind, 0.0
+            try:
+                kept = dlssfiles.fetch(kind, progress, table)
+            except dlssfiles.DlssFileError as err:
+                if not always:
+                    raise
+                return str(err)
+            c.host.log(f'{label} downloaded: {kept}')
+            if kind == 'dlss':
+                dlssfiles.place_beside(boost.exe_path(boost.NATIVE3))
+            return ''
+
+        def said(why):
+            out = save()
+            if why:
+                c.host.log(f'{label} not downloaded: {why}')
+                return f'{label} not downloaded: {why}', 'caution'
+            return ('', '') if out.get('ok') else (out.get('error') or '', 'caution')
+
+        def after():
+            with c.lock:
+                self.dlss_getting, self.dlss_part = '', None
+        self._job(f'Downloading the {label} from the Overtime server...', work, said,
+                  expected=(dlssfiles.DlssFileError,), rescan=False, after=after)
+        return {'ok': True, 'downloading': kind}
 
     def _save_picture(self, changes, said):
         user = self._emu_user()
@@ -1598,12 +1694,17 @@ class SetupController(Part):
         follows (on for FSR 1), so the other builds keep the same choice where they can."""
         if value not in UPSCALERS:
             return {'error': f'no upscaler {value}'}
-        return self._save_picture({'GPU.upscaler': value, 'GPU.fsr_enabled': value == 'fsr1'},
-                                  f'Upscaler: {UPSCALERS[value]}')
+        changes, said = {'GPU.upscaler': value, 'GPU.fsr_enabled': value == 'fsr1'}, f'Upscaler: {UPSCALERS[value]}'
+        if value == 'dlss' and self._dlss_download('dlss'):     # its file from the Overtime server first (0.99.0)
+            return self._fetch_dlss('dlss', lambda: self._save_picture(changes, said), always=True)
+        return self._save_picture(changes, said)
 
     def setup_dlss5(self, on):
-        """The Picture block's DLSS 5 switch: on only with the player's DLSS 5 file added (its path goes in the config)."""
+        """The Picture block's DLSS 5 switch: on only with a DLSS 5 file here (its path goes in the config). Turned on
+        with none, it downloads the Overtime server's first (0.99.0), else the player adds their own."""
         on = bool(on)
+        if on and self._dlss_download('dlss5'):
+            return self._fetch_dlss('dlss5', lambda: self.setup_dlss5(True))
         kept = dlssfiles.here('dlss5')
         if on and not kept:
             return {'error': 'Add your DLSS 5 file (nvngx_dlssnr.dll) first.'}
@@ -1611,8 +1712,8 @@ class SetupController(Part):
                                   f"DLSS 5: {'on' if on else 'off'}")
 
     def setup_dlss_file(self, kind):
-        """Add DLSS file / Add DLSS 5 file: Windows' picker, then the file is copied into the app's folder (Overtime never
-        ships it). {type: true} in browser mode (the page asks for the path)."""
+        """Add DLSS file / Add DLSS 5 file: Windows' picker, then the player's own file is copied into the app's folder
+        (in place of the Overtime server's download). {type: true} in browser mode (the page asks for the path)."""
         if kind not in DLSS_FILE_KINDS:
             return {'error': f'no DLSS file {kind}'}
         label, name = DLSS_FILE_KINDS[kind]
@@ -1624,10 +1725,31 @@ class SetupController(Part):
             return {'cancelled': True}
         return self.setup_dlss_file_set(kind, path)
 
+    def setup_dlss_file_get(self, kind):
+        """Download beside Add DLSS file: the Overtime server's copy now (after a first try that failed, or once the
+        server offers one). The choice that needs it was saved already; it takes the file from NHL 19's next start."""
+        if kind not in DLSS_FILE_KINDS:
+            return {'error': f'no DLSS file {kind}'}
+        label, name = DLSS_FILE_KINDS[kind]
+        if dlssfiles.here(kind):
+            return {'ok': True}
+        if self._dlss_offered(kind) is None:
+            text = f'The Overtime server does not offer {name} now. Add your own copy.'
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+
+        def saved():
+            self.ctl.say(f'{label} downloaded. NHL 19 uses it from its next start.', 'good')
+            self.ctl.changed('setup')
+            return {'ok': True}
+        return self._fetch_dlss(kind, saved)
+
     def setup_dlss_file_set(self, kind, path):
         """The DLSS file of `kind` from `path` (the picker's, or typed in browser mode)."""
         if kind not in DLSS_FILE_KINDS:
             return {'error': f'no DLSS file {kind}'}
+        if self._wait():                # a download of it may be writing the same file
+            return {'error': waiting(self.ctl.busy)}
         label = DLSS_FILE_KINDS[kind][0]
         try:
             kept = dlssfiles.add(kind, str(path or '').strip().strip('"'))
@@ -1652,6 +1774,8 @@ class SetupController(Part):
         """Remove beside an added DLSS file: the app's copy goes (DLSS falls back to FSR 1, DLSS 5 goes off)."""
         if kind not in DLSS_FILE_KINDS:
             return {'error': f'no DLSS file {kind}'}
+        if self._wait():
+            return {'error': waiting(self.ctl.busy)}
         label = DLSS_FILE_KINDS[kind][0]
         try:
             dlssfiles.remove(kind, (boost.exe_path(boost.NATIVE3),) if kind == 'dlss' else ())

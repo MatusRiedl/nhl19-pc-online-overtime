@@ -15,6 +15,7 @@ _RTX = re.compile(r'\bRTX\s*(\d{4})\b', re.I)
 # compat file), DLSS frame generation from RTX 40
 DLSS_FROM, DLSS5_FROM, FG_FROM = 20, 20, 40
 DLSS5_NATIVE_FROM = 50      # RTX 50 runs NVIDIA's own DLSS 5 file; RTX 20/30/40 need the compat build
+DESKTOPVERTRES = 117        # GetDeviceCaps: the screen's height in real pixels, whatever the Windows scaling
 
 
 def rtx_generation(name):
@@ -54,6 +55,29 @@ def adapter_names(winreg=None):
             if isinstance(name, str) and name.strip() and name.strip() not in names:
                 names.append(name.strip())
     return names
+
+
+def screen_height():
+    """The primary screen's height in pixels on Windows (GetDeviceCaps DESKTOPVERTRES: real pixels, also at 125 % or
+    150 % scaling), for the DLSS quality choice; None on other systems or when it does not read."""
+    if sys.platform != 'win32':
+        return None
+    try:
+        import ctypes
+        user32, gdi32 = ctypes.WinDLL('user32'), ctypes.WinDLL('gdi32')     # own handles: no global prototypes
+        user32.GetDC.restype, user32.GetDC.argtypes = ctypes.c_void_p, (ctypes.c_void_p,)
+        user32.ReleaseDC.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+        gdi32.GetDeviceCaps.argtypes = (ctypes.c_void_p, ctypes.c_int)
+        hdc = user32.GetDC(None)
+        if not hdc:
+            return None
+        try:
+            height = gdi32.GetDeviceCaps(hdc, DESKTOPVERTRES)
+        finally:
+            user32.ReleaseDC(None, hdc)
+    except (OSError, AttributeError, ValueError):
+        return None
+    return height if isinstance(height, int) and height > 0 else None
 
 
 def info(names=None):

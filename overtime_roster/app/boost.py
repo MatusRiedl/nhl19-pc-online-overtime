@@ -1,7 +1,7 @@
 """The shadPS4 builds the app plays with (Setup's Boost performance card, the header's Play NHL 19 button). Three builds,
 each a pack pinned by its sha256 (the release host's latest.json; Kravickas's: his GitHub's), never in the exe (owner
 2026-11-11, 0.90.2; order, default and packs from 0.92.0, owner 2026-11-13; v2 from 2026-11-16; v3 from 0.99.0):
-- 'native3', shown as "Overtime Native v3" (Windows: the default, first in the dropdown, the lobby build; owner
+- 'native3', shown as "Overtime Native v3" (Windows: the default, first in the dropdown; owner
   2026-11-21): v2 plus the Picture options, each off until the player turns it on: DLSS, DLSS 5, the motion inputs they
   read (Kravickas's DLSS branch; fork branch overtime-native-v3, docs/notes/native-v3.md) (packdownload.NATIVE3_PACK);
 - 'native2', shown as "Overtime Native v2" (the default and lobby build from 0.95.0 to 0.98.0, and still on Linux and

@@ -640,7 +640,7 @@ class MultiplayerCtl(Part):
 
     def _tag_inputs(self, plan, emu):
         """onlinetag inputs of the next start (launch.start writes the tag of the same inputs). A lobby match: the match
-        patch, the lobby build (_ready_job switched it on before Ready), the key the match config gets."""
+        patch, the chosen build (_ready_job brought it up to date before Ready), the key the match config gets."""
         game_dir = self.ctl.game_dir
         if plan is None:
             return onlinetag.start_inputs(emu, game_dir)
@@ -648,16 +648,22 @@ class MultiplayerCtl(Part):
         text = matchsetup.match_xml(plan['recipe'], self._own_text())
         return onlinetag.match_inputs(emu, game_dir, text, run)
 
-    @staticmethod
-    def _lobby_exe():
-        """The lobby build's shadPS4 when it is on this PC, else None. Every lobby match plays on boost.DEFAULT
-        (Overtime Native v3 on Windows from 0.99.0, owner 2026-11-21; v2 from 2026-11-16 and still on Linux and macOS;
-        before, the copy the server pinned, onlineemu): the server's pin is not
-        read. Without it here the game starts on the player's own build, and the lobby compares the tags."""
-        return boost.here(boost.DEFAULT) or None
+    def _lobby_exe(self):
+        """The shadPS4 a lobby match starts: what Play would start (Setup._play_exe: the player's own portable
+        shadPS4, else the build chosen on the Boost card) when it is on this PC, else None (the app's shadPS4 starts).
+        Any build plays online from 0.99.0 (owner 2026-11-22: the tag holds no exe sha, onlinetag); before, every lobby
+        played boost.DEFAULT, and before 2026-11-16 the copy the server pinned (onlineemu; the pin is not read)."""
+        play = getattr(self.ctl.setup, '_play_exe', None)
+        if play is None:            # a bare Setup (tests)
+            return None
+        try:
+            return play()[0] or None
+        except Exception as err:    # noqa: BLE001
+            jobs.log_block(err, 'The shadPS4 for a lobby match')
+            return None
 
     def _lobby_build(self, note=None):
-        """The lobby build switched on and up to date (Setup.online_boost, waits for a download). '' or why not."""
+        """The chosen build switched on and up to date (Setup.online_boost, waits for a download). '' or why not."""
         setup = self.ctl.setup
         if not hasattr(setup, 'online_boost'):      # a bare Setup (tests): nothing to prepare
             return ''
@@ -667,9 +673,9 @@ class MultiplayerCtl(Part):
             jobs.log_block(err, 'Lobby build before an online Ready')
             got = 'it did not install'
         if got == 'none published':
-            return 'the NHL 19 build of shadPS4 is not on the Overtime server right now'
+            return 'the shadPS4 build chosen on the Boost card is not on its server right now'
         if got not in ('on', 'already'):
-            return f'the NHL 19 build of shadPS4 could not be switched on ({str(got).rstrip(".")})'
+            return f'the shadPS4 build chosen on the Boost card could not be switched on ({str(got).rstrip(".")})'
         return ''
 
     def _restore(self, note_on_fail=True, only=None):
@@ -690,8 +696,8 @@ class MultiplayerCtl(Part):
 
     def ready(self, value=True):
         """Ready: first the game is made fit for online play with no click (owner 2026-11-08: "we just handle all
-        things for him"): the published lobby build of shadPS4 (Setup.online_boost: boost.DEFAULT, in every
-        lobby), the patch file of this version (patch_ctl.refresh_network) and, for a game without the patch, the eboot
+        things for him"): the shadPS4 build chosen on the Boost card, up to date (Setup.online_boost; any build plays
+        online from 0.99.0), the patch file of this version (patch_ctl.refresh_network) and, for a game without the patch, the eboot
         patch alone (patch_ctl.online_minimum). Then the lobby is told. A job: the card shows what it does (`prep`)."""
         with self.mlock:
             code, token = self.code, self.token
@@ -717,7 +723,7 @@ class MultiplayerCtl(Part):
         try:
             plan = self._match_plan()
             if plan is not None:            # 0.80 pair: the lobby build; nothing else of the player's own setup changes
-                self._prep_note('Getting the lobby build of shadPS4 ready...')
+                self._prep_note('Getting your shadPS4 build ready...')
                 # not under a running game (a Next round): the match start switches it on once the game is closed
                 self.prep_why = '' if self.running() else self._lobby_build(self._prep_note)
                 return self._send_ready(code, token, True)
@@ -1511,7 +1517,7 @@ class MultiplayerCtl(Part):
                 return
             self._restart_for_hook('Restarting NHL 19 for the match...')
         self._phase('setup', 'Setting up the match (your own setup comes back after)...')
-        self._lobby_build()         # NHL 19 is closed now: on the lobby build (Ready skipped it under a running game)
+        self._lobby_build()         # NHL 19 is closed now: the chosen build (Ready skipped it under a running game)
         exe = self._lobby_exe()
         try:
             with patch_ctl.game_writes(c, 'Setting up the match...'):   # not beside a Patch (SetupError)

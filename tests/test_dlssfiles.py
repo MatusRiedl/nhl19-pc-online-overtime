@@ -119,3 +119,146 @@ def test_a_player_on_v2_moves_to_v3_once(sc, monkeypatch):
     assert moved.build == (boost.NATIVE3 if boost.DEFAULT == boost.NATIVE3 else boost.NATIVE2)
     ctl.prefs['setup'] = {'build': boost.NATIVE2, 'rebuild': SC.REBUILD, SC.V2_MOVE: True, SC.V3_MOVE: True}
     assert SC.SetupController(ctl).build == boost.NATIVE2      # chosen again after the move: it stays
+
+
+# --- the Overtime server's copies (owner 2026-11-22): downloaded the first time a choice needs one --------------------
+def serve(root, files):
+    """A release folder whose latest.json lists `files` ({name: bytes}) as packs; its URL."""
+    import hashlib
+    import pathlib
+    (root / 'packs').mkdir(parents=True, exist_ok=True)
+    packs, sums = {}, ''
+    for name, data in files.items():
+        (root / 'packs' / name).write_bytes(data)
+        sha = hashlib.sha256(data).hexdigest()
+        packs[name] = {'file': f'packs/{name}', 'sha256': sha, 'size': len(data)}
+        sums += f'{sha}  packs/{name}\n'
+    (root / 'latest.json').write_text(json.dumps({'version': '0.99.0', 'packs': packs}))
+    (root / 'SHA256SUMS.txt').write_text(sums)
+    return pathlib.Path(root / 'latest.json').as_uri()
+
+
+def test_fetch_downloads_the_served_file_into_the_apps_folder(home):
+    from overtime_roster.app import packdownload
+    assert set(packdownload.PICTURE_PACKS) == {'nvngx_dlss.dll', 'nvngx_dlssnr.dll'}
+    assert not set(packdownload.PICTURE_PACKS) & (set(packdownload.TOOL_PACKS) | set(packdownload.PACKS))
+    url = serve(home / 'release', {'nvngx_dlssnr.dll': DLL})
+    seen = []
+    got = dlssfiles.fetch('dlss5', lambda name, done, total: seen.append((name, done, total)), url)
+    assert got == dlssfiles.path('dlss5') == dlssfiles.here('dlss5') and open(got, 'rb').read() == DLL
+    assert seen[-1] == ('nvngx_dlssnr.dll', len(DLL), len(DLL)) and dlssfiles.downloaded('dlss5')
+    assert sorted(os.listdir(os.path.dirname(got))) == ['nvngx_dlssnr.dll', packdownload.RECORD]   # one copy
+    dlssfiles.add('dlss5', dll(home / 'mine', 'nvngx_dlssnr.dll', DLL + b'own'))
+    assert not dlssfiles.downloaded('dlss5')            # the player's own copy since
+    with pytest.raises(dlssfiles.DlssFileError, match='does not offer nvngx_dlss.dll'):
+        dlssfiles.fetch('dlss', release=url)            # taken off the server (or never put there)
+    bad = serve(home / 'bad', {'nvngx_dlss.dll': b'PK' + DLL[2:]})
+    with pytest.raises(dlssfiles.DlssFileError, match='not a DLSS file'):
+        dlssfiles.fetch('dlss', release=bad)
+    assert not dlssfiles.here('dlss') and not os.path.exists(dlssfiles.path('dlss') + '.part')
+
+
+def test_a_download_keeps_the_players_own_file_beside_it(home):
+    """The player's own nvngx_dlss.dll (not in the folder's record) stays when DLSS 5's file is downloaded into the
+    same folder, and still counts as their own."""
+    from overtime_roster.app import packdownload
+    mine = DLL + b'mine'
+    dlssfiles.add('dlss', dll(home / 'mine', 'nvngx_dlss.dll', mine))
+    url = serve(home / 'release', {'nvngx_dlss.dll': DLL, 'nvngx_dlssnr.dll': DLL + b'5'})
+    assert dlssfiles.fetch('dlss5', release=url) == dlssfiles.path('dlss5')
+    assert open(dlssfiles.path('dlss'), 'rb').read() == mine and not dlssfiles.downloaded('dlss')
+    assert dlssfiles.downloaded('dlss5')
+    folder = os.path.dirname(dlssfiles.path('dlss'))
+    assert sorted(os.listdir(folder)) == sorted(['nvngx_dlss.dll', 'nvngx_dlssnr.dll', packdownload.RECORD])
+
+
+RTX30 = {'name': 'NVIDIA GeForce RTX 3080', 'rtx': 30, 'dlss': True, 'dlss5': True, 'dlss5_compat': True,
+         'framegen': False}
+
+
+def test_turning_dlss_on_downloads_the_servers_file_first(sc, monkeypatch, tmp_path):
+    from overtime_roster.app import packdownload
+    monkeypatch.setattr(sc, '_gpu', dict(RTX30))
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    sc.boost_table = packdownload.published(serve(tmp_path / 'release', {'nvngx_dlss.dll': DLL,
+                                                                         'nvngx_dlssnr.dll': DLL + b'5'}), max_age=0)
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert pic['offered'] == {'dlss': True, 'dlss5': True} and pic['getting'] == '' and pic['progress'] is None
+    assert sc.setup_upscaler('dlss') == {'ok': True, 'downloading': 'dlss'}
+    assert dlssfiles.here('dlss') and config(sc)['upscaler'] == 'dlss' and sc.ctl.busy is None
+    assert any(t.startswith('Downloading the DLSS file... ') for t, _tone in sc.ctl.said)
+    assert sc.ctl.said[-1] == ('Upscaler: DLSS. NHL 19 uses it from its next start.', 'good')
+    assert sc.setup_dlss5(True) == {'ok': True, 'downloading': 'dlss5'}
+    gpu = config(sc)
+    assert gpu['dlss_nr'] is True and gpu['dlss_nr_dll'] == dlssfiles.path('dlss5')
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert pic['files'] == {'dlss': True, 'dlss5': True} and pic['notes'] == []    # the server's file: no compat note
+    assert sc.setup_upscaler('dlss') == {'ok': True}           # here now: no second download
+
+
+def test_a_file_the_server_does_not_offer_keeps_the_add_your_own_flow(sc, monkeypatch, tmp_path):
+    from overtime_roster.app import packdownload
+    monkeypatch.setattr(sc, '_gpu', dict(RTX30))
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    url = serve(tmp_path / 'release', {'nvngx_dlss.dll': DLL})
+    sc.boost_table = packdownload.published(url, max_age=0)
+    assert 'error' in sc.setup_dlss5(True)                  # no DLSS 5 file served: add your own
+    (tmp_path / 'release' / 'packs' / 'nvngx_dlss.dll').unlink()      # taken off after the last look
+    assert sc.setup_upscaler('dlss') == {'ok': True, 'downloading': 'dlss'}
+    assert config(sc)['upscaler'] == 'dlss' and not dlssfiles.here('dlss')     # the choice stays: FSR 1 until then
+    text, tone = sc.ctl.said[-1]
+    assert tone == 'caution' and text.startswith('DLSS file not downloaded: ')
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert any('press Download beside it, or add your own' in n for n in pic['notes'])
+    assert sc.setup_dlss_file_get('dlss5')['error'].startswith('The Overtime server does not offer nvngx_dlssnr.dll')
+    (tmp_path / 'release' / 'packs' / 'nvngx_dlss.dll').write_bytes(DLL)     # back on the server: Download
+    assert sc.setup_dlss_file_get('dlss') == {'ok': True, 'downloading': 'dlss'} and dlssfiles.here('dlss')
+    assert sc.ctl.said[-1] == ('DLSS file downloaded. NHL 19 uses it from its next start.', 'good')
+    assert sc.setup_dlss_file_remove('dlss') == {'ok': True}
+    sc.boost_table = {}
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert any('add your own, or the game uses FSR 1' in n for n in pic['notes'])
+    sc.ctl.busy = 'Patching...'                             # a job runs (a download may write the same file)
+    assert 'error' in sc.setup_dlss_file_set('dlss', dll(tmp_path / 'mine', 'nvngx_dlss.dll'))
+    assert 'error' in sc.setup_dlss_file_remove('dlss') and not dlssfiles.here('dlss')
+
+
+# --- DLSS quality (owner 2026-11-22): the render resolutions named by the DLSS mode ------------------------------------
+def test_dlss_quality_names_each_resolution_that_fits_the_screen_by_its_mode():
+    from overtime_roster.app import setup_controller as SC
+
+    def modes(screen):
+        return [(r['value'], r['label']) for r in SC.dlss_quality(screen)]
+    assert modes(1080) == [(720, 'Quality'), (1080, 'DLAA')]
+    assert modes(1440) == [(720, 'Performance'), (1080, 'Quality'), (1440, 'DLAA')]
+    assert modes(2160) == [(720, 'Ultra Performance'), (1080, 'Performance'), (1440, 'Quality')]
+    assert modes(1200) == [(720, 'Balanced'), (1080, 'Quality')]
+    assert modes(1600) == [(720, 'Performance'), (1080, 'Quality 1080p'), (1440, 'Quality 1440p')]   # two Quality
+    assert modes(None) == [(720, '720p'), (1080, '1080p'), (1440, '1440p')]      # no screen size: plain
+    assert SC.dlss_quality(1440)[0]['title'].startswith('Renders at 1280x720')
+
+
+def test_the_dlss_quality_row_shows_with_dlss_and_sets_the_resolution(sc, monkeypatch):
+    from overtime_roster.app import gpuinfo
+    monkeypatch.setattr(sc, '_gpu', dict(RTX30))
+    monkeypatch.setattr(gpuinfo, 'screen_height', lambda: 1440)
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    assert sc._boost_card(str(sc.world['emu']))['picture']['quality'] == []      # not with DLSS off
+    sc.setup_upscaler('dlss')
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert [r['label'] for r in pic['quality']] == ['Performance', 'Quality', 'DLAA'] and pic['screen'] == 1440
+    assert pic['resolution'] == sc.resolution == 1080
+    assert sc.setup_resolution(1440) == {'ok': True}
+    assert sc._boost_card(str(sc.world['emu']))['picture']['resolution'] == 1440
+
+
+def test_screen_height_is_a_number_on_windows_and_none_elsewhere(monkeypatch):
+    import sys
+    from overtime_roster.app import gpuinfo
+    h = gpuinfo.screen_height()
+    assert h is None or (isinstance(h, int) and h > 0)
+    monkeypatch.setattr(sys, 'platform', 'linux')
+    assert gpuinfo.screen_height() is None

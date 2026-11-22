@@ -6,13 +6,20 @@ What changed in each version, for players.
 
 ### New
 
-- **Overtime Native v3** is the new default and lobby build on Windows. It is Overtime Native v2 plus optional picture
+- **Overtime Native v3** is the new default build on Windows. It is Overtime Native v2 plus optional picture
   options; with them off it runs as fast as v2. Players on v2 move to v3 once. v2, v1 and Kravickas's build stay
   selectable.
+- **Play online on the build you choose**: Ready and Play use the build picked on the Boost card, and every build in
+  its list plays with every other one. Lobbies no longer compare shadPS4 builds; the patch and the roster still
+  have to match. **Linux players now meet Windows players.**
 - **Picture options** on Setup's Boost performance card (Overtime Native v3), all off until you turn them on:
-  - Upscaler: Off, FSR 1 or DLSS (NVIDIA RTX cards; add your own `nvngx_dlss.dll` with "Add DLSS file").
-  - DLSS 5: NVIDIA's neural rendering model over the picture. Add your own `nvngx_dlssnr.dll` with "Add DLSS 5 file".
-    RTX 20, 30 and 40 cards need a compatible build of that file. Overtime never ships or downloads NVIDIA files.
+  - Upscaler: Off, FSR 1 or DLSS (NVIDIA RTX cards).
+  - DLSS quality (with DLSS on): Performance, Quality or DLAA and so on, named for your screen. It sets the game's
+    render resolution (720p, 1080p or 1440p) that DLSS scales up to your screen.
+  - DLSS 5: NVIDIA's neural rendering model over the picture (RTX 20 to 50).
+  - The first time you turn DLSS or DLSS 5 on, the app downloads NVIDIA's file from the Overtime server (Download
+    beside it gets it again). If the server has none, add your own `nvngx_dlss.dll` or `nvngx_dlssnr.dll` with
+    "Add DLSS file" or "Add DLSS 5 file".
   - They cost frames: on an RTX 5080 at 1440p a match ran at about 100 fps with DLSS and 75 with DLSS 5 or with
     both, against 134 with them off.
 - **Shader cache fixes in Overtime Native v3**: a shader cache left by an older build, another graphics card or a
@@ -49,8 +56,11 @@ What changed in each version, for players.
 - Overtime Native v3 is Windows only for now; Linux and macOS stay on v2.
 - The first match on Overtime Native v3 builds its shader cache, so it can stutter a little once (and once more the
   first time DLSS or DLSS 5 is on).
-- Online, Windows players on 0.99.0 (Native v3) are matched with each other until the server pairs v3 with v2;
-  until then they do not meet players on 0.98.0 or on Linux and macOS.
+- In a lobby, 0.99.0 players meet only 0.99.0 players. Open matchmaking can still pair a 0.98.0 player with a
+  0.99.0 player, so update before you play.
+- On an Intel CPU, a shadPS4 build that is not in the Boost card's list and lacks the cross-CPU fix meets only
+  players with the same setup.
+- A Mac meets only Mac players for now: the cross-CPU fix is not proven on Macs.
 - DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice.
 - Frame generation is not in this version.
 - World of Chel: update to play CHEL. A player on 0.98.0 and a player on 0.99.0 in one CHEL game have different

@@ -404,18 +404,17 @@ def test_a_build_not_published_says_so(sc, served, world, started):  # noqa: F81
 
 
 @pytest.mark.windows_only
-def test_an_online_ready_switches_to_the_lobby_build_with_no_click_and_keeps_it_current(sc, served, world):  # noqa: F811
-    # owner 2026-11-08: "make it automated to boost performance for the online"; sonku's other build desynced.
-    # owner 2026-11-13: the lobby build is Overtime Native, also for a player who chose Kravickas (the choice stays);
-    # owner 2026-11-16: "push everybody to use native v2 on the lobbies"; owner 2026-11-21: v3 replaces v2 (Windows)
+def test_an_online_ready_gets_the_chosen_build_with_no_click_and_keeps_it_current(sc, served, world):  # noqa: F811
+    # owner 2026-11-08: "make it automated to boost performance for the online"; owner 2026-11-22 (0.99.0): any build
+    # plays online, so Ready brings the build chosen on the card (2026-11-13 to 0.98.0: always the lobby build)
     own = str(world['emu'])
     sc.setup_set_emulator(own)
-    sc.setup_build('kravickas')
+    assert sc.build == boost.DEFAULT
     notes = []
     assert sc.online_boost(notes.append) == 'on'
     n = boost.exe_path(boost.DEFAULT)
-    assert sc.emulator == n and sc.boost['emulator'] == own and sc.ctl.busy is None and sc.build == 'kravickas'
-    assert pathlib.Path(n).read_bytes() == DEFAULT_BYTES and not os.path.exists(boost.exe_path('kravickas'))
+    assert sc.emulator == n and sc.boost['emulator'] == own and sc.ctl.busy is None and sc.build == boost.DEFAULT
+    assert pathlib.Path(n).read_bytes() == DEFAULT_BYTES
     assert notes and notes[-1].endswith('100 %')
     assert sc.online_boost() == 'already'
     release(served, **{boost.DEFAULT: HEAD + b' newer'})
@@ -423,6 +422,17 @@ def test_an_online_ready_switches_to_the_lobby_build_with_no_click_and_keeps_it_
     kravbuild.forget()
     sc._scan()
     assert sc.online_boost() == 'on' and pathlib.Path(n).read_bytes() == HEAD + b' newer'
+
+
+@pytest.mark.windows_only
+def test_an_online_ready_keeps_a_player_on_kravickas(sc, served, world):  # noqa: F811
+    # owner 2026-11-22: the chosen build plays; nobody is switched to Overtime Native for a lobby any more
+    sc.setup_set_emulator(str(world['emu']))
+    sc.setup_build('kravickas')
+    assert sc.online_boost() == 'on'                # not here yet: his newest, from his GitHub (served here)
+    assert sc.build == 'kravickas' and sc.emulator == boost.exe_path('kravickas')
+    assert not os.path.exists(boost.exe_path(boost.DEFAULT))
+    assert sc.online_boost() == 'already'           # here: it plays as it is (its newest only on Get newest)
 
 
 def test_an_online_ready_leaves_the_build_alone_while_shadps4_runs_or_nothing_is_published(sc, served, world,  # noqa: F811

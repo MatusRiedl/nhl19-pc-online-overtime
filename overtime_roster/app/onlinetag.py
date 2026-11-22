@@ -9,16 +9,21 @@ The tag is the game's own onlineVersion (10 characters at most) + '-' + 4 base-6
 whether two games play the same math:
   - the game's own onlineVersion (in full),
   - the netplay fingerprint of the patch shadPS4 loads (xmlpatch.netplay_fingerprint: the Cross-CPU block counts),
-  - the sha256 of the shadPS4 exe that runs,
-  - the CPU math class: 'amd' for an AMD PC and for an Intel PC on a TRUSTED_EXES build with the AMD math key on (that
-    build's pass puts AMD's results in, docs/notes/cross-vendor-desync.md); any other is a class of its own.
+  - the CPU math class: 'amd' for an AMD PC and for an Intel PC on a trusted build with the AMD math key on (that
+    build's static pass puts AMD's results in, docs/notes/cross-vendor-desync.md); any other is a class of its own.
+    Trusted: a TRUSTED_EXES sha, a build of the Boost card's list (boost.build_of), or any exe with the pass
+    (has_cpu_pass).
 A setup that would drift apart then waits for its own kind instead of desyncing. 0.80 apps send the bare `NHL19_1.60`,
 which no tag equals.
 
-Linux and macOS (0.97.0, crossplay.py): the first part ends in the system's letter (NHL19_1.6L-xxxx), so such a game
-meets only its own system, until the server's cross-play map names its shadPS4: then the tag is the one of the Windows
-build named there. Off Windows shadPS4's static pass always runs (src/core/module.cpp), so a trusted Linux build
-plays AMD's math with or without the key.
+Any build plays online from 0.99.0 (owner 2026-11-22: "no longer check the hash of the build in lobby; the games won't
+desync and we just restrict the gameplay"): the exe's sha256 left the tag (SALT overtime-tag-2, so no 0.98.0 tag meets
+these in a lobby), and so did the Linux / macOS letter of 0.97.0 (crossplay.pooled): Linux players meet Windows players.
+A Mac still plays a math class of its own (math_class: no key there), so it meets Macs; why() says so.
+Open matchmaking pairs on the game's own version only (game_manager._base_version, owner 2026-11-12), so the tag keeps
+games apart in lobbies, not there.
+Off Windows shadPS4's static pass always runs (src/core/module.cpp), so a trusted Linux build plays AMD's math with or
+without the key.
 
 launch.start writes it before every start (apply), the lobby Ready sends the same value from the same inputs
 (start_inputs / match_inputs, then sent), Unpatch removes it (remove). Writes go through a temp file and os.replace:
@@ -36,7 +41,10 @@ from . import crossplay, gamesetup
 
 TAG_MAX, BASE_MAX, HASH_CHARS = 15, 10, 4
 DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-SALT = 'overtime-tag-1'
+SALT = 'overtime-tag-2'     # -1 (0.81.0-0.98.0) hashed the exe's sha256 too
+# strings only a shadPS4 with the static pass (upstream #4802, 2026-08-06: its log line) that reads the key the app
+# writes (General.redzone_patches) holds; every build on the card's list has both (2026-11-22 scan)
+CPU_PASS_MARKS = (b'short CPU patches applied', b'redzone_patches')
 # shadPS4 builds whose static pass gives AMD's estimate results on Intel when the AMD math key is on (full sha256 of the
 # exe, not of its pack): Kravickas NHL19-Build b23fb67 (the 0.80/0.81 Boost and online-copy exe,
 # docs/notes/cross-vendor-review.md) and 749170d (0.82.0's; its 11 commits since b23fb67 leave cpu_patches, the linker
@@ -79,10 +87,8 @@ TRUSTED_EXES = {'fe88293d67e4e9ab6d0799ac6dcff84644def7806ff0d03b028967cbfdf0e99
                 # (git diff d1d3168a..5768473ca: none); docs/notes/native-v3.md
                 '5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
                     'Overtime Native v3 5768473ca (v2 d1d3168a)'}
-# The online build: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; v2 from 2026-11-16, v1 from 0.92.0),
-# the default and what every lobby starts; v2 stays for Linux and macOS and for Windows apps before 0.99.0. The exe's
-# sha is in the tag, so a player on another trusted build (v2 on Windows, Kravickas, an older one) has another tag
-# (why()) until the server's cross-play map names v3 as v2 (crossplay.py).
+# The default builds: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; v2 from 2026-11-16, v1 from 0.92.0),
+# v2 on Linux and macOS. Since 0.99.0 the exe's sha is not in the tag: a lobby plays the build the player chose.
 ONLINE_EXES = {'5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
                'Overtime Native v3 5768473ca (v2 d1d3168a)',
                'e162fada7fcafe705d0062e2d9a647f63228e708f202e6c10e4f5609bf6725d9':
@@ -125,6 +131,34 @@ def exe_sha(path):
     return _SHA[key]
 
 
+_PASS = {}
+
+
+def has_cpu_pass(path):
+    """True when the exe at `path` holds every CPU_PASS_MARKS string (it has the static pass and reads the key the
+    app writes), cached by (path, size, mtime); False when it cannot be read."""
+    try:
+        st = os.stat(path)
+    except (OSError, TypeError, ValueError):
+        return False
+    key = (os.path.normcase(os.path.abspath(path)), st.st_size, st.st_mtime_ns)
+    if key not in _PASS:
+        tail, need = max(map(len, CPU_PASS_MARKS)), set(CPU_PASS_MARKS)
+        try:
+            with open(path, 'rb') as f:
+                left = b''
+                for chunk in iter(lambda: f.read(1 << 20), b''):
+                    data = left + chunk
+                    need = {m for m in need if m not in data}
+                    if not need:
+                        break
+                    left = data[-tail:]
+        except OSError:
+            return False
+        _PASS[key] = not need
+    return _PASS[key]
+
+
 def key_on(user_dir):
     """The game's own config has the AMD math key on (gamesetup.AMD_MATH_KEY is True)."""
     try:
@@ -135,11 +169,12 @@ def key_on(user_dir):
         return False
 
 
-def math_class(sha, vendor, key, system=None):
+def math_class(sha, vendor, key, system=None, trusted=False):
     """'amd' when the game plays AMD's math (an AMD CPU; an Intel one on a trusted build with the key on, or on a
     trusted Linux build: its pass needs no key), else '<vendor>/key' or '<vendor>/nokey': its own class. macOS goes
-    by the key like Windows: what Apple's chips make of the pass is not known, so they stay a class of their own."""
-    if vendor == 'amd' or (sha in TRUSTED_EXES and (key or (system or sys.platform) == 'linux')):
+    by the key like Windows: what Apple's chips make of the pass is not known, so they stay a class of their own.
+    Trusted: `sha` in TRUSTED_EXES, or `trusted` (a build of the card's list, or one with the pass: inputs())."""
+    if vendor == 'amd' or ((trusted or sha in TRUSTED_EXES) and (key or (system or sys.platform) == 'linux')):
         return 'amd'
     return f'{vendor or "?"}/{"key" if key else "nokey"}'
 
@@ -156,10 +191,12 @@ def fingerprint(text):
 
 def inputs(game_dir, run_exe, patch_text, key):
     """What the tag is made of, for the game in `game_dir` started with `run_exe`, the patch `patch_text` and the AMD
-    math key `key`: {'base', 'fingerprint', 'sha', 'vendor', 'key', 'math', 'crossvendor', 'foreign', 'pool', 'as'}.
-    'foreign': the onlineVersion of another mod's versioninfo.ini in `-mods` (left as it is, so the game sends that),
-    else None. 'pool': this system's letter ('' on Windows). 'as': the Windows build's sha256 the server's cross-play
-    map gives this shadPS4, else None (crossplay.py)."""
+    math key `key`: {'base', 'fingerprint', 'sha', 'vendor', 'key', 'math', 'trusted', 'crossvendor', 'foreign',
+    'pool', 'as'}. 'trusted': the exe is a TRUSTED_EXES sha (or the one the server's cross-play map names), a build of
+    the card's list or one with the static pass. 'foreign': the onlineVersion of another mod's versioninfo.ini in
+    `-mods` (left as it is, so the game sends that), else None. 'pool': this system's letter ('' on Windows; no longer
+    in the tag). 'as': the Windows build's sha256 the server's cross-play map gives this shadPS4, else None."""
+    from . import boost         # here: boost's imports reach back to this module
     base = gamesetup.online_version(game_dir, mods=False)[1] if game_dir else '?'
     sha = exe_sha(run_exe) if run_exe else '?'
     vendor = gamesetup.cpu_vendor()
@@ -168,15 +205,16 @@ def inputs(game_dir, run_exe, patch_text, key):
     except xmlpatch.PatchError:
         cross = False
     stands = crossplay.stands_for(sha)      # a build the server names is as trusted as the Windows one it stands for
+    trusted = (stands or sha) in TRUSTED_EXES or bool(run_exe and (boost.build_of(run_exe) or has_cpu_pass(run_exe)))
     return {'base': base, 'fingerprint': fingerprint(patch_text), 'sha': sha, 'vendor': vendor, 'key': bool(key),
-            'math': math_class(stands or sha, vendor, bool(key)), 'crossvendor': cross,
-            'pool': crossplay.pool(), 'as': stands,
+            'math': math_class(stands or sha, vendor, bool(key), trusted=trusted), 'trusted': trusted,
+            'crossvendor': cross, 'pool': crossplay.pool(), 'as': stands,
             'foreign': gamesetup.online_version(game_dir)[1] if game_dir and _foreign(game_dir) else None}
 
 
-def compute(base, fp, sha, math):
+def compute(base, fp, math):
     """`<base, cut to BASE_MAX>-<HASH_CHARS base-62 characters>`: TAG_MAX characters at most (the game sends no more)."""
-    digest = hashlib.sha256('|'.join((SALT, base, fp, sha, math)).encode('utf-8')).digest()
+    digest = hashlib.sha256('|'.join((SALT, base, fp, math)).encode('utf-8')).digest()
     n, chars = int.from_bytes(digest[:8], 'big'), ''
     for _ in range(HASH_CHARS):
         n, r = divmod(n, len(DIGITS))
@@ -189,10 +227,7 @@ def tag(inp):
     to copy) or there is no patch (an unpatched game reaches no Overtime server)."""
     if inp['base'] in ('', '?') or inp['fingerprint'] == 'none':
         return None
-    if inp.get('as'):       # switched to Windows' pool: that build's tag, no letter
-        return compute(inp['base'], inp['fingerprint'], inp['as'], inp['math'])
-    return compute(crossplay.pooled(inp['base'], inp.get('pool') or '', BASE_MAX), inp['fingerprint'], inp['sha'],
-                   inp['math'])
+    return compute(inp['base'], inp['fingerprint'], inp['math'])     # every build and system, one pool (0.99.0)
 
 
 def sent(inp):
@@ -225,26 +260,20 @@ def match_inputs(emu_exe, game_dir, match_text, run_exe):
 
 
 def why(inp):
-    """'' when this start meets every 0.81 player on the online build, else one sentence on why it meets only its own
-    kind (for the Start message)."""
+    """'' when this start meets every 0.99 player, else one sentence on why it meets only its own kind (for the Start
+    message). The build counts only for the CPU math: an Intel PC on a build without the static pass."""
     reasons = []
     if inp['fingerprint'] == 'none':
         return ''
     if inp.get('foreign'):
         return (f"Another mod's versioninfo.ini in the NHL 19-mods folder sets your online version "
                 f"({inp['foreign']}), so Overtime's matchmaking tag is not used: you meet only games with that one.")
-    if inp.get('pool') and not inp.get('as'):
-        system = crossplay.NAMES.get(sys.platform, 'this system')
-        reasons.append(f'{system} players meet {system} players for now (a match with Windows players has to be '
-                       'played through first; it is switched on from the server, without an update)')
-    if (inp.get('as') or inp['sha']) in ONLINE_EXES:
-        pass
-    elif inp['sha'] in TRUSTED_EXES:
-        reasons.append(f'it does not run the {ONLINE_LABEL} build, so open matchmaking pairs it with players on '
-                       'its own build (a Multiplayer lobby starts the lobby build by itself)')
-    else:
-        reasons.append(f"this shadPS4 is not the online build (choose {ONLINE_LABEL} on Setup's Boost performance "
-                       'card: that is the one; a Multiplayer lobby plays on it too)')
+    if inp['math'] != 'amd' and sys.platform == 'darwin':
+        reasons.append("a Mac keeps its own CPU math for now (the cross-CPU fix is not proven on Macs), so you meet "
+                       'Mac players')
+    elif inp['math'] != 'amd' and not inp.get('trusted', True) and inp.get('vendor') != 'amd':
+        reasons.append("this shadPS4 lacks the cross-CPU pass an Intel PC needs (choose a build on Setup's Boost "
+                       'performance card: every one there has it)')
     if not inp['crossvendor']:
         reasons.append('the Cross-CPU fix is not in the patch (it needs the v1.60 eboot.bin)')
     if gamesetup.amd_math_needed() and not inp['key']:

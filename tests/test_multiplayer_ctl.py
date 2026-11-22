@@ -479,7 +479,8 @@ def test_a_lobby_refusal_says_what_ready_could_not_do_here(mp, monkeypatch):
     mp.service.lobby.update(state='full')
     mp.service.fail = LC.LobbyRefused(409, 'two shadPS4 builds')
     got = mp.ready(True)
-    assert 'two shadPS4 builds (here: the NHL 19 build of shadPS4 could not be switched on (Close shadPS4 first))'         == got['error']
+    assert got['error'] == ('two shadPS4 builds (here: the shadPS4 build chosen on the Boost card could not be switched '
+                            'on (Close shadPS4 first))')
 
 
 def test_ready_and_the_launch_trigger(mp):
@@ -1210,14 +1211,15 @@ def match_lobby(mp, emu_sha=None):
 
 
 class MatchRig(Rig):
-    """Rig plus fakes for the lobby build (Overtime Native v2 here), the match setup and the restart."""
+    """Rig plus fakes for the build Play would start (the one chosen on the Boost card: Kravickas's here), the match
+    setup and the restart."""
 
     def __init__(self, mp, monkeypatch, seq=(False, True, True, False), stop='closed', tag=None):
         super().__init__(mp, monkeypatch, seq)
         self.stop, self.tag = stop, tag
         mp.stop_emulator = lambda: self.events.append(('stop',)) or self.stop
         mp.ctl.setup.online_boost = lambda note=None: self.events.append(('boost',)) or 'already'
-        monkeypatch.setattr(boost, 'here', lambda build: 'C:/boost/native2/shadPS4.exe' if build == boost.DEFAULT else '')
+        mp.ctl.setup._play_exe = lambda: ('C:/boost/kravickas/shadPS4.exe', boost.KRAVICKAS, '')
         monkeypatch.setattr(matchsetup, 'apply', self.apply)
         monkeypatch.setattr(matchsetup, 'restore', lambda running=None, log=None, only=None:
                             self.events.append(('restore',)) or 'done')
@@ -1234,14 +1236,15 @@ class MatchRig(Rig):
         return types.SimpleNamespace(pid=1)
 
 
-def test_a_match_launch_sets_up_starts_the_lobby_build_and_puts_everything_back(mp, monkeypatch):
-    # owner 2026-11-16: every lobby plays on Overtime Native v2, whatever the server pins (it is not read)
+def test_a_match_launch_sets_up_starts_the_chosen_build_and_puts_everything_back(mp, monkeypatch):
+    # owner 2026-11-22 (0.99.0): a lobby plays the build chosen on the Boost card (2026-11-16 to 0.98.0: always the
+    # lobby build); the server's pin is not read
     rig = MatchRig(mp, monkeypatch)
     match_lobby(mp, emu_sha='a' * 64)
     mp._launch_job()
     assert kinds(rig) == ['boost', 'apply', 'hook', 'started', 'press', 'press', 'hook', 'restore']
     assert ('apply', '0123456789abcdef') in rig.events
-    assert ('started', 'C:/match/overtime-match.xml', 'C:/boost/native2/shadPS4.exe') in rig.events
+    assert ('started', 'C:/match/overtime-match.xml', 'C:/boost/kravickas/shadPS4.exe') in rig.events
     assert not xmlpatch.parse(rig.own_text)[0] is None and mp.game['phase'] == 'ended'
 
 
@@ -1311,7 +1314,7 @@ def test_ready_in_a_match_lobby_switches_to_the_lobby_build_and_sends_the_match_
 
 
 def test_ready_sends_the_tag_the_match_start_will_write(mp, monkeypatch):
-    """game.online at Ready is onlinetag's value for the match patch on the lobby build (the lobby refuses another)."""
+    """game.online at Ready is onlinetag's value for the match patch on the chosen build (the lobby refuses another)."""
     MatchRig(mp, monkeypatch)
     match_lobby(mp, emu_sha='a' * 64)
     seen = []
@@ -1322,8 +1325,8 @@ def test_ready_sends_the_tag_the_match_start_will_write(mp, monkeypatch):
                 'key': True, 'vendor': 'amd', 'foreign': None}
     monkeypatch.setattr(onlinetag, 'match_inputs', inputs)
     assert mp.ready(True) == {'ok': True}
-    assert seen == [(mp.ctl.game_dir, 'C:/boost/native2/shadPS4.exe', mp.service.patch)]
-    assert mp.service.game['online'] == onlinetag.compute('NHL19_1.60', 'f', 's', 'amd')
+    assert seen == [(mp.ctl.game_dir, 'C:/boost/kravickas/shadPS4.exe', mp.service.patch)]
+    assert mp.service.game['online'] == onlinetag.compute('NHL19_1.60', 'f', 'amd')
     # a refusal says what here keeps this game apart, beside the lobby's general advice
     monkeypatch.setattr(onlinetag, 'why', lambda inp: 'Online you meet only players with the same setup: X.')
     mp.service.fail = LC.LobbyRefused(409, 'the two games would drift apart')
@@ -1331,12 +1334,12 @@ def test_ready_sends_the_tag_the_match_start_will_write(mp, monkeypatch):
                                        'the same setup: X)')
 
 
-def test_ready_says_why_when_the_lobby_build_cannot_be_had_and_the_lobby_compares(mp, monkeypatch):
+def test_ready_says_why_when_the_chosen_build_cannot_be_had_and_the_lobby_compares(mp, monkeypatch):
     MatchRig(mp, monkeypatch)
     match_lobby(mp)
     mp.ctl.setup.online_boost = lambda note=None: 'none published'
     assert mp.ready(True) == {'ok': True}
-    assert 'not on the Overtime server' in mp.prep_why and mp.service.calls[-1][0] == 'ready'
+    assert 'chosen on the Boost card is not on its server' in mp.prep_why and mp.service.calls[-1][0] == 'ready'
 
 
 def test_a_match_launch_shows_the_setup_step_first(mp, monkeypatch):

@@ -1,5 +1,7 @@
-"""The DLSS files a player adds for Overtime Native v3's Picture options (0.99.0). Overtime never hosts or ships them
-(NVIDIA's licence, owner 2026-11-21): each player picks their own copy on the Boost card.
+"""The DLSS files for Overtime Native v3's Picture options (0.99.0). The Overtime server hosts both (owner 2026-11-22,
+which reverses 2026-11-21's "never hosted by us"): the app downloads one the first time it is turned on (fetch, through
+packdownload: the published sha256 and size). They are not in the exe or the packs, so taking them off the server is
+all it takes to stop; a player can always add their own copy on the Boost card instead (add).
 
 - DLSS ('dlss', nvngx_dlss.dll): NVIDIA's Super Resolution model, found in many PC games' folders. NGX looks for it
   beside the program, so it is kept in the app's folder (app_dir('dlss')) and copied beside Overtime Native v3's
@@ -43,6 +45,11 @@ def check(kind, source):
     want = FILES[kind]['name']
     if os.path.basename(source).lower() != want:
         return f'Choose the file named {want}.'
+    return content(want, source)
+
+
+def content(want, source):
+    """Why the file at `source` is not a DLSS file `want` (a Windows DLL of MIN_BYTES or more), or ''."""
     try:
         size = os.path.getsize(source)
         with open(source, 'rb') as f:
@@ -73,6 +80,27 @@ def add(kind, source):
             pass
         raise DlssFileError(f"{FILES[kind]['name']} was not copied: {err.strerror or err}") from err
     return target
+
+
+def fetch(kind, progress=None, release=None):
+    """Download the file of `kind` from the Overtime server straight into the app's folder (packdownload: the
+    published sha256 and size, TRIES, then content()); returns its path. `release`: packdownload.download's (the
+    published table, or None: the release host). DlssFileError with the reason for players otherwise (NOT_OFFERED:
+    the server has none)."""
+    from . import packdownload      # here: packdownload checks the files with content()
+    name = FILES[kind]['name']
+    (_name, ok, message), = packdownload.download([name], paths.app_dir('dlss'), progress=progress, release=release)
+    if ok and here(kind):
+        return path(kind)
+    if message == packdownload.NOT_OFFERED:
+        message = f'The Overtime server does not offer {name} now. Add your own copy on the Boost card.'
+    raise DlssFileError(message if not ok else f'{name} did not arrive.')
+
+
+def downloaded(kind):
+    """True when the kept file of `kind` is the one fetch() put there (not a copy the player added since)."""
+    from . import packdownload
+    return packdownload.recorded(FILES[kind]['name'], paths.app_dir('dlss'))
 
 
 def remove(kind, beside=()):

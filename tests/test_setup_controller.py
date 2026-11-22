@@ -142,11 +142,12 @@ def test_start_says_why_the_game_meets_only_its_own_kind_and_unpatch_takes_the_t
     emu, gd = str(sc.world['emu']), str(sc.world['game'])
     monkeypatch.setattr(launch, 'start', lambda emu_exe, game_dir: types.SimpleNamespace(pid=7, poll=lambda: 0))
     monkeypatch.setattr(sc, '_watch_play', lambda emu_exe, proc: None)
+    monkeypatch.setattr(gamesetup, 'cpu_vendor', lambda: 'amd')
     assert patch_ctl.start(sc) == {'ok': True}
     text, tone = sc.ctl.said[-1]
-    # the test exe is no online build and the fake eboot gets no Cross-CPU block
+    # the fake eboot gets no Cross-CPU block; the test exe is no listed build, which on AMD plays online (0.99.0)
     assert tone == 'caution' and text.startswith('NHL 19 is starting in shadPS4... Online you meet only players')
-    assert 'Boost performance' in text and 'v1.60 eboot.bin' in text
+    assert 'Boost performance' not in text and 'v1.60 eboot.bin' in text
     t, _inp = onlinetag.apply(emu, gd)
     assert t and gamesetup.online_version(gd) == ('na', t)
     sc.setup_unpatch()
