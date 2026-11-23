@@ -72,6 +72,30 @@ WOC_UNLOCK_TITLE = 'WoC: every customization item unlocked'
 CHEL_MAX_TITLE = 'WoC: every attribute of a created player at 99'
 # the player class kernel's two attribute store loops (0x43597f0): goalie 0x435a400, skater 0x435a7c0
 CHEL_MAX_LOOPS = ('0x475A400', '0x475A7C0')
+# 0.99.1 (owner 2026-11-23: "give option to players in lobby to choose the stats for players"): the host of a World of
+# Chel lobby picks the level every created player plays at. It rides in the host's match recipe
+# (matchsetup.recipe), so every member's match patch carries the same loop heads; 'stock' leaves the block out (the
+# game's own class values). Outside a lobby every app plays its own patch, at 99.
+CHEL_LEVELS = ('stock', '75', '80', '85', '90', '95', '99')
+CHEL_LEVEL_DEFAULT = '99'
+_CHEL_MAX_TAIL = '83FB01751831F6EB14'      # cmp ebx, 1; jnz store; xor esi, esi; jmp store
+
+
+def chel_max_value(level):
+    """The loop-head bytes of the chel_max block for `level` ('75'..'99'): mov esi, <level>, then the rest as
+    chel_max's own (mode 1, the height/weight delta, stays 0)."""
+    try:
+        n = int(level)
+    except (TypeError, ValueError):
+        raise PatchError(f'not a stat level: {str(level)[:20]}') from None
+    if not 36 <= n <= 99:          # the in-game rating clamps to 36..99 (0x569ac0)
+        raise PatchError(f'not a stat level: {n}')
+    return 'BE%02X000000%s' % (n, _CHEL_MAX_TAIL)
+
+
+def chel_max_title(level):
+    """The block's name at `level`: chel_max's own at 99, the same words with the level otherwise."""
+    return CHEL_MAX_TITLE[:-2] + str(int(level))
 
 
 class Feature:

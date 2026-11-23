@@ -382,3 +382,34 @@ def test_the_match_view_layers_keep_the_text_file_the_patch_used(monkeypatch):
     monkeypatch.setattr(overlay, 'status', lambda gd, **kw: {'layers': {'league': {}}})
     MS._add_layers('game', ['league', 'menus'])
     assert calls == [(('names', 'text', 'menus'), {'lang': 'eng_gb'}), (('league', 'menus'), {})]
+
+
+# --- 0.99.1: the CHEL lobby's created-player stat level rides in the host's recipe ----------------------------------
+
+def _chel_lines(text):
+    loops = {a.upper() for a in xmlpatch.CHEL_MAX_LOOPS}
+    return {a.upper(): v.upper() for b in xmlpatch.parse(text) if b['enabled'] for a, v in b['lines'] if a.upper() in loops}
+
+
+def test_the_hosts_stat_level_reaches_every_guests_match_patch():
+    host = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    guest = xmlpatch.build('ot.example.org', 'https://10.0.0.2/')          # the guest's own patch: 99
+    r = MS.recipe(host, chel_level='85')
+    assert MS.chel_level(r) == '85'
+    lines = _chel_lines(MS.match_xml(r, guest))
+    assert len(lines) == 2 and set(lines.values()) == {'BE5500000083FB01751831F6EB14'}    # mov esi, 85
+    assert 'WoC: every attribute of a created player at 85' in MS.match_xml(r, guest)
+    assert xmlpatch.netplay_fingerprint(MS.match_xml(r, guest)) == xmlpatch.netplay_fingerprint(MS.match_xml(r, host))
+
+
+def test_stock_leaves_the_block_out_and_99_is_the_recipe_of_an_app_without_the_setting():
+    host = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    stock = MS.recipe(host, chel_level='stock')
+    assert MS.chel_level(stock) == 'stock' and _chel_lines(MS.match_xml(stock, host)) == {}
+    assert MS.recipe(host, chel_level='99') == MS.recipe(host)        # same recipe, same match patch, same tag as 0.99.0
+    assert MS.chel_level(MS.recipe(host)) == '99'
+    assert xmlpatch.chel_max_value('99') == 'BE6300000083FB01751831F6EB14'    # chel_max's own bytes
+    assert [MS.chel_level(MS.recipe(host, chel_level=v)) for v in xmlpatch.CHEL_LEVELS] == list(xmlpatch.CHEL_LEVELS)
+    with pytest.raises(MS.MatchSetupError):
+        MS.recipe(host, chel_level='42')
+    assert MS.chel_level(None) is None and MS.chel_level({'xml_blocks': 'x'}) is None

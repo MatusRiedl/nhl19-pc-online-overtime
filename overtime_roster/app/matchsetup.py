@@ -101,11 +101,61 @@ def local_blocks(text):
     return out
 
 
-def recipe(own_text):
+def recipe(own_text, chel_level=None):
     """The recipe this app offers when it hosts: its netplay blocks (as one patch text: the server keeps
-    `xml_blocks` as strings, docs/notes/lobby.md "Match recipe"), the layers every match needs, the match timing."""
-    return {'v': VERSION, 'xml_blocks': [render(netplay_blocks(own_text), newline='\n')],
+    `xml_blocks` as strings, docs/notes/lobby.md "Match recipe"), the layers every match needs, the match timing.
+    `chel_level` (0.99.1, xmlpatch.CHEL_LEVELS): the created-player level a CHEL lobby's host picked; None keeps the
+    host's own chel_max block as it is."""
+    blocks = with_chel_level(netplay_blocks(own_text), chel_level)
+    return {'v': VERSION, 'xml_blocks': [render(blocks, newline='\n')],
             'layers': [{'id': name, 'rev': overlay.VERSION} for name in ALWAYS_LAYERS], 'timing': dict(MATCH_TIMING)}
+
+
+def _chel_lines(block):
+    loops = {a.upper() for a in xmlpatch.CHEL_MAX_LOOPS}
+    return {a.upper(): v.upper() for a, v in block['lines'] if a.upper() in loops}
+
+
+def with_chel_level(blocks, level):
+    """`blocks` with the chel_max block at `level` (in its place, or added at the end), or without it for 'stock'.
+    None: `blocks` as they are. MatchSetupError for a level that is not one of xmlpatch.CHEL_LEVELS."""
+    if level is None:
+        return blocks
+    if level not in xmlpatch.CHEL_LEVELS:
+        raise MatchSetupError('not a stat level')
+    new = None if level == 'stock' else {
+        'name': xmlpatch.chel_max_title(level),
+        'lines': [[a, xmlpatch.chel_max_value(level)] for a in xmlpatch.CHEL_MAX_LOOPS]}
+    out = []
+    for b in blocks:
+        if _chel_lines(b):
+            if new is not None:
+                out.append(new)
+                new = None
+            continue
+        out.append(b)
+    return out + ([new] if new is not None else [])
+
+
+def chel_level(r):
+    """The created-player level a recipe's match plays (0.99.1): one of xmlpatch.CHEL_LEVELS ('stock' when it has no
+    chel_max block), 'custom' for other bytes there, None for no recipe or one that does not read."""
+    try:
+        blocks = blocks_of(r)
+    except MatchSetupError:
+        return None
+    for b in blocks:
+        got = _chel_lines(b)
+        if not got:
+            continue
+        values = set(got.values())
+        if len(got) == len(xmlpatch.CHEL_MAX_LOOPS) and len(values) == 1:
+            value = values.pop()
+            for level in xmlpatch.CHEL_LEVELS[1:]:
+                if value == xmlpatch.chel_max_value(level):
+                    return level
+        return 'custom'
+    return 'stock'
 
 
 MAX_TEXT = 32 * 1024        # per patch text, as the server takes it

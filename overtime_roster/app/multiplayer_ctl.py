@@ -119,6 +119,7 @@ MATCH_STEP = 'Match set up (your own setup comes back after)'
 RESTART_STEP = 'Restarting NHL 19 for the match'
 MATCH_PHASES = {**{k: v + 1 for k, v in PHASES.items()}, 'restarting': 0, 'setup': 0}
 ONLINE_READY = 'Online ready: Ready sets up each match by itself'
+CHEL_LEVEL_LABELS = {'stock': 'Stock (EA classes)', '99': '99 (max)'}   # 0.99.1: the Player stats choices
 
 
 class MultiplayerCtl(Part):
@@ -127,7 +128,7 @@ class MultiplayerCtl(Part):
              'mp_create': 'create', 'mp_join': 'join', 'mp_ready': 'ready', 'mp_leave': 'leave',
              'mp_launch_now': 'launch_now', 'mp_set_rule': 'set_rule', 'mp_roster_mode': 'set_roster_mode',
              'mp_reset_rules': 'reset_rules', 'mp_set_chel_rule': 'set_chel_rule',
-             'mp_reset_chel_rules': 'reset_chel_rules', 'mp_set_mode': 'set_mode', 'mp_history_refresh': 'history_refresh',
+             'mp_reset_chel_rules': 'reset_chel_rules', 'mp_set_chel_stats': 'set_chel_stats', 'mp_set_mode': 'set_mode', 'mp_history_refresh': 'history_refresh',
              'mp_history_player': 'history_player', 'mp_history_close': 'history_close',
              'mp_result_open': 'result_open', 'mp_result_close': 'result_close', 'mp_result': 'send_result',
              'mp_review_open': 'review_open', 'mp_review_close': 'review_close', 'mp_set_hidden': 'set_hidden',
@@ -957,6 +958,33 @@ class MultiplayerCtl(Part):
     def reset_chel_rules(self):
         """The host leaves every CHEL match setting to the game."""
         return self._send_rules({key: None for key in RU.CHEL_RULE_KEYS})
+
+    def set_chel_stats(self, level):
+        """0.99.1 (owner 2026-11-23): the host of a CHEL lobby picks the level every created player plays at
+        (xmlpatch.CHEL_LEVELS). It goes in the host's match recipe, so every member's match patch carries it (apps
+        before 0.99.1 too: they play the recipe's blocks); the server clears every ready flag on a change."""
+        level = str(level or '')
+        if level not in xmlpatch.CHEL_LEVELS:
+            return self._fail('Pick one of the stat levels.')
+        with self.mlock:
+            code, token, me = self.code, self.token, self.me
+            state = (self.lobby or {}).get('state')
+        if not code:
+            return {'ok': False}
+        if not self._chel():
+            return self._fail('Only a World of Chel lobby has a stat level.')
+        if me != 0:
+            return self._fail('Only the host picks the stat level.')
+        if state in LAUNCHING:
+            return self._fail('The game is starting: the stat level is fixed now.')
+        try:
+            lobby = self.client().match(code, token, matchsetup.recipe(self.ctl.setup._xml(), chel_level=level))
+        except LC.LobbyError as err:
+            return self._lobby_error(err)
+        except (matchsetup.MatchSetupError, xmlpatch.PatchError) as err:
+            return self._fail(f'The stat level was not set ({err}).')
+        self._apply(lobby)
+        return {'ok': True}
 
     def _send_rules(self, wanted):
         with self.mlock:
@@ -1971,6 +1999,8 @@ class MultiplayerCtl(Part):
                 # 0.98.0: a drop-in CHEL lobby's served settings (None: not a CHEL lobby, or a server without them)
                 'chel_rules': (self._chel_rules_view(lobby, host)
                                if chel and isinstance(lobby.get('chel_rules'), dict) else None),
+                # 0.99.1: the created-player stat level (every CHEL mode)
+                'chel_stats': self._chel_stats_view(lobby, host) if chel else None,
                 'roster_mode': (None if 'roster_mode' not in lobby else
                                 {'mode': lobby.get('roster_mode'), 'uploaded': bool(lobby.get('host_roster')),
                                  'edit': host and lobby.get('state') not in LAUNCHING,
@@ -1988,6 +2018,17 @@ class MultiplayerCtl(Part):
                 'bench': bool(mine and mine['bench']),
                 'path': list(CHEL_PATHS.get(lobby.get('mode'), ())) if chel else [],
                 'wrong_mode': chel and 'this lobby plays' in str(lobby.get('waiting') or '')}
+
+    @staticmethod
+    def _chel_stats_view(lobby, host):
+        """0.99.1: the Player stats row of the World of Chel card. `level` is read back from the lobby's match recipe
+        ('' with no recipe: each game plays its own patch, 99; 'custom' for bytes no level makes); `applied` False
+        when the lobby's games do not play the recipe (a member's app is too old for match setups)."""
+        r = lobby.get('match')
+        level = (matchsetup.chel_level(r) or '') if isinstance(r, dict) else ''
+        return {'level': level, 'applied': bool(lobby.get('match_setup')),
+                'can_edit': bool(host and lobby.get('state') not in LAUNCHING),
+                'options': [{'value': v, 'label': CHEL_LEVEL_LABELS.get(v, v)} for v in xmlpatch.CHEL_LEVELS]}
 
     @staticmethod
     def _chel_rules_view(lobby, host):

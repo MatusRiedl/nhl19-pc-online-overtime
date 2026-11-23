@@ -2,13 +2,26 @@
 
 What changed in each version, for players.
 
-## 0.99.0 (2026-11-21)
+## 0.99.1 (2026-11-23)
 
 ### New
 
-- **Overtime Native v3** is the new default build on Windows. It is Overtime Native v2 plus optional picture
-  options; with them off it runs as fast as v2. Players on v2 move to v3 once. v2, v1 and Kravickas's build stay
-  selectable.
+- **World of Chel: Player stats for the lobby**: the host of a CHEL lobby picks the stat level of created players
+  on the Multiplayer tab's World of Chel card: Stock (EA's player classes, as before 0.99.0), 75, 80, 85, 90, 95
+  or 99 (the default). Every created player in the lobby's game, on both teams, plays at that level. Players the
+  game brings in from outside your lobby keep 99. Changing it clears Ready for everyone. Only the host needs
+  0.99.1; friends on 0.99.0 play the host's level too.
+
+## 0.99.0 (2026-11-23)
+
+### New
+
+- **Overtime Native v3** is the new default build on Windows: Overtime Native v2, faster, plus optional picture
+  options. The GPU no longer stops to wait on every read back to the game, and the build is tuned to how NHL 19
+  runs. On one PC (RTX 5080, Ryzen 7 9800X3D, 1440p, no frame cap) a match ran at 160-200 fps against about
+  120-130, and the slowest 1 % of frames at 54-81 fps against 36-44, with far fewer hitches (an earlier test build
+  of the same change put about 155 fps on a 165 Hz screen, against 131). Capped at 60, it now holds 60 through a
+  match. Players on v2 move to v3 once. v2, v1 and Kravickas's build stay selectable.
 - **Play online on the build you choose**: Ready and Play use the build picked on the Boost card, and every build in
   its list plays with every other one. Lobbies no longer compare shadPS4 builds; the patch and the roster still
   have to match. **Linux and Mac players now meet Windows players.**
@@ -20,8 +33,8 @@ What changed in each version, for players.
   - The first time you turn DLSS or DLSS 5 on, the app downloads NVIDIA's file from the Overtime server (Download
     beside it gets it again). If the server has none, add your own `nvngx_dlss.dll` or `nvngx_dlssnr.dll` with
     "Add DLSS file" or "Add DLSS 5 file".
-  - They cost frames: on an RTX 5080 at 1440p a match ran at about 100 fps with DLSS and 75 with DLSS 5 or with
-    both, against 134 with them off.
+  - They cost frames: on an RTX 5080 at 1440p a match ran at about 88 fps with DLSS and DLSS 5 both on, against
+    160-200 with them off.
 - **Shader cache fixes in Overtime Native v3**: a shader cache left by an older build, another graphics card or a
   driver change is rebuilt instead of being ignored (with v2 such a cache meant no shader cache at all, on every
   start). v3 keeps its cache in folders of its own (one for when DLSS or DLSS 5 is on), so v2's and Kravickas's
@@ -67,7 +80,8 @@ What changed in each version, for players.
 - On an Intel CPU, a shadPS4 build that is not in the Boost card's list and lacks the cross-CPU fix meets only
   players with the same setup.
 - A Mac has not played an online match against a Windows PC yet (Apple chips run shadPS4 through Rosetta 2).
-- DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice.
+- DLSS and DLSS 5 were tested on an RTX 5080 only. DLSS 5 can draw faint coloured streaks on the ice, and with no
+  frame cap its frame pacing is a little less even than before.
 - Frame generation is not in this version.
 - World of Chel: update to play CHEL. A player on 0.98.0 and a player on 0.99.0 in one CHEL game have different
   ratings for created players, and the game can fall out of sync.

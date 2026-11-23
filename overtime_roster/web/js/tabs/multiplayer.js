@@ -368,16 +368,36 @@ function ChelRules({ r, host, hostName }) {
     ${host && !edit && html`<div class="mp-note">The game is starting: the settings are fixed now.</div>`}`;
 }
 
+// 0.99.1 (owner 2026-11-23): the stat level of every created player in the lobby's game. It rides in the host's match
+// setup, so every member's game plays it; players the game brings in from outside the lobby keep their own 99.
+function ChelStats({ s, hostName }) {
+  const picked = s.options.find((o) => o.value === s.level);
+  const shown = picked ? picked.label : s.level === 'custom' ? 'Custom' : '99 (max)';
+  return html`
+    <div class=${cls('mp-rule', s.level && s.level !== '99' && 'changed')}>
+      <span class="mp-rule-label caps">Player stats</span>
+      ${s.can_edit
+        ? html`<${Select} value=${s.level || '99'} options=${s.options} onChange=${(v) => call('mp_set_chel_stats', v)}/>`
+        : html`<span class="mp-rule-value">${shown}</span>`}
+    </div>
+    <div class="mp-note">Every created player in your lobby's game, on both teams, plays at this level. Players the game
+      brings in from outside your lobby keep 99.${s.can_edit ? ' Changing it clears Ready for everyone.' : ''}
+      ${s.applied ? '' : ' Not applied: a player in the lobby has an app too old for match setups.'}</div>
+    ${!s.can_edit && html`<div class="mp-note">${hostName || 'The host'} picks the player stats.</div>`}`;
+}
+
 function ChelCard({ l, modes }) {
   const options = (modes || []).map((m) => ({ value: m.mode, label: m.name }));
-  const r = l.chel_rules;
+  const r = l.chel_rules, lv = l.chel_stats && l.chel_stats.level;
+  const stats = lv && lv !== '99' ? (lv === 'stock' ? ' · stock stats' : lv === 'custom' ? ' · custom stats' : ` · stats ${lv}`) : '';
   return html`<${Card} n=${3} title="World of Chel"
-      aside=${r && r.on ? html`<${Tag} tone=${r.is_default ? 'info' : 'accent'}>${r.summary}<//>` : null}>
+      aside=${r && r.on ? html`<${Tag} tone=${r.is_default && !stats ? 'info' : 'accent'}>${r.summary}${stats}<//>` : null}>
     <div class="mp-body mp-rules-body">
       <div class="mp-rule mp-mode-pick"><span class="mp-rule-label caps">Mode</span>
         ${l.mode_pick && l.mode_pick.edit && options.length
           ? html`<${Select} value=${l.chel_mode} options=${options} onChange=${(v) => call('mp_set_mode', v)}/>`
           : html`<span class="mp-rule-value">${l.game}</span>`}</div>
+      ${l.chel_stats && html`<${ChelStats} s=${l.chel_stats} hostName=${l.host_name}/>`}
       ${r && html`<${ChelRules} r=${r} host=${l.host} hostName=${l.host_name}/>`}
     </div>
   </${Card}>`;

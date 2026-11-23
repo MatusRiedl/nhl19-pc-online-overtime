@@ -1966,3 +1966,41 @@ def test_the_chel_settings_rows_for_a_guest_a_launch_and_a_mode_without_them():
     assert not view({**lobby, 'state': 'launching'}, True)['can_edit']
     off = view({**lobby, 'chel_rules_on': False}, True)
     assert (off['on'], off['rows'], off['can_edit'], off['summary']) == (False, [], False, 'Default settings')
+
+
+# --- 0.99.1: the CHEL lobby's created-player stat level --------------------------------------------------------------
+
+@pytest.mark.usefixtures('chel_on')
+def test_the_chel_host_picks_the_player_stats_and_they_ride_in_the_match_recipe(mp):
+    start_chel(mp)
+    s = mp.view()['lobby']['chel_stats']
+    assert s['can_edit'] and [o['value'] for o in s['options']] == list(xmlpatch.CHEL_LEVELS)
+    assert matchsetup.chel_level(mp.service.recipe) == '99'                       # create announces the host's own: 99
+    assert mp.set_chel_stats('85') == {'ok': True}
+    assert matchsetup.chel_level(mp.service.recipe) == '85'
+    mp._apply({**mp.service.lobby, 'match': mp.service.recipe, 'match_setup': True, 'you': 0})
+    s = mp.view()['lobby']['chel_stats']
+    assert s['level'] == '85' and s['applied']
+    assert 'error' in mp.set_chel_stats('42') and matchsetup.chel_level(mp.service.recipe) == '85'
+    assert mp.set_chel_stats('stock') == {'ok': True} and matchsetup.chel_level(mp.service.recipe) == 'stock'
+    mp._apply({**mp.service.lobby, 'match': mp.service.recipe, 'match_setup': True, 'state': 'launching', 'you': 0})
+    assert not mp.view()['lobby']['chel_stats']['can_edit']
+    assert 'error' in mp.set_chel_stats('90')                             # fixed once the game is starting
+
+
+@pytest.mark.usefixtures('chel_on')
+def test_a_guest_sees_the_hosts_player_stats_and_cannot_change_them(mp):
+    start_chel(mp)
+    recipe = matchsetup.recipe(mp.ctl.setup._xml(), chel_level='90')
+    mp._apply({**mp.service.lobby, 'match': recipe, 'match_setup': True, 'you': 1})
+    mp.me = 1
+    s = mp.view()['lobby']['chel_stats']
+    assert s['level'] == '90' and not s['can_edit']
+    assert 'error' in mp.set_chel_stats('75')
+
+
+def test_a_quick_lobby_has_no_player_stats(mp):
+    mp.set_name('iksperial')
+    mp.set_ext('16349')
+    assert mp.create() == {'ok': True}
+    assert mp.view()['lobby']['chel_stats'] is None
