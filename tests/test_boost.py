@@ -266,7 +266,9 @@ def test_players_on_an_old_default_move_to_the_new_one_once(sc):  # noqa: F811
 def test_the_card_shows_only_the_kravickas_source_button_and_no_experimental_text():
     page = (pathlib.Path(SC.__file__).parents[1] / 'web' / 'js' / 'tabs' / 'setup.js').read_text(encoding='utf-8')
     assert 'experimental' not in page.lower() and 'su-exp' not in page and 'Nightly' not in page
-    assert '.filter((x) => x.updatable)' in page                    # source buttons: the Kravickas one
+    # Get newest and Source code (his GitHub): only while the Kravickas build is chosen (Kravickas 2026-11-22)
+    assert "${b.build === 'kravickas' && html`<span class=\"su-bacts\">" in page
+    assert "call('setup_boost_source', 'kravickas')" in page and page.count('setup_boost_source') == 1
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-nightly' in page     # GPL-2.0: Native's source, in the Info
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-native-v2' in page
     assert 'github.com/MatusRiedl/shadPS4, branch overtime-native-v3' in page
@@ -527,3 +529,14 @@ def test_no_release_on_github_says_so(sc, served, world, started):  # noqa: F811
     assert card_of(sc)['text'] == f'Kravickas: {kravbuild.NONE}' and not card_of(sc)['can_update']
     sc.setup_play()
     assert started == [] and sc.ctl.said[-1] == (kravbuild.NONE, 'bad')
+
+
+@pytest.mark.parametrize('emu, label', [
+    ('overtime-native-v3-speed.bf8d948', 'Overtime Native v3'), ('overtime-native-v3.1234567', 'Overtime Native v3'),
+    ('overtime-native-v2.d1d3168', 'Overtime Native v2'), ('overtime-nightly.dab14f3', 'Overtime Native v1'),
+    ('NHL19-Build.534f5d2', 'Kravickas'), ('main.1234567', 'shadPS4'), ('my_branch.abc1234', 'shadPS4 (my_branch)'),
+    ('?', ''), ('b23fb67', ''), ('', ''), (None, ''), (7, ''), ('<b>x</b>.1234567', ''), ('.1234567', ''),
+])
+def test_the_lobby_names_each_players_build_by_its_branch(emu, label):
+    # 0.99.2: the branches the published packs report (shadps4_native3 / nightly, the native2 and Kravickas exes)
+    assert boost.label_of(emu) == label

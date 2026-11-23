@@ -449,6 +449,18 @@ def test_a_new_lobby_clears_the_closed_note(mp):
     assert mp.view()['lobby'] is not None
 
 
+def test_each_player_row_names_the_build_its_game_plays_on(mp):
+    # 0.99.2: the server sends each player's '<branch>.<rev7>' from their last Ready; an older server sends none
+    mp.set_name('Me')
+    mp.set_ext('5')
+    assert mp.join('K7M2Q') == {'ok': True}
+    assert [p['build'] for p in mp.view()['lobby']['players']] == ['', '']
+    mp.service.lobby['players'][0]['emu'] = 'overtime-native-v3-speed.bf8d948'
+    mp.service.lobby['players'][1]['emu'] = 'NHL19-Build.b23fb67'
+    mp.poll_once()
+    assert [p['build'] for p in mp.view()['lobby']['players']] == ['Overtime Native v3', 'Kravickas']
+
+
 def test_ready_first_makes_the_game_fit_for_online_with_no_click(mp, monkeypatch):
     # owner 2026-11-08: the Kravickas build and the bare-minimum patch go in by themselves before the lobby is told
     start_lobby(mp)
@@ -1340,6 +1352,24 @@ def test_ready_says_why_when_the_chosen_build_cannot_be_had_and_the_lobby_compar
     mp.ctl.setup.online_boost = lambda note=None: 'none published'
     assert mp.ready(True) == {'ok': True}
     assert 'chosen on the Boost card is not on its server' in mp.prep_why and mp.service.calls[-1][0] == 'ready'
+
+
+def test_a_match_that_cannot_start_the_chosen_build_says_so_on_the_game_card(mp, monkeypatch):
+    # 0.99.2 (owner 2026-11-23): no quiet fallback to the shadPS4 Setup found (no DLSS, no Picture options there)
+    rig = MatchRig(mp, monkeypatch)
+    match_lobby(mp)
+    mp.ctl.setup.online_boost = lambda note=None: 'none published'
+    mp.ctl.setup._play_exe = lambda: ('', boost.KRAVICKAS, '')      # the chosen build must download first
+    mp._launch_job()
+    assert ('started', 'C:/match/overtime-match.xml', None) in rig.events
+    warn = mp.view()['game']['warn']
+    assert warn.startswith('This match plays on the ') and 'not on its server right now' in warn
+    assert mp.game['phase'] == 'ended' and mp.game['warn'] == warn      # it stays through the match's phases
+    mp.ctl.setup.online_boost = lambda note=None: 'already'
+    mp.ctl.setup._play_exe = lambda: ('C:/boost/kravickas/shadPS4.exe', boost.KRAVICKAS, '')
+    mp.game = None
+    mp._launch_job()                                                  # the next launch: the chosen build, no note
+    assert mp.view()['game']['warn'] == ''
 
 
 def test_a_match_launch_shows_the_setup_step_first(mp, monkeypatch):

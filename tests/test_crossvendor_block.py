@@ -60,10 +60,14 @@ def test_hooks_jump_into_caves_and_nothing_overlaps():
 def test_default_carries_the_block_and_an_unknown_eboot_does_not():
     assert 'crossvendor' in xmlpatch.DEFAULT and xmlpatch.DEFAULT[-2:] == ('bap32', 'expansion32')
     assert xmlpatch.NO_CROSSVENDOR == tuple(f for f in xmlpatch.DEFAULT if f != 'crossvendor')
+    new = ('res2160', 'res2880', 'res4320', 'compute_off')     # 0.99.2 (Kravickas's PR #4, 2026-11-22)
     assert xmlpatch.EARLIER[3] == tuple(f for f in xmlpatch.DEFAULT
-                                        if f not in ('res720', 'woc_unlock', 'chel_max'))   # 0.81.0 cand.
-    assert xmlpatch.EARLIER[4] == tuple(f for f in xmlpatch.DEFAULT if f not in ('woc_unlock', 'chel_max'))  # 0.90.0's
-    assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f != 'chel_max')   # 0.98.0's file
+                                        if f not in ('res720', 'woc_unlock', 'chel_max') + new)   # 0.81.0 cand.
+    assert xmlpatch.EARLIER[4] == tuple(f for f in xmlpatch.DEFAULT if f not in ('woc_unlock', 'chel_max') + new)
+    assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f not in ('chel_max',) + new)   # 0.98.0
+    assert xmlpatch.EARLIER[6] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in ('chel_max',) + new)
+    assert xmlpatch.EARLIER[7] == tuple(f for f in xmlpatch.DEFAULT if f not in new)            # 0.99.1's file
+    assert xmlpatch.EARLIER[8] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in new)
     for sha in crossvendor.EBOOT_SHA256:
         assert xmlpatch.for_eboot(sha) == xmlpatch.for_eboot(sha.upper()) == xmlpatch.DEFAULT
     assert xmlpatch.for_eboot('0' * 64) == xmlpatch.for_eboot(None) == xmlpatch.NO_CROSSVENDOR

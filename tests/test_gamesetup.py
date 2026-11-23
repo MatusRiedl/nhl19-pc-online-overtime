@@ -961,3 +961,28 @@ def test_signin_into_a_data_folder_not_made_yet(tmp_path):
     user = tmp_path / 'never' / 'shadPS4'
     gamesetup.shadnet_signin(str(user), 'Skater_2', 's3cret', running=lambda: False)
     assert (user / 'users.json').is_file()
+
+
+@pytest.mark.parametrize('value,need', [(2160, 3500), (2880, 6000), (4320, 12000)])
+def test_4k_5k_and_8k_set_their_additional_dmem_and_1080p_puts_the_players_own_back(world, value, need):
+    """Kravickas's notes in NHL19.xml: 2160p 3500 MB or more, 2880p 6000, 4320p 12000 (gamesetup.DMEM_FOR); a bigger
+    value of the player's stays; 1080p and Unpatch put the player's own back."""
+    path = world['user'] / 'custom_configs' / 'CUSA11126.json'
+    path.write_text(json.dumps({'General': {'extra_dmem_in_mbytes': 512}}))
+    emu, base = str(world['emu']), xmlpatch.build('localhost')
+
+    def dmem():
+        return json.loads(path.read_text())['General'].get('extra_dmem_in_mbytes')
+    gamesetup.install(emu, xmlpatch.with_resolution(base, value), running=lambda: False)
+    assert dmem() == need and gamesetup.dmem_needed(xmlpatch.with_resolution(base, value)) == need
+    gamesetup.install(emu, xmlpatch.with_resolution(base, 1440), running=lambda: False)
+    assert dmem() == (need if need > gamesetup.DMEM_1440 else gamesetup.DMEM_1440)    # never lowered below what is set
+    gamesetup.install(emu, base, running=lambda: False)
+    assert dmem() == 512
+    cfg = json.loads(path.read_text())
+    cfg['General']['extra_dmem_in_mbytes'] = 20000
+    path.write_text(json.dumps(cfg))
+    gamesetup.install(emu, xmlpatch.with_resolution(base, value), running=lambda: False)
+    assert dmem() == 20000                                  # more than it needs: kept
+    gamesetup.remove(running=lambda: False)
+    assert dmem() == 20000

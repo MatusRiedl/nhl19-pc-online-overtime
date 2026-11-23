@@ -64,7 +64,7 @@ CANNOT_UPDATE = {
 NAME_MAX = 40
 BACKUPS_KEPT = savegame.BACKUPS_KEPT
 CHECK_FRESH = 3600      # Go uses Check first's data for an hour
-SEASONS = (update.DEFAULT_SEASON - 1, update.DEFAULT_SEASON, update.DEFAULT_SEASON + 1)
+SEASONS = update.SEASONS
 EXPECTED = (update.UpdateError, nhlcom.NhlComError, OSError, ValueError)
 NOTHING_CHANGED = {'part': 'Nothing changed', 'text': 'The roster and your saves are as they were.'}
 
@@ -179,6 +179,7 @@ class UpdateCtl(Part):
         self.kind = 'go'        # what ran last: 'check' | 'go' | 'apply' (the steps row)
         self.at = 0             # the step (GO_STEPS) the run is at, or stopped at
         self.failed = False     # the last run stopped: its step is red until the result is closed
+        self.stop = None        # the UpdateError gather stopped this run with (its words go on the card), else None
         self.outcome = None     # what the last run gave (the result card): see _record
         self.checked = None     # Check first's data for Go: {key, gathered, plan, state, at}
         self.closed = False     # the result card was closed
@@ -257,8 +258,12 @@ class UpdateCtl(Part):
         c = self.ctl
         client = nhlcom.Client(cache_dir=paths.app_dir('cache'))
         more = {} if schedule else {'schedule': False}   # the Calendar switch off: no calendar does not stop it
-        return update.gather(client, season, paths.app_dir('cache'), fetch=update.fetch, offline=offline,
-                             step=self._upd_step, log=c.host.log, **more)
+        try:
+            return update.gather(client, season, paths.app_dir('cache'), fetch=update.fetch, offline=offline,
+                                 step=self._upd_step, log=c.host.log, **more)
+        except update.UpdateError as err:
+            self.stop = err
+            raise
 
     def _check_text(self, offline):
         date = update.offline_date(paths.app_dir('cache'))
@@ -323,6 +328,7 @@ class UpdateCtl(Part):
         self.running = self.kind = run
         self.at, self.failed = 0, False
         self.closed = self.listing = False
+        self.stop = None
 
     # --- Check first -------------------------------------------------------------------------------------------------
     def update_check(self):
@@ -382,7 +388,8 @@ class UpdateCtl(Part):
             c.busy = None
             self.running = None
             self.failed = True
-            self.outcome = dict(rec, error=message, at=self.at)
+            self.outcome = dict(rec, error=message, at=self.at, own=self.stop is not None,
+                                offline_helps=getattr(self.stop, 'offline_helps', True))
             say = self.result_view()['say']
         c.host.log(message)
         c.say(say, 'bad')
@@ -1163,15 +1170,21 @@ class UpdateCtl(Part):
         at, message = o.get('at', 0), o['error']
         undo = o['change'] is not None and self.ctl.session is not None and bool(self.ctl.session.history) \
             and self.ctl.session.history[-1] is o['change']
-        if at == 0:     # NHL.com or the offline copy (the details are in the log)
+        if at == 0:     # NHL.com or the offline copy
             offline = o['offline']
-            lines = [{'part': 'Offline copy', 'text': 'The offline copy could not be read. Turn Data back to NHL.com '
-                                                      'and press Patch again.'} if offline else
-                     {'part': 'NHL.com', 'text': 'NHL.com did not answer. Check your internet connection and press '
-                                                 'Patch again.'}, NOTHING_CHANGED]
-            can_offline = not offline and bool(update.offline_date(paths.app_dir('cache')))
-            say = ('The update stopped: the offline copy could not be read.' if offline else
-                   'The update stopped: NHL.com did not answer.') + ' Nothing was saved.'
+            if o.get('own'):    # gather's own words: no rosters (and why), no calendar yet, ...
+                text = message
+                head = message.split(':')[0].rstrip('.')
+                say = f'The update stopped: {head[:1].lower() + head[1:]}. Nothing was saved.'
+            else:               # anything else (a broken offline copy, a cache write): the error after the words
+                text = ('The offline copy could not be read. Turn Data back to NHL.com and press Patch again.'
+                        if offline else 'NHL.com did not answer. Check your internet connection and press Patch '
+                                        'again.') + f' ({message})'
+                say = ('The update stopped: the offline copy could not be read.' if offline else
+                       'The update stopped: NHL.com did not answer.') + ' Nothing was saved.'
+            lines = [{'part': 'Offline copy' if offline else 'NHL.com', 'text': text}, NOTHING_CHANGED]
+            can_offline = not offline and o.get('offline_helps', True) \
+                and bool(update.offline_date(paths.app_dir('cache')))
         else:
             lines = [{'part': GO_STEPS[min(at, len(GO_STEPS) - 1)][1], 'text': message}]
             lines.append({'part': 'What now', 'text': 'Undo takes the update back. Details tells more.'} if undo

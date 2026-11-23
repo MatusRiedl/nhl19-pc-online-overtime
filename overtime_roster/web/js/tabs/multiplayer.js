@@ -300,6 +300,7 @@ function Player({ p, launching, chel }) {
         : launching ? html`<${Tag} tone="info">${STAGE_TEXT[p.stage] || p.stage}<//>`
         : html`<${Tag} tone=${p.ready ? 'good' : 'caution'}>${p.ready ? 'ready' : 'not ready'}<//>`}
       ${launching && chel && !p.bench && html`<${Tag} tone="accent">${SIDE_NAMES[p.side] || 'Home'}<//>`}
+      ${p.build && html`<${Tag} title="The shadPS4 build this player's game plays on (from their last Ready): each player picks their own">${p.build}<//>`}
       ${roster}
     </div>
     ${launching && p.screen && html`<div class=${cls('mp-screen', 'tone-' + p.screen.tone)}
@@ -601,6 +602,7 @@ function Game({ game }) {
           <span class="sp"></span>${st.state === 'now' && html`<${Tag} tone="accent">now<//>`}</div>`)}</div>`}
       ${failed && html`<div class="mp-steps"><div class="mp-step fail"><span class="n">!</span>${game.note}</div></div>`}
       ${!failed && game.note && html`<div class="mp-note">${game.note}</div>`}
+      ${game.warn && html`<div class="mp-note"><b>${game.warn}</b></div>`}
       ${game.manual && !failed && html`<div class="mp-manual">Not moving? Press <b>✕</b> on the title screen (twice if the
         first only wakes the window). The game then goes to Online ${game.game || 'Versus'} by itself.</div>`}
       ${game.again && html`<div class="mp-row"><${Button} small onClick=${() => call('mp_launch_now')}>Start the game again<//></div>`}

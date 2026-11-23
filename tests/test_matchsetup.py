@@ -129,7 +129,7 @@ def test_apply_then_restore_gives_the_players_files_back_byte_for_byte(world):
     cfg = json.load(open(w['cfg'], encoding='utf-8'))
     # 0.90.2: the player's own vblank stays (9999 here; mixed 9999/60 peers play fine), no longer forced to 60
     assert cfg['GPU']['vblank_frequency'] == 9999 and cfg['Network']['shad_net_enabled'] is True
-    assert 'vblank_frequency' not in MS.MATCH_TIMING
+    assert 'vblank_frequency' not in MS.MATCH_TIMING and 'neo_mode' not in cfg['General']   # 0.99.2: Pro mode too
     assert {k: cfg['GPU'][k] for k in gamesetup.GPU_SETTINGS} == gamesetup.GPU_SETTINGS     # every match (2026-11-10)
     assert os.path.isfile(got['patch'])
     assert MS.restore(running=w['off']) == 'done'
@@ -168,11 +168,30 @@ def test_the_match_writes_a_log_a_desync_report_can_read(world, own):
     MS.apply(w['game'], w['user'], MS.recipe(w['host']), w['host'], add_layers=w['add'], running=w['off'])
     log = json.load(open(w['cfg'], encoding='utf-8'))['Log']
     assert 'Core.Linker:Debug' in log['filter'] and log['filter'].startswith('*:Info')   # the AMD math patch counts
+    assert 'Lib.Net:Debug' not in log['filter']     # 0.99.2: ~200 sceNetEpoll lines a second, read by nothing
     assert log['enable'] is True and log['separate'] is False and log['append'] is False
     if isinstance(own, dict):
         assert log['size_limit'] == 1234 and log['type'] == 'wincolor'                   # the rest stays the player's
     assert MS.restore(running=w['off']) == 'done'
     assert _snapshot(w) == before                         # the player's own Log (or none) comes back byte for byte
+
+
+@pytest.mark.parametrize('own', [True, False])
+@pytest.mark.parametrize('host_timing', [{}, {'neo_mode': False}, {'neo_mode': True, 'vblank_frequency': 60}])
+def test_ps4_pro_mode_stays_each_players_own_in_a_match(world, own, host_timing):
+    # 0.99.2 (owner 2026-11-23): "leave ps4 pro neo setting up to players not up to game lobbie"; a 0.99.2 host sends no
+    # timing, an older host's recipe still names neo_mode (and 0.90 ones the vblank): it is read and left out
+    w = world
+    with open(w['cfg'], 'w', encoding='utf-8', newline='') as f:
+        json.dump({'General': {'connected_to_network': False, 'neo_mode': own}, 'GPU': {'vblank_frequency': 9999}}, f)
+    before = _snapshot(w)
+    assert MS.recipe(w['host'])['timing'] == {}
+    r = dict(MS.recipe(w['host']), timing=host_timing)
+    MS.apply(w['game'], w['user'], MS.check(r), w['host'], add_layers=w['add'], running=w['off'])
+    cfg = json.load(open(w['cfg'], encoding='utf-8'))
+    assert cfg['General']['neo_mode'] is own and cfg['GPU']['vblank_frequency'] == 9999
+    assert MS.restore(running=w['off']) == 'done'
+    assert _snapshot(w) == before
 
 
 def test_each_match_games_log_is_kept_and_a_crashs_log_survives_the_next_start(world, monkeypatch):
@@ -413,3 +432,31 @@ def test_stock_leaves_the_block_out_and_99_is_the_recipe_of_an_app_without_the_s
     with pytest.raises(MS.MatchSetupError):
         MS.recipe(host, chel_level='42')
     assert MS.chel_level(None) is None and MS.chel_level({'xml_blocks': 'x'}) is None
+
+
+@pytest.mark.parametrize('value,need', [(1080, None), (1440, 3500), (2160, 3500), (2880, 6000), (4320, 12000)])
+def test_a_match_keeps_my_resolutions_additional_dmem(value, need):
+    """My resolution is a local-only block of the match patch: the match's config gets the Additional DMem it needs
+    (gamesetup.DMEM_FOR), a bigger value of mine stays."""
+    from overtime_roster.app import gamesetup
+    xml = xmlpatch.with_resolution(xmlpatch.build('ot.example.org', 'https://10.0.0.2/'), value)
+    cfg = MS._config_values({'General': {'extra_dmem_in_mbytes': 100}}, '', xml, {})
+    assert cfg['General']['extra_dmem_in_mbytes'] == (need or 100)
+    cfg = MS._config_values({'General': {'extra_dmem_in_mbytes': 50000}}, '', xml, {})
+    assert cfg['General']['extra_dmem_in_mbytes'] == 50000
+    assert gamesetup.dmem_needed(xml) == (need or 0)
+
+
+def test_compute_off_stays_out_of_a_lobby_match():
+    """Compute off is offline only (owner 2026-11-23): the match patch of a player with it on has no Compute off block,
+    the resolution block stays, and the tag inputs (netplay fingerprint) are the same either way."""
+    host = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    mine = xmlpatch.with_compute_off(xmlpatch.with_resolution(xmlpatch.build('ot.example.org', 'https://10.0.0.2/'),
+                                                              2160), True)
+    assert xmlpatch.compute_off(mine)
+    r = MS.recipe(xmlpatch.with_compute_off(host, True))
+    played = MS.match_xml(r, mine)
+    assert xmlpatch.COMPUTE_OFF_TITLE not in played and not xmlpatch.compute_off(played)
+    assert xmlpatch.RES2160_TITLE in played and xmlpatch.resolution(played) == 2160
+    assert all(b['name'] != xmlpatch.COMPUTE_OFF_TITLE for b in MS.local_blocks(mine))
+    assert xmlpatch.netplay_fingerprint(played) == xmlpatch.netplay_fingerprint(MS.match_xml(r, host))

@@ -2,6 +2,59 @@
 
 What changed in each version, for players.
 
+## 0.99.2 (2026-11-23)
+
+### New
+
+- **4K, 5K and 8K** under Resolution on Setup's Boost performance card (Kravickas's patches): 2160p (3840x2160),
+  2880p (5120x2880) and 4320p (7680x4320). They set Additional DMem to 3500 MB (2160p), 6000 MB (2880p) and
+  12000 MB (4320p); 720p and 1080p put your own value back. Each needs a stronger graphics card than the last.
+  **8K is experimental**: it needs a lot of memory and may not run on every PC. Your resolution is your own: the
+  other player in an online match keeps theirs.
+- **Compute off** beside Resolution (Kravickas's patch): turns the game's compute-shader mesh features off (cloth
+  physics, compute blend shapes) for a slight speed gain. Off by default. **Offline only**: app lobby matches play
+  with the game's own compute features whatever you pick. Turn it off before you search online from the game's
+  own menus.
+
+### Changed
+
+- **PS4 Pro mode is your own in online matches.** App lobby matches no longer turn PS4 Pro mode off: each player
+  plays with their own setting (Setup > Emulator settings > PS4 Pro mode, on by default), so matches look like your
+  offline games. A PS4 Pro / base PS4 pair plays together, as the real consoles did. The server leaves the
+  setting out of every lobby's match setup, so players still on 0.99.1 keep their own too.
+- **Each player's build in the lobby.** Every player row names the shadPS4 build that player's game plays on
+  (Overtime Native v3, Kravickas, ...), once they have pressed Ready. Each player picks their own on Setup's
+  Boost performance card.
+- **Lighter match logs.** The log a lobby match writes for a report no longer holds the emulator's network chatter
+  (about 200 lines a second, nine in ten of its lines).
+- **Roster update: 2027-28 waits for its calendar.** The Season choice offers 2025-26 and 2026-27. NHL.com lists no
+  2027-28 games yet (the NHL puts out a season's calendar in the summer before it), so that pick could only stop.
+  If you had 2027-28 picked, it starts as 2026-27.
+
+### Fixed
+
+- **The roster update says why it stopped.** When NHL.com has no calendar for the season, or NHL.com itself failed
+  (no answer in time, a certificate this PC could not check, ...), the card says that instead of "NHL.com did not
+  answer", and offers the offline copy only when it can help.
+- **No quiet fallback in a lobby match.** When the shadPS4 build chosen on the Boost card can't be had (not on its
+  server, a download that failed), the Game card now says which shadPS4 the match plays on instead of starting
+  it quietly (DLSS and the Picture options come only with the Overtime Native v3 build).
+
+### Thanks
+
+- Kravickas for PR #4, both commits: the faster downloads and his build's updates in 0.99.0, and now the 4K, 5K and
+  8K resolutions and Compute off.
+
+### How to get it
+
+- The app updates itself. A patched game takes a new resolution or Compute off at its next start; no Patch needed.
+
+### Known limits
+
+- 8K was not tried on every graphics card; if NHL 19 does not start at 4320p, pick a lower resolution.
+- Compute off can't be checked in open matchmaking from the game's own menus: a game played with it on can fall out
+  of sync there.
+
 ## 0.99.1 (2026-11-23)
 
 ### New

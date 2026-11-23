@@ -370,3 +370,13 @@ def test_the_picture_keys_of_native_v3_and_value(user):
     assert _field(v, 'GPU.dlss_nr_dll')['show_if'] == {'GPU.dlss_nr': True}
     assert emusettings.save(str(user), {'GPU.upscaler': 'fsr1', 'GPU.dlss_nr': False}) == ['GPU.dlss_nr', 'GPU.upscaler']
     assert _read(user)['GPU']['upscaler'] == 'fsr1' and _read(user)['GPU']['dlss_nr'] is False
+
+
+@pytest.mark.parametrize('value,need', [(1440, 3500), (2160, 3500), (2880, 6000), (4320, 12000)])
+def test_dmem_floor_follows_the_resolution(user, value, need):
+    dmem = emusettings.BY_ID['General.' + gamesetup.DMEM_KEY]
+    assert _field(emusettings.view(str(user), value), 'General.' + gamesetup.DMEM_KEY)['min'] == need
+    with pytest.raises(emusettings.SettingsError, match=f'from {need}'):
+        emusettings.coerce(dmem, need - 1, resolution=value)
+    assert emusettings.coerce(dmem, need, resolution=value) == need
+    assert emusettings.coerce(dmem, 0, resolution=720) == 0

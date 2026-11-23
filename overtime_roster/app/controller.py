@@ -156,6 +156,8 @@ class Controller:
         # update, strategy, calendar
         up = prefs.get('update') or {}
         self.upd_season = int(up.get('season') or update.DEFAULT_SEASON)
+        if self.upd_season not in update.SEASONS:      # a season no longer offered (2027-28 before its calendar)
+            self.upd_season = update.DEFAULT_SEASON
         self.upd_per32 = up.get('per32')
         self.upd_offline = bool(up.get('offline'))
         self.upd_gathered = None

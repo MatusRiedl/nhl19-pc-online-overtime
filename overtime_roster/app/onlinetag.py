@@ -86,10 +86,18 @@ TRUSTED_EXES = {'fe88293d67e4e9ab6d0799ac6dcff84644def7806ff0d03b028967cbfdf0e99
                 # docs/notes/v3-perf-candidates.md). cpu_patches, the linker and memory_patcher are v2's
                 # (git diff d1d3168a..5768473ca: none); docs/notes/native-v3.md
                 '5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
-                    'Overtime Native v3 5768473ca (v2 d1d3168a)'}
-# The default builds: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; v2 from 2026-11-16, v1 from 0.92.0),
-# v2 on Linux and macOS. Since 0.99.0 the exe's sha is not in the tag: a lobby plays the build the player chose.
-ONLINE_EXES = {'5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
+                    'Overtime Native v3 5768473ca (v2 d1d3168a)',
+                # 2026-11-23, the v3 that shipped (0.99.0 / 0.99.1 pack 2098b22d): v3 + flush-only readbacks and fast
+                # interval sets, PGO build (docs/release/v0.99.0.md "Speed work in v3"). cpu_patches, the linker and
+                # memory_patcher are v2's (git diff 5768473ca..bf8d94851: none)
+                '85c998cb5f160137cb4586219f1a0b2399920b5f7df26ff5468222c85313cebe':
+                    'Overtime Native v3 speed bf8d94851 (v3 5768473ca)'}
+# The default builds: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; the speed build 85c998cb is the one
+# that shipped, 5f1d5989 was never uploaded; v2 from 2026-11-16, v1 from 0.92.0), v2 on Linux and macOS. Since 0.99.0 the
+# exe's sha is not in the tag: a lobby plays the build the player chose.
+ONLINE_EXES = {'85c998cb5f160137cb4586219f1a0b2399920b5f7df26ff5468222c85313cebe':
+               'Overtime Native v3 speed bf8d94851 (v3 5768473ca)',
+               '5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
                'Overtime Native v3 5768473ca (v2 d1d3168a)',
                'e162fada7fcafe705d0062e2d9a647f63228e708f202e6c10e4f5609bf6725d9':
                'Overtime Native v2 d1d3168a (Kravickas nhl-perf-test d0b7ac91)',

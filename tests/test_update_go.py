@@ -12,7 +12,7 @@ import pytest
 
 from overtime_core import rosterupdate as U, savefile, sfo, tdb
 from overtime_core.roster import Issue
-from overtime_roster.app import controller as C, install, jobs, patch, paths, savegame, sources, update
+from overtime_roster.app import controller as C, install, jobs, patch, paths, savegame, settings, sources, update
 from overtime_roster.app import office, save_ctl as SC, update_ctl as UC
 from overtime_roster.app.session import Change, RosterSession
 
@@ -113,6 +113,8 @@ class Fakes:
         assert lock_free(self.c.lock), 'NHL.com is read without ctl.lock'
         assert self.c.busy
         self.gathered.append((season, offline, schedule))
+        if isinstance(self.fail_gather, Exception):
+            raise self.fail_gather
         if self.fail_gather:
             raise update.UpdateError(self.fail_gather)
         for k in update.GATHER_STEPS:
@@ -336,6 +338,32 @@ def test_nhl_com_down_stops_before_any_change(app):
     assert v['result'] is None and v['run'] is None
 
 
+def test_the_stop_card_says_why(app, monkeypatch):
+    c, host, fakes = app
+    monkeypatch.setattr(update, 'offline_date', lambda d: '2026-11-20')
+    open_roster(c, fakes, 'RosterCustom2')
+    down = 'No rosters: NHL.com did not answer (no answer in time) and there is no data pack.'
+    fakes.fail_gather = down
+    c.calls['update_go']()
+    r = view(host)['result']
+    assert r['lines'][0] == {'part': 'NHL.com', 'text': down} and r['can_offline']
+    assert c.status['text'] == 'The update stopped: no rosters. Nothing was saved.'
+    c.calls['update_result']('close')
+    fakes.fail_gather = update.NoGames(update.no_games_text(2027))     # a season not out yet: no offline copy has it
+    c.calls['update_go']()
+    r = view(host)['result']
+    assert r['lines'][0]['text'].startswith('No 2027-28 calendar yet') and not r['can_offline']
+    assert c.status['text'] == 'The update stopped: no 2027-28 calendar yet. Nothing was saved.'
+    c.calls['update_result']('close')
+    fakes.fail_gather = ValueError('Not a gzipped file')    # not gather's own words: the old line, the error after it
+    c.calls['update_option']('offline', True)
+    c.calls['update_go']()
+    r = view(host)['result']
+    assert r['lines'][0] == {'part': 'Offline copy', 'text': 'The offline copy could not be read. Turn Data back to '
+                                                             'NHL.com and press Patch again. (Not a gzipped file)'}
+    assert c.status['text'] == 'The update stopped: the offline copy could not be read. Nothing was saved.'
+
+
 def test_check_first_is_used_again(app):
     c, host, fakes = app
     open_roster(c, fakes, 'RosterCustom0')
@@ -359,6 +387,20 @@ def test_check_first_is_used_again(app):
     assert len(fakes.gathered) == 5 and fakes.gathered[-1][1] is True
     assert dict(view(host)['result']['items'])['Data'] == 'Offline copy from 2026-10-18'
 
+
+def test_the_next_season_waits_for_its_calendar(app, monkeypatch):
+    """2027-28 is left out until NHL.com lists its games (owner 2026-11-23): the Season choice shows 2025-26 and
+    2026-27, a 2027 pick is refused, and a 2027 kept from 0.99.1 starts as 2026-27."""
+    c, host, fakes = app
+    assert update.SEASONS == (2025, 2026) and UC.SEASONS == update.SEASONS
+    open_roster(c, fakes, 'RosterCustom0')
+    assert view(host)['seasons'] == [{'value': 2025, 'label': '2025-26'}, {'value': 2026, 'label': '2026-27'}]
+    c.calls['update_option']('season', 2027)
+    assert c.upd_season == 2026 and c.status['text'] == 'Pick one of the seasons shown.'
+    settings.save({'update': {'season': 2027}})
+    assert C.Controller(Host(), game_dir=str(c.game_dir), save_dir=str(c.save_dir)).upd_season == 2026
+    settings.save({'update': {'season': 2025}})
+    assert C.Controller(Host(), game_dir=str(c.game_dir), save_dir=str(c.save_dir)).upd_season == 2025
 
 def test_check_first_plan_is_made_again_after_an_edit(app):
     c, host, fakes = app

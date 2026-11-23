@@ -122,12 +122,14 @@ def targets(games):
 
 def real_season(season, offline=False, log=lambda msg: None):
     """(games, source) of the regular season starting in `season`: NHL.com's (cached a while), else the data pack's
-    copy. Raises SyncError when neither has it."""
+    copy. Raises SyncError when neither has it (NHL.com answered with no games: update.no_games_text)."""
+    answered = False
     if not offline:
         try:
             games = calendar.season_games(nhlcom.Client(cache_dir=paths.app_dir('cache')), season, log=log)
             if games:
                 return games, 'NHL.com'
+            answered = True
         except (nhlcom.NhlComError, OSError, ValueError) as err:
             log(f'NHL.com calendar: {err}')
     try:
@@ -138,7 +140,7 @@ def real_season(season, offline=False, log=lambda msg: None):
     games = update._pack_games(pack, season)
     if games:
         return games, f"data pack {(pack.get('generated') or '')[:10]}".strip()
-    raise SyncError(SYNC_ERROR)
+    raise SyncError(update.no_games_text(season) if answered else SYNC_ERROR)
 
 
 class CalendarCtl(Part):
@@ -563,7 +565,8 @@ class CalendarCtl(Part):
             with c.lock:
                 c.busy = None
                 st['step'] = 'error'
-                st['error'] = message if message == SYNC_ERROR else f"NHL.com's calendar cannot be used: {message}."
+                st['error'] = message if message == SYNC_ERROR or message.startswith('No ') else \
+                    f"NHL.com's calendar cannot be used: {message}."
             c.host.log(f'Calendar: {message}')
             c.say(st['error'], 'bad')
             c.changed('calendar', 'calendar_sync')

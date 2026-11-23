@@ -663,6 +663,18 @@ class MultiplayerCtl(Part):
             jobs.log_block(err, 'The shadPS4 for a lobby match')
             return None
 
+    @staticmethod
+    def _fallback_note(why, exe, emu):
+        """What the Game card says when a match cannot start the build chosen on the Boost card (`why`, from
+        _lobby_build) and starts on the shadPS4 Setup found instead (launch.start with no exe), '' when the chosen build
+        or the player's own portable shadPS4 starts. 0.99.2 (owner 2026-11-23, after an online player found matches
+        uglier than offline): no quiet fallback, since DLSS and the Picture options come only with the v3 build."""
+        if exe or not why:
+            return ''
+        label = boost.BUILDS.get(boost.build_of(emu) or '', {}).get('label') if emu else None
+        on = f'the {label} build' if label else 'the shadPS4 Setup found'
+        return f'This match plays on {on}: {why.rstrip(".")}.'
+
     def _lobby_build(self, note=None):
         """The chosen build switched on and up to date (Setup.online_boost, waits for a download). '' or why not."""
         setup = self.ctl.setup
@@ -1421,7 +1433,7 @@ class MultiplayerCtl(Part):
         with self.mlock:
             was = self.game or {}
             self.game = {'phase': phase, 'note': note, 'manual': was.get('manual', False),
-                         'ready_manual': was.get('ready_manual', False), **extra}
+                         'ready_manual': was.get('ready_manual', False), 'warn': was.get('warn', ''), **extra}
         self._changed()
 
     def _launch_job(self):
@@ -1544,9 +1556,14 @@ class MultiplayerCtl(Part):
                     self._restore()
                 return
             self._restart_for_hook('Restarting NHL 19 for the match...')
-        self._phase('setup', 'Setting up the match (your own setup comes back after)...')
-        self._lobby_build()         # NHL 19 is closed now: the chosen build (Ready skipped it under a running game)
+        setup_note = 'Setting up the match (your own setup comes back after)...'
+        self._phase('setup', setup_note)
+        why = self._lobby_build()   # NHL 19 is closed now: the chosen build (Ready skipped it under a running game)
         exe = self._lobby_exe()
+        warn = self._fallback_note(why, exe, emu)
+        if warn:
+            c.host.log(f'Multiplayer: {warn}')
+            self._phase('setup', setup_note, warn=warn)
         try:
             with patch_ctl.game_writes(c, 'Setting up the match...'):   # not beside a Patch (SetupError)
                 got = matchsetup.apply(game_dir, user, plan['recipe'], self._own_text(), running=self.running,
@@ -1978,7 +1995,8 @@ class MultiplayerCtl(Part):
                     'roster': p.get('roster') or 'unknown', 'stage': p.get('stage') or 'lobby',
                     'bench': bool(p.get('bench')), 'screen': _screen_view(p.get('screen'), lobby.get('mode')),
                     'side': p.get('side') if p.get('side') in (0, 1) else 0,
-                    'game': [str(k) for k in p.get('game') or () if isinstance(k, str)][:5]}
+                    'game': [str(k) for k in p.get('game') or () if isinstance(k, str)][:5],
+                    'build': boost.label_of(p.get('emu'))}     # 0.99.2 servers: the build the game plays on
                    for i, p in enumerate(lobby.get('players') or [])]
         mine = players[self.me] if self.me < len(players) else None
         other = next((p for p in players if not p['you']), None)
@@ -2095,7 +2113,7 @@ class MultiplayerCtl(Part):
                     text = 'Press ✕ (READY) on Game Setup'
                 steps.append({'text': text, 'state': 'done' if i < now else 'now' if i == now else 'todo'})
         return {'phase': phase, 'game': self._game_name(), 'note': game.get('note') or '',
-                'manual': bool(game.get('manual')), 'steps': steps,
+                'warn': game.get('warn') or '', 'manual': bool(game.get('manual')), 'steps': steps,
                 'again': phase in ('failed', 'ended') and bool(lobby) and lobby['state'] in LAUNCHING}
 
 

@@ -30,9 +30,12 @@ def test_targets_and_blocks():
         'ProtoHttp: accept EAGAIN while waiting for the status code', 'Redirector host: ot.puckpeak.com',
         'QoS coordinator: skip TLS cert validation', 'Nucleus hosts: ot.puckpeak.com, 91.98.195.150',
         '60 FPS replays (Kravickas)', 'Resolution 2560x1440 (Kravickas)', 'Resolution 1280x720 (Kravickas)',
-        xmlpatch.THREES_REWARDS_TITLE, 'Cross-vendor exact math (rcp/rsqrt)', xmlpatch.WOC_UNLOCK_TITLE,
-        xmlpatch.CHEL_MAX_TITLE, 'R1: cap check on the Franchise per-team list append', 'BAP32: Seattle in Be a Pro', 'E32: 32 teams in every mode']
-    off = (xmlpatch.RES1440_TITLE, xmlpatch.RES720_TITLE)
+        'Resolution 3840x2160 (Kravickas)', 'Resolution 5120x2880 (Kravickas)', 'Resolution 7680x4320 (Kravickas)',
+        'Compute features off (Kravickas)', xmlpatch.THREES_REWARDS_TITLE, 'Cross-vendor exact math (rcp/rsqrt)',
+        xmlpatch.WOC_UNLOCK_TITLE, xmlpatch.CHEL_MAX_TITLE, 'R1: cap check on the Franchise per-team list append',
+        'BAP32: Seattle in Be a Pro', 'E32: 32 teams in every mode']
+    off = (xmlpatch.RES1440_TITLE, xmlpatch.RES720_TITLE, xmlpatch.RES2160_TITLE, xmlpatch.RES2880_TITLE,
+           xmlpatch.RES4320_TITLE, xmlpatch.COMPUTE_OFF_TITLE)
     assert all(b['enabled'] == (b['name'] not in off) and b['app_ver'] == '01.60' for b in blocks)
 
 
@@ -528,7 +531,7 @@ def test_repoint_brings_a_0_70_7_or_0_80_0_file_up_with_its_resolution():
         new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus)
         assert new == xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), value)
     # 0.90.0's file (no WoC item unlock) gets the block on the next Play, its resolution kept
-    for value in xmlpatch.RESOLUTIONS:
+    for value in (720, 1080, 1440):
         old = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, xmlpatch.EARLIER[4]), value)
         assert xmlpatch.WOC_UNLOCK_TITLE not in old
         new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus)
@@ -539,9 +542,10 @@ def test_repoint_brings_a_0_98_file_up_with_chel_max():
     """0.98.0's files (DEFAULT and NO_CROSSVENDOR, no CHEL max block) get the block on the next Play (Ready and Play
     repoint with for_eboot's features), every switch kept."""
     nucleus = 'https://91.98.195.150/'
-    assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f != 'chel_max')
-    assert xmlpatch.EARLIER[6] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f != 'chel_max')
-    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in xmlpatch.RESOLUTIONS for e in (True, False)):
+    new = ('res2160', 'res2880', 'res4320', 'compute_off')     # 0.99.2: blocks a 0.98 file lacks too
+    assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f not in ('chel_max',) + new)
+    assert xmlpatch.EARLIER[6] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in ('chel_max',) + new)
+    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 1440) for e in (True, False)):
         def make(features):
             text = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features, newline), value)
             return text if e32 else xmlpatch.expansion32_off(text)
@@ -551,6 +555,47 @@ def test_repoint_brings_a_0_98_file_up_with_chel_max():
             new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, features=features)
             assert new == make(features) and xmlpatch.CHEL_MAX_TITLE in new
 
+
+def test_repoint_brings_a_0_99_1_file_up_with_the_new_resolutions_and_compute_off():
+    """0.99.1's files (DEFAULT and NO_CROSSVENDOR without res2160 / res2880 / res4320 / compute_off) get the blocks on
+    the next Play, off, every switch kept; after that the 4K / 5K / 8K choice and Compute off can be set."""
+    nucleus = 'https://91.98.195.150/'
+    new = ('res2160', 'res2880', 'res4320', 'compute_off')
+    assert xmlpatch.EARLIER[7] == tuple(f for f in xmlpatch.DEFAULT if f not in new)
+    assert xmlpatch.EARLIER[8] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in new)
+    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 1440) for e in (True, False)):
+        def make(features):
+            text = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features, newline), value)
+            return text if e32 else xmlpatch.expansion32_off(text)
+        for old, features in ((make(xmlpatch.EARLIER[7]), xmlpatch.DEFAULT),
+                              (make(xmlpatch.EARLIER[8]), xmlpatch.NO_CROSSVENDOR)):
+            assert xmlpatch.COMPUTE_OFF_TITLE not in old and xmlpatch.RES2160_TITLE not in old
+            with pytest.raises(xmlpatch.PatchError):
+                xmlpatch.with_compute_off(old, True)
+            new_text = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, features=features)
+            assert new_text == make(features) and not xmlpatch.compute_off(new_text)
+            assert xmlpatch.resolution(xmlpatch.with_resolution(new_text, 4320)) == 4320
+            assert xmlpatch.compute_off(xmlpatch.with_compute_off(new_text, True))
+
+
+def test_repoint_keeps_the_new_resolutions_and_compute_off():
+    nucleus = 'https://91.98.195.150/'
+    for value in (2160, 2880, 4320):
+        for comp in (True, False):
+            mine = xmlpatch.with_compute_off(xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), value),
+                                             comp)
+            assert xmlpatch.repoint(mine, 'ot.puckpeak.com', nucleus) == mine
+            assert xmlpatch.resolution(mine) == value and xmlpatch.compute_off(mine) is comp
+
+
+def test_compute_off_and_the_new_resolutions_are_local():
+    base = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    fp = xmlpatch.netplay_fingerprint(base)
+    assert xmlpatch.netplay_fingerprint(xmlpatch.with_compute_off(base, True)) == fp
+    for value in (2160, 2880, 4320):
+        assert xmlpatch.netplay_fingerprint(xmlpatch.with_compute_off(xmlpatch.with_resolution(base, value), True)) == fp
+    assert xmlpatch.OFFLINE_ONLY_TITLES == (xmlpatch.COMPUTE_OFF_TITLE,)
+    assert set(xmlpatch.OFFLINE_ONLY_TITLES) <= set(xmlpatch.LOCAL_ONLY_TITLES)
 
 def test_netplay_fingerprint_counts_only_what_reaches_the_other_game():
     # live 2026-11-08: a 1440p game and a 1080p game were told their patches differ (0.70.7 hashed the whole file)
@@ -587,3 +632,67 @@ def test_netplay_fingerprint_counts_only_what_reaches_the_other_game():
     # the 32-team switch changes the online team list: that one counts, and so does any other game byte
     assert xmlpatch.netplay_fingerprint(xmlpatch.expansion32_off(base)) != fp
     assert xmlpatch.netplay_fingerprint(xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/', features=xmlpatch.EARLIER[0])) != fp
+
+
+# Kravickas's NHL19.xml (2026-11-22), the blocks this app writes from it: address and bytes as the file has them
+KRAVICKAS_RES = {
+    2160: [('0x02d3bd70', 'b8000f0000'), ('0x02d3bd75', 'ba000f0000'), ('0x02d3bd7a', 'b970080000'),
+           ('0x02d3bd7f', 'be70080000'), ('0x02d3bdaa', '41c74558000f0000'), ('0x005736ea', 'e988198c049090'),
+           ('0x04e35077', '483d00000040721348b90000c090000000004839c8740448c1e001498b0e483b4de8e953e673fb')],
+    2880: [('0x02d3bd70', 'b800140000'), ('0x02d3bd75', 'ba00140000'), ('0x02d3bd7a', 'b9400b0000'),
+           ('0x02d3bd7f', 'be400b0000'), ('0x02d3bdaa', '41c7455800140000'), ('0x005736ea', 'e988198c049090'),
+           ('0x04e35077', '483d00000040721348b90000c090000000004839c87404486bc003498b0e483b4de8e953e673fb')],
+    4320: [('0x02d3bd70', 'b8001e0000'), ('0x02d3bd75', 'ba001e0000'), ('0x02d3bd7a', 'b9e0100000'),
+           ('0x02d3bd7f', 'bee0100000'), ('0x02d3bdaa', '41c74558001e0000'), ('0x005736ea', 'e988198c049090'),
+           ('0x04e35077', '483d00000040721348b90000c090000000004839c87404486bc005498b0e483b4de8e953e673fb')],
+}
+KRAVICKAS_COMPUTE = [('0x02d37dc0', 'c605815e880300')]
+
+
+def _same(lines, want):
+    return [(int(a, 16), v.upper()) for a, v in lines] == [(int(a, 16), v.upper()) for a, v in want]
+
+
+def test_the_4k_5k_and_8k_blocks_are_kravickas_lines_and_switch_one_at_a_time():
+    text = xmlpatch.build('localhost')
+    assert xmlpatch.resolution(text) == 1080
+    for value, want in KRAVICKAS_RES.items():
+        on = xmlpatch.with_resolution(text, value)
+        assert xmlpatch.resolution(on) == value and xmlpatch.with_resolution(on, 1080) == text
+        enabled = [b for b in xmlpatch.parse(on) if b['enabled'] and b['name'].startswith('Resolution ')]
+        assert [b['name'] for b in enabled] == [xmlpatch.RESOLUTION_BLOCKS[value]] and _same(enabled[0]['lines'], want)
+        for other in xmlpatch.RESOLUTIONS:      # never two on
+            assert xmlpatch.resolution(xmlpatch.with_resolution(on, other)) == other
+
+
+def test_compute_off_is_kravickas_line_written_off_switched_and_local():
+    base = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    assert not xmlpatch.compute_off(base)
+    on = xmlpatch.with_compute_off(base, True)
+    block = next(b for b in xmlpatch.parse(on) if b['name'] == xmlpatch.COMPUTE_OFF_TITLE)
+    assert xmlpatch.compute_off(on) and block['enabled'] and _same(block['lines'], KRAVICKAS_COMPUTE)
+    assert xmlpatch.with_compute_off(on, False) == base
+    assert xmlpatch.netplay_fingerprint(on) == xmlpatch.netplay_fingerprint(base)   # each player's own
+    assert xmlpatch.netplay_fingerprint(xmlpatch.with_resolution(base, 4320)) == xmlpatch.netplay_fingerprint(base)
+    old = xmlpatch.build('localhost', features=xmlpatch.EARLIER[-2])             # 0.98.0's file: no block
+    assert xmlpatch.with_compute_off(old, False) == old
+    with pytest.raises(xmlpatch.PatchError):
+        xmlpatch.with_compute_off(old, True)
+
+
+def test_repoint_brings_a_0_98_0_file_up_keeping_its_resolution_and_replays():
+    """0.98.0's files (with and without the cross-vendor block) are taken as this app's own: the next Play writes
+    today's file with the new blocks, the player's resolution and Apply everywhere kept, Compute off off."""
+    nucleus = 'https://91.98.195.150/'
+    for features, now in ((xmlpatch.EARLIER[-2], xmlpatch.DEFAULT), (xmlpatch.EARLIER[-1], xmlpatch.NO_CROSSVENDOR)):
+        for value in (720, 1080, 1440):
+            for r60 in (True, False):
+                old = xmlpatch.with_replays60(xmlpatch.with_resolution(
+                    xmlpatch.build('ot.puckpeak.com', nucleus, features), value), r60)
+                assert xmlpatch.RES2160_TITLE not in old and xmlpatch.COMPUTE_OFF_TITLE not in old
+                new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, now)
+                assert new == xmlpatch.with_replays60(xmlpatch.with_resolution(
+                    xmlpatch.build('ot.puckpeak.com', nucleus, now), value), r60)
+    today = xmlpatch.with_compute_off(xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), 2880), True)
+    assert xmlpatch.repoint(today, 'localhost', 'https://localhost/') == xmlpatch.with_compute_off(
+        xmlpatch.with_resolution(xmlpatch.build('localhost', 'https://localhost/'), 2880), True)

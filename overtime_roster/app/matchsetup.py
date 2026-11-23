@@ -36,20 +36,24 @@ JOURNAL = 'match-setup.json'
 VIEW_SUFFIX, OWN_SUFFIX, TRASH_SUFFIX = '.match', '.own', '.match-old'
 MARKER = 'overtime-match-view.json'     # in every view: restore deletes only folders that carry it
 MATCH_XML = 'overtime-match.xml'
-# the timing every match plays with. The vblank is each player's own (0.90.2, owner 2026-11-11: an unlocked 9999 Hz plays
-# smoother, and peers on 9999 and on 60 play together fine), so a match no longer sets 60 Hz; an older host's recipe
-# still names it (TIMING_KEYS reads it) and it is left out
-MATCH_TIMING = {'neo_mode': False}
+# the timing every match plays with: none. The vblank is each player's own (0.90.2, owner 2026-11-11: an unlocked 9999 Hz
+# plays smoother, and peers on 9999 and on 60 play together fine), and so is PS4 Pro mode (0.99.2, owner 2026-11-23:
+# "leave ps4 pro neo setting up to players not up to game lobbie"; a Pro / base pair played a full match 2026-11-08,
+# and PS4 and PS4 Pro consoles played NHL 19 online together). An older host's recipe still names them (TIMING_KEYS
+# reads them) and they are left out
+MATCH_TIMING = {}
 TIMING_KEYS = ('vblank_frequency', 'neo_mode')
 ALWAYS_LAYERS = ('menus',)              # the autoplay hook lives in the menus layer's boot.big
 # AMD math on Intel (gamesetup.amd_math_needed): set here too, for a match on a config install() has not seen
 AMD_MATH_KEY = gamesetup.AMD_MATH_KEY
 # The match's shadPS4 log holds what a desync report needs: the CPU, the config, and the Core.Linker line with the AMD
-# math patch counts (written at Debug). Render stays at errors so the file stays small. The player's own Log settings
+# math patch counts (written at Debug). Render stays at errors and Lib.Net at Info so the file stays small (0.99.2: at
+# Debug, Lib.Net wrote about 200 sceNetEpoll lines a second, 59 k of a 5-minute match log's 64 k lines, read by
+# nothing). The player's own Log settings
 # come back with the config, and each match game's log is kept in the app folder, so a crash's log survives the next
 # Start (live 2026-11-08: three tests where the Intel side's log could not answer).
 MATCH_LOG = {'enable': True, 'separate': False, 'append': False,
-             'filter': '*:Info Core.Linker:Debug Render:Error Render.Vulkan:Error Lib.Net:Debug Lib.Http:Debug'}
+             'filter': '*:Info Core.Linker:Debug Render:Error Render.Vulkan:Error Lib.Http:Debug'}
 KEEP_LOGS = 8
 
 _ADDR = re.compile(r'0x[0-9A-Fa-f]{1,16}\Z')
@@ -86,11 +90,12 @@ def shared_blocks(text):
 
 
 def local_blocks(text):
-    """This player's own part of a match patch: the enabled local-only blocks whole, and the server lines of the rest."""
+    """This player's own part of a match patch: the enabled local-only blocks whole (not the offline-only ones: Compute
+    off, xmlpatch.OFFLINE_ONLY_TITLES), and the server lines of the rest."""
     keep = {a.upper() for a in xmlpatch.LOCAL_ONLY_LINES}
     out = []
     for b in xmlpatch.parse(text):
-        if not b['enabled']:
+        if not b['enabled'] or b['name'] in xmlpatch.OFFLINE_ONLY_TITLES:
             continue
         if b['name'] in xmlpatch.LOCAL_ONLY_TITLES:
             lines = [[a, v.upper()] for a, v in b['lines']]
@@ -332,15 +337,15 @@ def _config_values(cfg, user, xml_text, timing):
     # Precise readbacks + readback linear images in every match (owner 2026-11-10), the player's display mode with
     # exclusive fullscreen as borderless (the HUD needs it)
     gpu.update(gamesetup.gpu_wanted(match=True))
-    if 'neo_mode' in timing:      # the vblank stays the player's own (MATCH_TIMING)
-        general['neo_mode'] = timing['neo_mode']
+    # the vblank and PS4 Pro mode stay the player's own (MATCH_TIMING), also when an older host's recipe names them
     if gamesetup.amd_math_needed():
         general[AMD_MATH_KEY] = True
     cfg['Log'] = dict(cfg['Log'] if isinstance(cfg.get('Log'), dict) else {}, **MATCH_LOG)
-    if xmlpatch.res1440(xml_text):
+    need = gamesetup.dmem_needed(xml_text)     # the player's own resolution (a local-only block of the match patch)
+    if need:
         dmem = general.get(gamesetup.DMEM_KEY)
-        if not (isinstance(dmem, int) and dmem >= gamesetup.DMEM_1440):
-            general[gamesetup.DMEM_KEY] = gamesetup.DMEM_1440
+        if not (isinstance(dmem, int) and dmem >= need):
+            general[gamesetup.DMEM_KEY] = need
     return cfg
 
 

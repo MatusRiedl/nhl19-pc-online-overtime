@@ -161,10 +161,11 @@ def dlss_quality(screen):
     """The Picture block's DLSS quality choices for a screen `screen` px high: [{value, label, title}] of the
     Resolution values (the game's render height) that fit it, named by the DLSS mode of their ratio (with the height
     when two share a mode); plain resolutions when `screen` is None. DLSS scales the render up to the window, so a
-    pick is a Resolution pick (setup_resolution): no emulator key of its own."""
+    pick is a Resolution pick (setup_resolution): no emulator key of its own. With no screen size, up to 1440 (the
+    0.99.0 list): 2160 and up only when the screen is that high (DLAA on a 4K screen, 0.99.2)."""
     rows = []
     for h in xmlpatch.RESOLUTIONS:
-        if screen and h > screen:
+        if h > (screen or 1440):
             continue
         size = f'{h * 16 // 9}x{h}'
         if screen:
@@ -195,6 +196,7 @@ class SetupController(Part):
              'setup_boost': 'setup_boost',
              'setup_boost_source': 'setup_boost_source', 'setup_resolution': 'setup_resolution',
              'setup_framerate': 'setup_framerate', 'setup_everywhere': 'setup_everywhere',
+             'setup_compute': 'setup_compute',
              'setup_pkg_source': 'setup_pkg_source',
              'setup_emu_settings': 'emu_settings', 'setup_emu_settings_save': 'emu_settings_save',
              'setup_emu_input': 'emu_input', 'setup_emu_input_save': 'emu_input_save',
@@ -255,6 +257,7 @@ class SetupController(Part):
         # Apply everywhere (60 FPS replays block): on by default from 0.92.0, and on once for apps before it (0.91.1 had
         # it off by default)
         self.replays60 = prefs.get('replays60') is not False if rebuilt else True
+        self.compute_off = prefs.get('compute_off') is True    # Compute off (Kravickas's block): off by default
         gamesetup.set_display(prefs.get('display'))     # Game settings' display mode (default borderless)
         # Folders list: what the player set by hand ({'emulator': bool, 'game': bool, 'saves': bool, 'data': path,
         # 'cache': path (paths.cache_dir reads it from the settings itself)}); a
@@ -266,7 +269,8 @@ class SetupController(Part):
     def _remember(self):
         self.ctl.remember(setup={'emulator': self.emulator, 'skipped': self.skipped, 'boost': self.boost,
                                  'build': self.build, 'defaults_done': list(self.defaults_done),
-                                 'resolution': self.resolution, 'replays60': self.replays60, 'rebuild': REBUILD,
+                                 'resolution': self.resolution, 'replays60': self.replays60,
+                                 'compute_off': self.compute_off, 'rebuild': REBUILD,
                                  V2_MOVE: True, V3_MOVE: True, 'display': gamesetup.display_mode(),
                                  'custom': dict(self.custom),
                                  'server': {k: v for k, v in self.server.items() if v != SERVER.get(k)}})
@@ -278,9 +282,9 @@ class SetupController(Part):
         return xmlpatch.for_eboot(gamesetup.eboot_sha(getattr(self.ctl, 'game_dir', None)))
 
     def _xml(self):
-        return xmlpatch.with_replays60(xmlpatch.with_resolution(
+        return xmlpatch.with_compute_off(xmlpatch.with_replays60(xmlpatch.with_resolution(
             xmlpatch.build(self.server['host'], self.server.get('nucleus_url'), self.features()), self.resolution),
-            self.replays60)
+            self.replays60), self.compute_off)
 
     def _wait(self):
         """True (and the Help bar says so) while another job runs."""
@@ -500,7 +504,7 @@ class SetupController(Part):
         if DMEM_MOVE + key in self.defaults_done:
             return
         moved = False
-        if self.resolution != 1440:
+        if self.resolution not in gamesetup.DMEM_FOR:
             try:
                 moved = emusettings.dmem(user) == gamesetup.DMEM_1440
                 if moved:
@@ -1573,6 +1577,7 @@ class SetupController(Part):
                 'updatable': cur['updatable'],
                 'can_update': cur['updatable'] and cur['published'] and not c.busy and part is None,
                 'resolution': self.resolution, 'framerate': self._frame_rate(emulator), 'everywhere': self.replays60,
+                'compute_off': self.compute_off,
                 'news': '' if part is not None else news, 'upstream': upstream,
                 'picture': self._picture(emulator) if boost.BUILDS[self.build].get('picture') else None}
 
@@ -1910,9 +1915,9 @@ class SetupController(Part):
                 'can_check': free and (pub is not None or here), 'can_send': free and s['result'] is not None}
 
     def setup_resolution(self, value):
-        """The Resolution choice (Boost performance card): 720 (Kravickas's res720 block), 1080 (the game's own) or
-        1440 (Kravickas's res1440 block, with Additional DMem 3500 MB). A patched game takes it now, or at its next Play
-        while shadPS4 runs; no Patch."""
+        """The Resolution choice (Boost performance card): 1080 (the game's own) or one of Kravickas's blocks, 720, 1440,
+        2160, 2880 or 4320 (xmlpatch.RESOLUTIONS; 1440 and up with their Additional DMem, gamesetup.DMEM_FOR). A patched
+        game takes it now, or at its next Play while shadPS4 runs; no Patch."""
         try:
             value = int(value or 0)
         except (TypeError, ValueError):
@@ -1936,7 +1941,8 @@ class SetupController(Part):
             then = 'Patch the game to use it.'
         else:
             then = 'Patch the game again to use it.'
-        self.ctl.say(f'Resolution set to {value}p. {then}'.strip(), 'good')
+        note = ' (8K, the newest: it may not run on every PC)' if value == 4320 else ''
+        self.ctl.say(f'Resolution set to {value}p{note}. {then}'.strip(), 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -1990,6 +1996,39 @@ class SetupController(Part):
             self.ctl.say(f'Apply everywhere on: replays, cutscenes and menus follow the frame rate. {then}', 'good')
         else:
             self.ctl.say(f"Apply everywhere off: replays, cutscenes and menus keep the game's own pace. {then}", 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
+
+    def setup_compute(self, on):
+        """Compute off, beside Resolution (Kravickas 2026-11-22): on, Kravickas's Compute features off block is enabled
+        (ren_compute_enabled false: cloth physics, compute blend shapes and the dynamic mesh output off, a slight speed
+        gain); off (the default), the game's own. Each player's own (xmlpatch.LOCAL_ONLY_TITLES) and offline only: an
+        app-lobby match leaves it out (xmlpatch.OFFLINE_ONLY_TITLES, owner 2026-11-23). Like Resolution: a patched game
+        takes it now, or at its next Play while shadPS4 runs; no Patch."""
+        on = bool(on)
+        with self.ctl.lock:
+            changed = on != self.compute_off
+            self.compute_off = on
+            self._remember()
+        if not changed:
+            return {'ok': True}
+        self.ctl.host.log(f"Compute off: {'on' if on else 'off'}")
+        try:
+            put = patch_ctl.refresh_network(self)
+        except (gamesetup.SetupError, OSError, ValueError) as err:
+            self.ctl.host.log(f'Compute off was not put into the game: {err}')
+            put = None
+        if put in ('written', 'later', 'same'):
+            then = 'NHL 19 uses it from its next start.'
+        elif gamesetup.load_manifest() is None:
+            then = 'Patch the game to use it.'
+        else:
+            then = 'Patch the game again to use it.'
+        if on:
+            self.ctl.say(f"Compute off: cloth physics and compute blend shapes are off, offline only (app lobby "
+                         f"matches play with the game's own). {then}", 'good')
+        else:
+            self.ctl.say(f"Compute on: the game's own compute features are back. {then}", 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 

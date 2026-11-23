@@ -20,6 +20,7 @@ Each one's shadPS4.exe goes into the app's own folder (a player's own exe is nev
 "NHL 19 Boost" entry older apps added stays). Standard library only.
 """
 import os
+import re
 import sys
 
 from overtime_core import overlay
@@ -46,6 +47,13 @@ BUILDS = {      # GPL-2.0: each build's source code; the card's dropdown shows t
 }
 if sys.platform != 'win32':     # Linux and macOS (0.97.0): Overtime Native v2 is the one build made for them (v3 too)
     BUILDS = {NATIVE2: BUILDS[NATIVE2]}
+# 0.99.2: the lobby's player rows name each game's build by the branch its exe reports (gamesetup.emulator_identity,
+# '<branch>.<rev7>'), every platform's, so a Linux row names a Windows player's v3 too. v3 ships from its speed branch
+# (bf8d94851, the 0.99.0 exe 85c998cb)
+BRANCH_LABELS = {'overtime-native-v3-speed': 'Overtime Native v3', 'overtime-native-v3': 'Overtime Native v3',
+                 'overtime-native-v2': 'Overtime Native v2', 'overtime-nightly': 'Overtime Native v1',
+                 kravbuild.BRANCH: 'Kravickas', 'main': 'shadPS4'}
+_BRANCH = re.compile(r'[A-Za-z0-9_+-]{1,40}')
 # the card's Update button: Overtime Native v1/v2 come with Overtime's releases (Play gets them)
 UPDATABLE = tuple(b for b in (KRAVICKAS,) if b in BUILDS)
 PACK = packdownload.KRAVICKAS_PACK      # the Kravickas pack (from GitHub)
@@ -60,6 +68,15 @@ class BoostError(RuntimeError):
 
 def name_of(build):
     return build if build in BUILDS else DEFAULT
+
+
+def label_of(emu):
+    """The build's name for an install's 'emu' text (from the server: checked here too): ours or Kravickas's by branch,
+    'shadPS4 (<branch>)' for another, '' when the app could not read it ('?', a bare revision, nothing)."""
+    branch = emu.rsplit('.', 1)[0] if isinstance(emu, str) and '.' in emu else ''
+    if not _BRANCH.fullmatch(branch):
+        return ''
+    return BRANCH_LABELS.get(branch) or f'shadPS4 ({branch[:24]})'
 
 
 def exe_path(build=KRAVICKAS):

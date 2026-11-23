@@ -25,10 +25,46 @@ STEPS = [('rosters', 'NHL.com rosters'), ('calendar', 'Calendar'), ('pack', 'Rat
          ('apply', 'Apply'), ('verify', 'Verify')]
 GATHER_STEPS = ('rosters', 'calendar', 'pack')
 DEFAULT_SEASON = 2026
+# The seasons the Update offers. The next one (DEFAULT_SEASON + 1) is left out until NHL.com lists its games: the NHL
+# puts out a season's calendar in the summer before it, and a pick without one only stopped (owner 2026-11-23, after
+# a tester's 2027-28 on 2026-11-21). Add it back when its calendar is out, or move DEFAULT_SEASON on.
+SEASONS = (DEFAULT_SEASON - 1, DEFAULT_SEASON)
 
 
 class UpdateError(RuntimeError):
-    pass
+    """The update cannot go on; the message says why. `offline_helps`: the offline copy might do (False when it would
+    stop the same way)."""
+    offline_helps = True
+
+
+class NoGames(UpdateError):
+    """NHL.com answered but lists no games for the season (its calendar is not out yet): the offline copy has none
+    either (a tester's 2027-28, 2026-11-21: the card said "NHL.com did not answer")."""
+    offline_helps = False
+
+
+def season_label(season):
+    return f'{season}-{(season + 1) % 100:02d}'
+
+
+def no_games_text(season):
+    """Why a season NHL.com answered for has no calendar, and what to pick instead."""
+    if season > DEFAULT_SEASON:
+        return (f"No {season_label(season)} calendar yet: NHL.com lists no games for it (the NHL puts out a season's "
+                f'games in the summer before it). Pick {season_label(DEFAULT_SEASON)} under Season (Patch tab, open Roster '
+                f'update).')
+    return f'No {season_label(season)} calendar: NHL.com lists no games for it and the data pack has none.'
+
+
+def why(err):
+    """Plain words for a failed NHL.com request (the log keeps the full text)."""
+    cause = getattr(err, '__cause__', None) or err
+    if net.certificate_failed(cause):
+        return 'this PC could not check its certificate'
+    reason = getattr(cause, 'reason', cause)
+    if isinstance(reason, TimeoutError) or 'timed out' in str(reason):
+        return 'no answer in time'
+    return str(reason) or type(reason).__name__
 
 
 @dataclass
@@ -136,18 +172,23 @@ def gather(client, season, pack_dir, fetch=None, offline=False, step=lambda key,
         out.sources['nhl27'] = where
 
     step('rosters', 'run')
+    failed = None
     if not offline:
         try:
             out.real = U.gather_rosters(client, season, log=log)
             out.sources['rosters'] = 'NHL.com'
         except (nhlcom.NhlComError, OSError, ValueError) as err:
+            failed = err
             log(f'NHL.com rosters: {err}')
     if not out.real:
         out.real = _pack_rosters(pack, calendar.SLOTS)
         out.sources['rosters'] = f"data pack {out.sources['pack']}" if out.real else ''
     if not out.real:
         step('rosters', 'fail', 'no connection to NHL.com and no data pack')
-        raise UpdateError('No rosters: NHL.com could not be reached and there is no data pack.')
+        if offline:
+            raise UpdateError('No rosters: there is no offline copy. Turn Data back to NHL.com and press Patch again.')
+        raise UpdateError(f'No rosters: NHL.com did not answer ({why(failed) if failed else "no rosters"}) and there '
+                          'is no data pack. Check the internet connection and press Patch again.')
     out.real, _extra, farmed = U.with_absent(out.real, nhl27, pack, out.lines, clubdata.listed(pack),
                                              None if offline else _lookup(client), log, clubdata.farm_clubs(pack))
     out.clubs = clubdata.merged(pack, nhl27, farmed)
@@ -155,11 +196,14 @@ def gather(client, season, pack_dir, fetch=None, offline=False, step=lambda key,
                           f"({out.sources['rosters']})")
 
     step('calendar', 'run')
+    answered, failed = False, None
     if not offline:
         try:
             out.games = calendar.season_games(client, season, log=log)
             out.sources['calendar'] = 'NHL.com'
+            answered = True
         except (nhlcom.NhlComError, OSError, ValueError) as err:
+            failed = err
             log(f'NHL.com calendar: {err}')
     if not out.games:
         out.games = _pack_games(pack, season)
@@ -169,8 +213,12 @@ def gather(client, season, pack_dir, fetch=None, offline=False, step=lambda key,
         return out
     if not out.games:
         step('calendar', 'fail', 'no calendar')
-        raise UpdateError(f'No {season}-{(season + 1) % 100:02d} calendar: NHL.com could not be reached and the '
-                          'data pack has none.')
+        if answered:
+            raise NoGames(no_games_text(season))
+        if offline:
+            raise NoGames(f'No {season_label(season)} calendar: the offline copy has none.')
+        raise UpdateError(f'No {season_label(season)} calendar: NHL.com did not answer ({why(failed)}) and the data '
+                          'pack has none. Check the internet connection and press Patch again.')
     out.leagues, where = gather_leagues(season, offline or fetch is None, fetch=fetch, log=log)
     out.leagues = dict(out.leagues, **leaguecal.pack_games(pack, season))
     more = f'; {leagues_text(out.leagues, where)}' if out.leagues else ''

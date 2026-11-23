@@ -1742,3 +1742,31 @@ def test_packs_coming_down_together_each_show_their_own_share(sc, monkeypatch, t
     assert rows['looks.zip']['progress'] == 0.75 and rows['photos.zip']['progress'] == 0.5
     assert all(rows[n]['state'] == 'downloading' and 'turn' not in rows[n]['text'] for n in ('looks.zip', 'photos.zip'))
     assert seen['said'][0] == 'Downloading 2 packs... 62 %'
+
+
+def test_compute_off_switch_writes_the_patch_file_and_is_kept(sc):
+    """Kravickas 2026-11-22: Compute off beside Resolution, off by default; on enables his Compute features off block
+    in the patch file the Setup tab writes and in the patched game's (no Patch), off puts the game's own back; the
+    next start keeps it."""
+    from overtime_roster.app import patch_ctl
+    assert not sc.compute_off and not SC.xmlpatch.compute_off(sc._xml())       # off by default
+    assert sc.setup_compute(True) == {'ok': True}                              # not patched yet: Patch puts it in
+    assert sc.compute_off and SC.xmlpatch.compute_off(sc._xml())
+    assert sc.ctl.said[-1] == ("Compute off: cloth physics and compute blend shapes are off, offline only (app lobby "
+                               "matches play with the game's own). Patch the game to use it.", 'good')
+    assert sc.ctl.prefs['setup']['compute_off'] is True and SC.SetupController(sc.ctl).compute_off
+    assert sc.setup_resolution(4320) == {'ok': True}
+    assert sc.ctl.said[-1][0].startswith('Resolution set to 4320p (8K, the newest: it may not run on every PC).')
+    sc.setup_refresh()
+    sc.setup_patch()
+    emu = str(sc.world['emu'])
+    patched = gamesetup.installed_patch()
+    assert gamesetup.status(emu)['intact'] and SC.xmlpatch.compute_off(patched) and SC.xmlpatch.resolution(patched) == 4320
+    assert sc.setup_compute(False) == {'ok': True}
+    assert gamesetup.status(emu)['intact'] and not SC.xmlpatch.compute_off(gamesetup.installed_patch())
+    assert sc.ctl.said[-1][0].endswith('NHL 19 uses it from its next start.')
+    assert patch_ctl.refresh_network(sc) == 'same'
+    assert sc.ctl.prefs['setup']['compute_off'] is False and not SC.SetupController(sc.ctl).compute_off
+    said = len(sc.ctl.said)
+    assert sc.setup_compute(False) == {'ok': True} and len(sc.ctl.said) == said       # no change: nothing said
+    assert sc._boost_card(emu)['compute_off'] is False and sc._boost_card(emu)['resolution'] == 4320

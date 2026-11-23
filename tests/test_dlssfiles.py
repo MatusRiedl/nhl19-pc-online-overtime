@@ -233,7 +233,9 @@ def test_dlss_quality_names_each_resolution_that_fits_the_screen_by_its_mode():
         return [(r['value'], r['label']) for r in SC.dlss_quality(screen)]
     assert modes(1080) == [(720, 'Quality'), (1080, 'DLAA')]
     assert modes(1440) == [(720, 'Performance'), (1080, 'Quality'), (1440, 'DLAA')]
-    assert modes(2160) == [(720, 'Ultra Performance'), (1080, 'Performance'), (1440, 'Quality')]
+    assert modes(2160) == [(720, 'Ultra Performance'), (1080, 'Performance'), (1440, 'Quality'), (2160, 'DLAA')]
+    assert modes(2880)[-2:] == [(2160, 'Quality'), (2880, 'DLAA')]     # 0.99.2: 4K and 5K fit a 5K screen
+    assert modes(4320)[-3:] == [(2160, 'Performance'), (2880, 'Quality'), (4320, 'DLAA')]
     assert modes(1200) == [(720, 'Balanced'), (1080, 'Quality')]
     assert modes(1600) == [(720, 'Performance'), (1080, 'Quality 1080p'), (1440, 'Quality 1440p')]   # two Quality
     assert modes(None) == [(720, '720p'), (1080, '1080p'), (1440, '1440p')]      # no screen size: plain
