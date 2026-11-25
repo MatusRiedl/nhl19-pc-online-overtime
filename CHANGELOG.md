@@ -73,7 +73,10 @@ The first full release.
   World of Chel always plays through the server.
 
 ### Fixed
-
+- **Potential labels.** Stars showed AHL potential in NHL 19's player cards ("AHL Bottom 6 F" on a 93 overall): new
+  and moved players kept the potential of the 2018 player whose slot they took. The roster update now sets each NHL
+  player's potential tier from his overall, position and age (a tier only goes up). The tier also steers how players
+  grow in Be A GM, so young stars now develop like stars. Run the roster update (Patch) to get it.
 - **Gear colours change on every jersey.** Changing a gear colour changed only the alternate's helmets and gloves:
   each jersey's gear wears its own near-copy of the colour, and the list showed every copy as a row of its own. One
   row now reaches every shade. The team colours you change go into the roster with the rest (where NHL 19 shows
@@ -131,7 +134,8 @@ The first full release.
   your updated roster active (Customize > Rosters) before you start one. This is older than 1.00.0.
 - **Direct P2P** is new and not yet tested between two homes. Some home routers need UDP port 3659 forwarded to
   the PC (and NHL 19's emulator allowed in the firewall), or the games cannot reach each other; then the next game
-  goes through the server. Both players need Overtime Roster 1.00.0 to see the setting.
+  goes through the server. Both players need Overtime Roster 1.00.0: with an older app on either side the
+  game goes through the server, and the lobby chat says so.
 - **Frame generation** is new and still in testing. It works only while the game window is in front: click another
   window and it pauses until you click the game again. 3x and 4x cost more game frames (4x about a fifth). With
   DLSS 5 on as well it is heavy: about 80 game frames a second and some hitches on our RTX 5080, so use DLSS 5 or

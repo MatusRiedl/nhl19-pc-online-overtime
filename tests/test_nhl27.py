@@ -712,6 +712,11 @@ def test_update_with_nhl27_on_the_default_roster(game_db):
     rep = U.apply(db, schema, todo, start_year=2026, active=[], nhl27=pack)
     n = rep.nhl27
     assert n['rated'] >= 0.95 * len(reals) and n['values'] == rep.ratings and n['styles'] > 0
+    assert n['potential'] > 0       # stock rows reused for new and moved players held AHL tiers
+    bios = {b['game_id']: b for b in db[U.BIOS].rows()}
+    stars = [(r['skill_overall'], r['growthtier']) for name in U.AI.values() for r in db[name].rows()
+             if r['skill_overall'] >= 86 and bios.get(r['game_id'], {}).get('team') in U.NHL]
+    assert stars and sum(t >= 5 for _o, t in stars) <= 0.05 * len(stars), stars
     assert n['deals'] >= 0.85 * len(reals) and n['estimated'] > 0 and n['starter'] > 0
     assert rep.problems == [] and U.check(db, schema, None, 2026) == []
     for name in (U.BIOS, *U.AI.values(), U.ROSTER, U.CUSTOM_ROSTER):

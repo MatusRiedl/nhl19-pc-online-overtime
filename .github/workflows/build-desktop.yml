@@ -247,8 +247,17 @@ jobs:
           keys="$app/OvertimeNHL19 $I/PySide6/Qt/libexec/QtWebEngineProcess $(ls $I/libQt6*.so.6 \
             $I/PySide6/Qt/plugins/platforms/*.so $I/PySide6/Qt/plugins/xcbglintegrations/*.so $I/PySide6/*.abi3.so \
             2>/dev/null || true)"
-          need=$(for f in $keys; do LD_LIBRARY_PATH="$I" ldd "$f" 2>/dev/null || true; done |
-                 awk '$2=="=>" && $3=="not" {print $1}' | sort -u)
+          # packaging/bundle.json "from_host": what the AppImage leaves to the player's system (the AppImage excludelist;
+          # every desktop has these, SteamOS's Desktop Mode too). This bare container has not got them all.
+          host="libstdc++.so.6 libgcc_s.so.1 libgbm.so.1 libwayland-server.so.0 libexpat.so.1 libz.so.1 libX11.so.6
+                libX11-xcb.so.1 libfontconfig.so.1 libfreetype.so.6 libharfbuzz.so.0 libfribidi.so.0 libasound.so.2
+                libcom_err.so.2 libgpg-error.so.0 libuuid.so.1 libgmp.so.10"
+          missing=$(for n in $host; do [ -e "/usr/lib/$n" ] || echo "$n"; done)
+          echo "from_host libraries this container lacks:" $missing
+          LD_LIBRARY_PATH="$I" ldd "$I/PySide6/QtGui.abi3.so" 2>&1 | grep -E 'Qt6Gui|fontconfig|not found' || true
+          need=$( { [ -z "$missing" ] || printf '%s\n' $missing
+                    for f in $keys; do LD_LIBRARY_PATH="$I" ldd "$f" 2>/dev/null || true; done |
+                      awk '$2=="=>" && $3=="not" {print $1}'; } | sort -u)
           echo "the app asks this system for:" $need
           if [ -n "$need" ]; then
             pacman -Fy --noconfirm >/dev/null

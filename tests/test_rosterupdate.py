@@ -687,3 +687,15 @@ def test_new_artids_miss_stock_portraits():
         index = json.load(f)
     nums = {int(m.group(1)) for k in index for m in [re.search(r'playerportraits/p(\d+)\.gnf$', k)] if m}
     assert nums and not nums & set(U.NEW_ARTIDS)
+
+
+def test_the_potential_label_follows_the_overall_position_and_age():
+    """growthtier (the game's Future Growth Potential): Celebrini 93 showed "AHL Bottom 6 F" from a donor's row."""
+    assert U.growth_tier(93, 'F', 20) == 0                  # Franchise
+    assert U.growth_tier(90, 'F', 30) == 1                  # Elite
+    assert U.growth_tier(86, 'F', 21) == 1                  # young, but Elite already: no Franchise for him
+    assert U.growth_tier(78, 'F', 19) == 2                  # a Top 9 F at 19 projects Top 6
+    assert U.growth_tier(78, 'F', 25) == 3
+    assert U.growth_tier(92, 'D', 26) == 0 and U.growth_tier(60, 'D', 30) == 5     # 5: AHL Top 2 D
+    assert U.growth_tier(84, 'G', 30) == 2 and U.growth_tier(60, 'G', 25) == 4    # Starter, Backup
+

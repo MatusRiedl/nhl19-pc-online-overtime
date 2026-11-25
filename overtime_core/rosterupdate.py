@@ -44,6 +44,13 @@ HEIGHT_BASE, WEIGHT_BASE, YEAR_BASE = 54, 120, 1900
 DEFAULT_SEASON = 2026
 GENERIC_HEAD = 60000  # headid of the game's generic faces (60000 on; star players have their own)
 NHL = tuple(range(31))
+# growthtier, the game's "Future Growth Potential" (TXT_GROWTH_TIER_FWD_n / _DEF_n / _GOA_n: 0 Franchise, 1 Elite, 2 Top
+# 6 F / Top 4 D / Starter, 3 Top 9 F / Top 6 D / Fringe Starter, 4 Bottom 6 F / 7th D / Backup, 5 AHL Top 6 F ...). A
+# made or moved player kept his donor's or his 2018 self's, so a 93 showed "AHL Bottom 6 F". Lowest overall for tiers
+# 0, 1, 2 ... (below the last: the next tier), per F / D / G: the stock NHL players' share of each tier laid on an
+# updated roster's overalls (docs/notes/v100-round2.md "Potential labels").
+GROWTH_FLOORS = {'F': (92, 85, 80, 76, 71), 'D': (92, 84, 81, 73, 69), 'G': (93, 85, 81, 73)}
+GROWTH_YOUNG = 21   # this young and below Elite: one tier up (stock: prospects project above their overall)
 SLOT_FIELDS_SKIP = {'key', 'team', 'playerindex', 'jersey', 'playerstyle'}
 DRESS_SKATERS, DRESS_GOALIES = 18, 2
 TABLES = (ROSTER, CUSTOM_ROSTER, PLAYERS, BIOS, FREE, *AI.values(), *EQUIPMENT.values())
@@ -693,7 +700,7 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     unsigned_last(pack); add_unsigned), rebuild the lines of every team that changed, give everyone NHL 27's
     ratings, player type and biases (`nhl27`: the local NHL 27 pack, nhl27.py) and EA's ratings (`rating_rows`) to
     the players NHL 27 does not have, lay the real lines and captains on the NHL teams (`real_lines`: the data pack's
-    `lines` part, reallines.part; None keeps the lines dealt), set the contracts (_contracts; only with `nhl27`), give every NHL goalie a
+    `lines` part, reallines.part; None keeps the lines dealt), set the contracts (_contracts; only with `nhl27`), lift the potential tier of the rated NHL club players (_potential), give every NHL goalie a
     career row (careerstats; NHL 27's seasons when the pack has them: Play Now crashes without one), write the
     calendar (`games`) and the other leagues' calendars (`leagues`, leaguecal; one that can't be made is left as it
     is and logged), the national teams (`national`: the data pack's IIHF squads, rebuild_national). `clubs`: the club
@@ -921,6 +928,8 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     counts.update(allsv)
     counts.update(others)
     counts.update(squads)
+    if rated:
+        counts['potential'] = _potential(db, rated)
     mirror_seattle(db)
     expansion_active(db)
     if careerstats.SEASON in db:  # a roster save holds no stock career tables (only the default database does)
@@ -975,6 +984,40 @@ def _on_clock(db, found, shift):
 
 
 UFA_AGE = 27  # NHL 19's own roster: yearufa = birth year + 27 for 97 % of its players (every junior, NHL 742 of 766)
+
+
+def growth_tier(overall, group, age):
+    """The growthtier an NHL player of this overall, group ('F', 'D', 'G') and age projects to (GROWTH_FLOORS)."""
+    floors = GROWTH_FLOORS[group]
+    tier = next((i for i, low in enumerate(floors) if overall >= low), len(floors))
+    return tier - 1 if age <= GROWTH_YOUNG and tier >= 2 else tier
+
+
+def _potential(db, gids):
+    """growthtier for the NHL club players in `gids` (the ones the update rated) from their overall, position and age;
+    a tier only ever gets better, so EA's own projections and an earlier update's stay. Returns the rows changed."""
+    bios = db[BIOS]
+    on_nhl = set(NHL) | {T.SEATTLE}
+    who = {}
+    for brow in range(bios.count):
+        b = bios.row(brow)
+        if b['game_id'] in gids and b['team'] in on_nhl:
+            who[b['game_id']] = ('G' if b['position'] == GOALIE else 'D' if b['position'] == 3 else 'F',
+                                 T.GAME_YEAR - YEAR_BASE - b['year'])
+    n = 0
+    for goalie, name in AI.items():
+        t = db[name] if name in db else None
+        if t is None or 'growthtier' not in t.by_name:
+            continue
+        for i in range(t.count):
+            gid = t.get(i, 'game_id')
+            if gid not in who or (who[gid][0] == 'G') != goalie:
+                continue
+            want = min(t.get(i, 'growthtier'), growth_tier(t.get(i, 'skill_overall'), *who[gid]))
+            if t.get(i, 'growthtier') != want:
+                t.set(i, 'growthtier', want)
+                n += 1
+    return n
 
 
 def _ufa_years(db, gids):
