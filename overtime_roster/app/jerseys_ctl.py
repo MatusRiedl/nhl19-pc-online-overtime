@@ -8,6 +8,12 @@ colours, then the sticks: My edits, the rail's dot); "Take back my gear" drops t
 gear is not saved yet, takes it back out of the roster. Fitting the sticks of every NHL team asks first and then goes
 into My edits at once (drafts are per team).
 
+Gear colours are shown as shades of one colour (equipment.shades: NHL 19's rows wear 000000, 0F0F0F, 1B1B1B and
+202020 for one black, each jersey its own), and a change reaches every shade, so every jersey's gear changes (owner
+2026-11-25: only the alternates changed). The team colours (exhibitionteams fe* and pres*, the menus' colours) are in
+the draft too; the gear that wore a team colour the draft changes follows it (equipment.proposal). "Worn with each
+jersey" shows the helmet and gloves of Home, Away and Alternate (equipment.jersey_gear: inferred from the rows).
+
 The gear tables know Seattle as the custom team 499 (Rail.map_id('jerseys')); the game's Play Now copy of it (399)
 keeps the same rows in the stock table, so a recolour changes both. A team's gear is read 250 ms after the rail stops
 on it; a read for a team the rail has left is dropped.
@@ -18,9 +24,9 @@ snap_equipment) are here too and still write at once, as before (re/scripts, tes
 import re
 import threading
 
-from overtime_core import equipment as EQ, teams as T
+from overtime_core import art, equipment as EQ, kitcompose, rosterupdate, teams as T
 
-from . import labels as L
+from . import labels as L, paths
 from .editors_controller import NHL_TEAMS, _colour, _hex
 from .rail import FA, why_tip, why_view
 from .registry import Part
@@ -31,8 +37,13 @@ LOAD_DELAY = 0.25                       # seconds after a pick before the team's
 PIECES = ((7, 'Helmet'), (4, 'Gloves'), (2, 'Goalie pads'), (1, 'Blocker'), (0, 'Trapper'), (3, 'Goalie stick'))
 TABLES = (EQ.CUSTOM, EQ.STOCK)          # a team's gear places, the custom teams' first (Seattle 499)
 HEX = re.compile(r'#?[0-9A-Fa-f]{6}')
+SLOTS = ('Primary', 'Secondary', 'Third')
+SLOT_FIELDS = ('primary', 'secondary', 'tertiary')
+COLOUR_PREFIXES = ('fe', 'pres')        # the menus' and the presentation's colours (teams.NHL_COLOURS_2026); overlay stays
+TEAM_FIELDS = tuple(f'{p}{n}color' for p in COLOUR_PREFIXES for n in SLOT_FIELDS)
 
-NOTE = 'The helmets, gloves and goalie gear of this team. Change a colour, then Apply.'
+NOTE = ('Colour the helmets, gloves and goalie gear, and the team colours, then Apply. The jerseys themselves come '
+        'with Patch.')
 APPLIED = 'Applied. Save the roster to keep this gear in it.'
 READING = "Reading the team's gear..."
 FREE_AGENTS = 'Free agents have no team gear. Pick a team in the list.'
@@ -43,6 +54,8 @@ WAIT = "Wait for the team's gear to show, then try again."
 NOTHING = "Nothing to apply: change a colour, copy a team's gear or fit the sticks first."
 SAME = 'The gear wears the team colours already.'
 NO_GAME_COLOURS = 'NHL 19 has no team colours of its own for this team.'
+NO_COLOURS = 'This team has no team colours in the roster.'
+FOLLOW_NONE = 'No gear wears the colours you changed. Change the gear in Gear colours if you like.'
 
 
 def hx(c):
@@ -111,7 +124,7 @@ def _later(delay, fn):
 class JerseysCtl(Part):
     SLICES = {'jerseys': 'view'}
     CALLS = {'gear_recolour': 'recolour', 'gear_propose': 'propose', 'gear_copy': 'copy', 'gear_sticks': 'sticks',
-             'jerseys_apply': 'apply', 'jerseys_undo': 'take_back'}
+             'gear_team_colour': 'team_colour', 'jerseys_apply': 'apply', 'jerseys_undo': 'take_back'}
     TAB = 'jerseys'
 
     def __init__(self, ctl):
@@ -121,7 +134,8 @@ class JerseysCtl(Part):
         self._fresh()
 
     def _fresh(self):
-        self.held = {}          # rail team -> its draft {copy: rail team | None, map: {from: to}, sticks: bool}
+        self.held = {}          # rail team -> its draft {copy: rail team | None, map: {from: to}, sticks: bool,
+        #                         team: {slot: colour}}
         self.notes = {}         # rail team -> the note after Apply ('' : the usual one)
         self.errors = {}        # rail team -> the copy's refusal
         self.before = {}        # rail team -> {(table, gear id): [records]} from before its first Apply not saved
@@ -249,6 +263,23 @@ class JerseysCtl(Part):
         found = [len(self.book()['sticks'][t]) for t in self.clubs()]
         return sum(found), sum(1 for n in found if n)
 
+    def relabel(self, gid):
+        """{(style, variant): locstring}: the kit packs' alternates for a team's stock jerseys (the jerseys Patch serves:
+        update_ctl relabels a saved roster's rows the same way)."""
+        b = self.book()
+        if b.get('alts') is None:
+            alts = {}
+            try:
+                want = dict(self.ctl.patch_want)
+                on = [f for f in kitcompose.FAMILIES if want.get(kitcompose.switch(f))] if want.get('art', True) else []
+                for p in art.cached_alternates(paths.app_dir('cache'), on) if on else []:
+                    for a in p.info.get('alternates', []):
+                        alts.setdefault(a['teamid'], {})[(a['style'], a['variant'])] = a['locstring']
+            except Exception:  # noqa: BLE001 (no packs: the game's own labels)
+                alts = {}
+            b['alts'] = alts
+        return b['alts'].get(gid, {})
+
     def code(self, team):
         chip = self.ctl.rail.chip(team)
         return chip['code'] if chip else str(team)
@@ -264,7 +295,50 @@ class JerseysCtl(Part):
 
     # --- the draft ---------------------------------------------------------------------------------------------------
     def draft(self, team):
-        return self.held.get(team) or {'copy': None, 'map': {}, 'sticks': False}
+        return self.held.get(team) or {'copy': None, 'map': {}, 'sticks': False, 'team': {}}
+
+    # --- the team colours --------------------------------------------------------------------------------------------
+    def colour_rows(self, team):
+        """[(table, row)] holding a rail team's team colours: its exhibitionteams row; Seattle's custom team too."""
+        s = self.ctl.session
+        out = []
+        i = s.team_row.get(team)
+        if i is not None:
+            out.append((T.TEAMS, i))
+        gid = self.ctl.rail.map_id('jerseys', team)
+        if gid != team and T.CUSTOM in s.db:
+            j = rosterupdate._seattle_row(s.db, gid)
+            if j is not None:
+                out.append((T.CUSTOM, j))
+        return out
+
+    def team_now(self, team):
+        """[primary, secondary, third] 0xRRGGBB of a rail team in the roster ([] without a team record)."""
+        return EQ.team_colours(self.ctl.session.db, team)
+
+    def team_moved(self, team):
+        """{slot: colour} of the team colours the draft changes."""
+        now = self.team_now(team)
+        return {k: c for k, c in (self.draft(team).get('team') or {}).items() if k < len(now) and now[k] != c}
+
+    def team_new(self, team):
+        moved = self.team_moved(team)
+        return [moved.get(k, c) for k, c in enumerate(self.team_now(team))]
+
+    def following(self, team):
+        """{gear colour: new colour}: the gear that wore a team colour the draft changes follows it (equipment.proposal
+        from the colours now to the new ones: black, white and grey gear stays, and so do colours no team colour has).
+        Empty while the draft copies a team."""
+        own = self.gear(team)
+        if not self.team_moved(team) or self.draft(team)['copy'] is not None or not own:
+            return {}
+        out = EQ.proposal(self.ctl.session.db, own['gid'], self.team_new(team), self.team_now(team), own['table'],
+                          others=False)
+        for _a, members, _n in EQ.shades(own['palette']):     # a colour row follows whole: its darkest shades too
+            to = next((out[m] for m in members if m in out), None)
+            if to is not None:
+                out.update((m, to) for m in members)
+        return out
 
     def start(self, team):
         """The gear the colour rows start from: the team's own, or the team's whose gear the draft copies."""
@@ -275,14 +349,17 @@ class JerseysCtl(Part):
         """The draft's colour changes that apply to the gear the rows start from."""
         start = self.start(team)
         here = {c for c, _n in start['palette']} if start else set()
-        return {a: b for a, b in self.draft(team)['map'].items() if a in here and a != b}
+        out = {a: b for a, b in self.following(team).items() if a in here}
+        out.update((a, b) for a, b in self.draft(team)['map'].items() if a in here)
+        return {a: b for a, b in out.items() if a != b}
 
     def touched(self, team):
         """The team's draft would change the roster. Under the lock."""
         d = self.held.get(team)
         if not d or self.ctl.session is None:
             return False
-        return d['copy'] is not None or bool(self.mapping(team)) or (d['sticks'] and bool(self.sticks_of(team)))
+        return d['copy'] is not None or bool(self.mapping(team)) or (d['sticks'] and bool(self.sticks_of(team))) \
+            or bool(self.team_moved(team))
 
     def game_colours(self, team):
         """NHL 19's own team colours of a rail team (the game's default roster), or None."""
@@ -297,7 +374,7 @@ class JerseysCtl(Part):
         d = self.draft(team)
         own = self.gear(team)
         old = self.game_colours(team)
-        if d['copy'] is not None or not own or not old:
+        if d['copy'] is not None or not own or not old or self.team_moved(team):
             return {}
         new = EQ.team_colours(self.ctl.session.db, team)
         prop = EQ.proposal(self.ctl.session.db, own['gid'], new, old, own['table'])
@@ -308,7 +385,7 @@ class JerseysCtl(Part):
         d = self.draft(team)
         own = self.gear(team)
         old = self.game_colours(team)
-        if d['copy'] is not None or not own or not old:
+        if d['copy'] is not None or not own or not old or self.team_moved(team):
             return 0
         prop = EQ.proposal(self.ctl.session.db, own['gid'], EQ.team_colours(self.ctl.session.db, team), old,
                            own['table'])
@@ -328,6 +405,12 @@ class JerseysCtl(Part):
         changed", "3 sticks fitted to the team colours"."""
         d = self.draft(team)
         parts = []
+        tm = self.team_moved(team)
+        if len(tm) == 1:
+            (k, new), = tm.items()
+            parts.append(f'{SLOTS[k].lower()} team colour {hx(self.team_now(team)[k])} to {hx(new)}')
+        elif tm:
+            parts.append('team colours changed')
         if d['copy'] is not None:
             parts.append(f"{poss(self.name(d['copy']))} gear copied")
         moved = self.mapping(team)
@@ -380,13 +463,26 @@ class JerseysCtl(Part):
             for colour, _n in colours:
                 where.setdefault(colour, []).append(cat)
         order = [cat for cat, _name in PIECES]
-        palette = [{'from': hx(a), 'to': hx(moved.get(a, a)), 'zones': n, 'changed': a in moved,
-                    'pieces': [names[cat] for cat in sorted(where.get(a, []), key=order.index)],
-                    'proposed': hx(prop[a]) if a in prop else None} for a, n in start['palette']]
+        follow = self.following(team)
+        palette = []
+        for a, members, n in EQ.shades(start['palette']):
+            hit = [m for m in members if m in moved]
+            to = moved.get(a, moved[hit[0]] if hit else a)
+            cats = sorted({cat for m in members for cat in where.get(m, [])}, key=order.index)
+            palette.append({'from': hx(a), 'to': hx(to), 'zones': n, 'changed': bool(hit), 'name': EQ.colour_name(a),
+                            'shades': [hx(m) for m in members], 'pieces': [names[cat] for cat in cats],
+                            'follows': bool(hit) and all(m in follow and m not in d['map'] for m in hit),
+                            'proposed': next((hx(prop[m]) for m in members if m in prop), None)})
         pieces = [{'name': name, 'colours': [{'hex': hx(x), 'n': n} for x, n in laid_over(start['pieces'][cat], moved)]}
                   for cat, name in PIECES if cat in start['pieces']]
         n_prop = len(prop)
-        if d['copy'] is not None:
+        now = self.team_now(team)
+        tm = self.team_moved(team)
+        n_follow = sum(1 for r in palette if r['follows'])      # colour rows, as the tab shows them
+        if tm:
+            cnote = (f"{plural(n_follow, 'gear colour')} {'follows' if n_follow == 1 else 'follow'} the new team colours."
+                     " Black, white and grey gear stays." if n_follow else FOLLOW_NONE)
+        elif d['copy'] is not None:
             cnote = "Copying another team's gear: recolour it in Gear colours."
         elif not old:
             cnote = NO_GAME_COLOURS
@@ -426,8 +522,11 @@ class JerseysCtl(Part):
             head, why=None, note=note or NOTE, note_tone='good' if note else '',
             table='custom' if own['table'] == EQ.CUSTOM else 'stock', rows=start['rows'], palette=palette,
             pieces=pieces,
-            colours={'now': [hx(x) for x in EQ.team_colours(s.db, team)], 'game': [hx(x) for x in old] if old else None,
-                     'proposed': n_prop, 'can_propose': n_prop > 0, 'note': cnote},
+            colours={'now': [hx(x) for x in now], 'new': [hx(x) for x in self.team_new(team)],
+                     'changed': [k in tm for k in range(len(now))], 'slots': list(SLOTS[:len(now)]),
+                     'game': [hx(x) for x in old] if old else None, 'proposed': n_prop, 'can_propose': n_prop > 0,
+                     'follows': n_follow, 'note': cnote},
+            jerseys=self.jerseys(start, moved),
             copy={'from': d['copy'], 'from_name': self.name(d['copy']) if d['copy'] is not None else '',
                   'options': options, 'error': self.errors.get(team) or '', 'note': copy_note},
             sticks={'rows': [{'name': self.player(gid), 'old': EQ.NAMES['stick'].get(o, f'Stick {o}'),
@@ -435,6 +534,21 @@ class JerseysCtl(Part):
                     'fitted': bool(d['sticks'] and sticks), 'count': len(sticks), 'nhl_count': nhl_count,
                     'nhl_teams': nhl_teams},
             touched=touched, can_apply=touched, mine=mine, can_undo=mine or touched)
+
+    def jerseys(self, start, moved):
+        """[{label, pieces: [{name, colours}]}]: the helmet and gloves worn with Home, Away and Alternate (the draft
+        laid over; equipment.jersey_gear), shades shown once."""
+        db = self.ctl.session.db
+        table, gid = start['table'], start['gid']
+        out = []
+        relabel = self.relabel(gid) if table == EQ.STOCK else {}
+        for label, style, variant in EQ.team_jerseys(db, gid, table, relabel):
+            rows = EQ.jersey_gear(db, gid, style, variant, table)
+            pieces = [{'name': name, 'colours': [hx(a) for a, _m, _n in
+                                                 EQ.shades(laid_over(counted(db, table, [rows[cat]]), moved))][:4]}
+                      for cat, name in PIECES[:2] if cat in rows]
+            out.append({'label': label, 'pieces': pieces})
+        return out
 
     # --- the page's calls (on the rail's team's draft) ---------------------------------------------------------------
     def _ready(self):
@@ -458,9 +572,9 @@ class JerseysCtl(Part):
         try:
             with c.lock:
                 team = self._ready()
-                d = self.held.setdefault(team, {'copy': None, 'map': {}, 'sticks': False})
+                d = self.held.setdefault(team, {'copy': None, 'map': {}, 'sticks': False, 'team': {}})
                 reply, text, tone = fn(team, d)
-                if d['copy'] is None and not d['map'] and not d['sticks']:
+                if d['copy'] is None and not d['map'] and not d['sticks'] and not d.get('team'):
                     self.held.pop(team, None)
                 self._last = None
         except EditError as err:
@@ -478,7 +592,8 @@ class JerseysCtl(Part):
         self.errors.pop(team, None)
 
     def recolour(self, mapping):
-        """gear_recolour({from: to}): new colours into the draft; to == from takes that colour back."""
+        """gear_recolour({from: to}): new colours into the draft, for every shade of `from` (equipment.shades); to ==
+        from takes the colour back to the roster's (also when it follows the team colours)."""
         pairs = []
         for a, b in (mapping.items() if isinstance(mapping, dict) else ()):
             if not (isinstance(a, str) and isinstance(b, str) and HEX.fullmatch(a) and HEX.fullmatch(b)):
@@ -490,15 +605,44 @@ class JerseysCtl(Part):
             return {'error': NOT_A_COLOUR}
 
         def work(team, d):
-            start = self.start(team)
-            here = {c for c, _n in start['palette']}
+            groups = EQ.shades(self.start(team)['palette'])
+            follow = self.following(team)
             for a, b in pairs:
-                if a not in here:
-                    continue
-                if a == b:
-                    d['map'].pop(a, None)
-                else:
-                    d['map'][a] = b
+                members = next((g[1] for g in groups if a in g[1]), ())
+                for m in members:
+                    if a != b:
+                        d['map'][m] = b
+                    elif m in follow:
+                        d['map'][m] = m         # kept as the roster has it: the team colours do not take it
+                    else:
+                        d['map'].pop(m, None)
+            self._edited(team)
+            return {'ok': True}, '', ''
+        return self._draft_call(work)
+
+    def team_colour(self, slot, colour):
+        """gear_team_colour(slot, colour): a team colour (0 primary, 1 secondary, 2 third) into the draft; the roster's
+        colour takes it back. The gear that wore the old colour follows (following)."""
+        try:
+            k = int(slot)
+        except (TypeError, ValueError):
+            k = -1
+        if k not in range(len(SLOTS)) or not (isinstance(colour, str) and HEX.fullmatch(colour)):
+            self.ctl.say(NOT_A_COLOUR, 'caution')
+            return {'error': NOT_A_COLOUR}
+        c = int(colour.lstrip('#'), 16)
+
+        def work(team, d):
+            now = self.team_now(team)
+            if k >= len(now):
+                raise EditError(NO_COLOURS)
+            team_d = d.setdefault('team', {})
+            if c == now[k]:
+                team_d.pop(k, None)
+            else:
+                team_d[k] = c
+            if not self.team_moved(team):       # nothing follows now: the Backs that held a colour against it go
+                d['map'] = {a: b for a, b in d['map'].items() if a != b}
             self._edited(team)
             return {'ok': True}, '', ''
         return self._draft_call(work)
@@ -615,6 +759,8 @@ class JerseysCtl(Part):
             t = db[table]
             n = t.record_length
             out[(table, gid)] = [bytes(t.data[i * n:(i + 1) * n]) for i in self.book()['index'][table][gid]]
+        for table, row in self.colour_rows(team):
+            out[('colours', table, row)] = {f: db[table].get(row, f) for f in TEAM_FIELDS if f in db[table].row(row)}
         return out
 
     def apply(self):
@@ -635,6 +781,7 @@ class JerseysCtl(Part):
                 moved = self.mapping(team)
                 src = {table: gid for table, gid in self.places(d['copy'])} if d['copy'] is not None else {}
                 fit = d['sticks'] and bool(self.sticks_of(team))
+                tm, now, crows = self.team_moved(team), self.team_now(team), self.colour_rows(team)
                 first = team not in self.before or not self.mine(team)
                 before = self.snapshot(team) if first else None
 
@@ -648,6 +795,15 @@ class JerseysCtl(Part):
                         EQ.recolour(db, gid, moved, table, setter=setter)
                     for a, b in moved.items():
                         details.append((f'{code} gear colour', hx(a), hx(b)))
+                    put = setter or (lambda tb, r, f, v: db[tb].set(r, f, v))
+                    for k, new in sorted(tm.items()):
+                        for table, row in crows:
+                            fields = db[table].row(row)
+                            for p in COLOUR_PREFIXES:
+                                f = f'{p}{SLOT_FIELDS[k]}color'
+                                if f in fields and fields[f] != new:
+                                    put(table, row, f, new)
+                        details.append((f'{code} team colour ({SLOTS[k].lower()})', hx(now[k]), hx(new)))
                     if fit:
                         fitted = EQ.team_sticks(db, [team], setter=setter)
                         for _t, gid, old, new in fitted:
@@ -736,7 +892,13 @@ class JerseysCtl(Part):
 
         def work(db):
             details = []
-            for (table, gid), records in before.items():
+            for key, records in before.items():
+                if key[0] == 'colours':
+                    _c, table, row = key
+                    for f, v in records.items():
+                        db[table].set(row, f, v)
+                    continue
+                table, gid = key
                 t = db[table]
                 for i in sorted(EQ.gear_rows(db, gid, table, EQ.GEAR), reverse=True):
                     t.delete(i)

@@ -178,7 +178,38 @@ def dlss_quality(screen):
         if screen and names.count(r['label']) > 1:
             r['label'] = f"{r['label']} {r['value']}p"
     return rows
+
+
+def dlss_above(resolution, screen):
+    """Why DLSS does not run at `resolution` on a screen `screen` px high (owner 2026-11-25: "why i cant use DLSS when
+    i change resolution?"): Native v3 runs DLSS only when the game's picture is no bigger than the window, since DLSS
+    scales a smaller picture up (dlss_sr_pass: "not run"); above it the game uses FSR 1."""
+    return (f'At {resolution}p the game draws a bigger picture than your screen ({screen} px high). DLSS only scales a '
+            'smaller picture up, so at this size the game uses FSR 1. Pick a DLSS quality to use DLSS (the last one '
+            'is the sharpest).')
+
+
 DLSS_FILE_KINDS = {'dlss': ('DLSS file', 'nvngx_dlss.dll'), 'dlss5': ('DLSS 5 file', 'nvngx_dlssnr.dll')}
+# the Picture block's Frame generation row (v1.00.0): Off, then the frames NVIDIA adds after each one the game draws, up
+# to what the card takes (gpuinfo.framegen_max). One switch: Native v3 is a Windows build, and False takes the row out
+# of a release that ships without frame generation.
+FRAME_GEN = sys.platform == 'win32'
+FRAME_GEN_LEVELS = {0: 'Off', 1: '2x', 2: '3x', 3: '4x'}
+FRAME_GEN_NEEDS = 'Needs an NVIDIA RTX 40 or 50 card'
+# DLSS 5 and frame generation (owner 2026-11-25, after a graphics driver reset with DLSS 5 and 4x frame generation
+# on): off unless the player turns them on (emusettings' defaults), and the app says they can crash the game: on the
+# Picture block, when one is turned on, and on Multiplayer's checks before online play (risky_picture)
+PICTURE_RISK = 'can crash the game or reset your graphics driver on some PCs'
+
+
+def risk_note(names):
+    """The Picture note for the options on that can crash the game (['DLSS 5', 'frame generation'])."""
+    both = ' and '.join(names)
+    return (f"{both[0].upper()}{both[1:]} {PICTURE_RISK}. Turn {'them' if len(names) > 1 else 'it'} off before "
+            'online games: a crash ends the match.')
+
+
+FILE_LABELS = {**{k: v[0] for k, v in DLSS_FILE_KINDS.items()}, 'fg': dlssfiles.FG_LABEL}   # what _fetch_dlss gets
 
 
 class SetupController(Part):
@@ -204,7 +235,8 @@ class SetupController(Part):
              'setup_folder_pick': 'folder_pick', 'setup_folder_set': 'folder_set', 'setup_folder_auto': 'folder_auto',
              'setup_upscaler': 'setup_upscaler', 'setup_dlss5': 'setup_dlss5', 'setup_dlss_file': 'setup_dlss_file',
              'setup_dlss_file_set': 'setup_dlss_file_set', 'setup_dlss_file_remove': 'setup_dlss_file_remove',
-             'setup_dlss_file_get': 'setup_dlss_file_get'}
+             'setup_dlss_file_get': 'setup_dlss_file_get', 'setup_frame_gen': 'setup_frame_gen',
+             'setup_frame_gen_get': 'setup_frame_gen_get', 'setup_frame_gen_remove': 'setup_frame_gen_remove'}
     TAB = 'setup'
 
     def __init__(self, ctl):
@@ -1581,6 +1613,16 @@ class SetupController(Part):
                 'news': '' if part is not None else news, 'upstream': upstream,
                 'picture': self._picture(emulator) if boost.BUILDS[self.build].get('picture') else None}
 
+    def _dlss_screen(self):
+        """The screen's height when NHL 19 plays with DLSS (a Picture build, the DLSS upscaler, an RTX card), else None."""
+        if not boost.BUILDS[self.build].get('picture'):
+            return None
+        emulator = self.known_emulator()
+        user = gamesetup.emu_user_dir(emulator) if emulator else ''
+        if not user or emusettings.value(user, 'GPU.upscaler') != 'dlss' or not self._gpu_info()['dlss']:
+            return None
+        return gpuinfo.screen_height()
+
     def _gpu_info(self):
         if self._gpu is None:
             self._gpu = gpuinfo.info()
@@ -1613,14 +1655,59 @@ class SetupController(Part):
             notes.append('DLSS 5 needs nvngx_dlssnr.dll: add your own, or DLSS 5 stays off.')
         if dlss5 and gpu['dlss5_compat'] and files['dlss5'] and not dlssfiles.downloaded('dlss5'):
             notes.append(f"On an RTX {gpu['rtx']} card DLSS 5 needs the compat build of nvngx_dlssnr.dll.")
+        if upscaler == 'dlss' and gpu['dlss'] and screen and self.resolution > screen:
+            notes.append(dlss_above(self.resolution, screen))
+        framegen = self._framegen(user, gpu, getting, notes) if FRAME_GEN else None
+        risky = (['DLSS 5'] if dlss5 else []) + (['frame generation'] if framegen and framegen['level'] else [])
+        if risky:
+            notes.append(risk_note(risky))
         return {'gpu': gpu['name'], 'rtx': gpu['rtx'], 'can_dlss': gpu['dlss'], 'can_dlss5': gpu['dlss5'],
                 'dlss5_compat': gpu['dlss5_compat'], 'upscaler': upscaler,
                 'upscalers': [{'id': k, 'label': v} for k, v in UPSCALERS.items()],
                 'dlss5': dlss5, 'files': files, 'offered': offered, 'notes': notes, 'ready': bool(user),
-                'getting': getting, 'getting_label': DLSS_FILE_KINDS[getting][0] if getting else '',
+                'framegen': framegen,
+                'getting': getting, 'getting_label': FILE_LABELS.get(getting, ''),
                 'progress': part, 'screen': screen or 0,
                 'quality': dlss_quality(screen) if upscaler == 'dlss' and gpu['dlss'] else [],
                 'resolution': self.resolution}
+
+    def _framegen(self, user, gpu, getting, notes):
+        """The Picture block's Frame generation row (v1.00.0): {can (the card runs it), why (when not), level (0 off,
+        1..3 frames added), choices [{value, label, disabled, title}]: Off and 2x, 3x and 4x on RTX 50, here (the
+        files), offered (by the Overtime server)}; what stops it goes in `notes`."""
+        most = gpu.get('framegen_max', 0)
+        level = 0
+        if user and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            try:
+                level = int(emusettings.value(user, 'GPU.frame_gen_frames') or 1)
+            except (TypeError, ValueError):
+                level = 1
+            level = max(1, min(level, most or 1))      # the driver caps it the same way at the game's start
+        here = dlssfiles.fg_here()
+        offered = (self.boost_table or {}).get(dlssfiles.FG_PACK) is not None
+        choices = []
+        for value, label in FRAME_GEN_LEVELS.items():
+            if value > max(most, 1):
+                continue
+            if not value:
+                choices.append({'value': 0, 'label': label, 'title': 'No frame generation (the default)'})
+                continue
+            title = f"NVIDIA adds {value} frame{'s' if value > 1 else ''} after each one the game draws"
+            if not most:
+                title = FRAME_GEN_NEEDS
+            elif not here:
+                title += (': its files download from the Overtime server first' if offered else
+                          ': the Overtime server does not offer its files now')
+            choices.append({'value': value, 'label': label, 'title': title,
+                            'disabled': not most or not (here or offered)})
+        if level and not most:
+            notes.append('Frame generation needs an NVIDIA RTX 40 or 50 card: it stays off on this PC.')
+        elif level and not here and getting != 'fg':
+            notes.append('Frame generation needs its files: press Download beside it, or it stays off.' if offered else
+                         'Frame generation needs its files, and the Overtime server does not offer them now: it stays '
+                         'off.')
+        return {'can': most > 0, 'why': '' if most else FRAME_GEN_NEEDS, 'level': level, 'choices': choices,
+                'here': here, 'offered': offered}
 
     def _dlss_offered(self, kind):
         """The Overtime server's DLSS file of `kind` (its packdownload Release, from the last look), or None: the
@@ -1634,10 +1721,12 @@ class SetupController(Part):
         return bool(can) and not dlssfiles.here(kind) and self._dlss_offered(kind) is not None
 
     def _fetch_dlss(self, kind, save, always=False):
-        """Download the DLSS file of `kind` from the Overtime server in a job (the Help bar and the Picture block say
-        how far), then save() -> {'ok'} / {'error'} stores the choice that needs it. `always`: also when the download
-        failed (the upscaler: the game uses FSR 1 until the file is here, as with no file before)."""
-        c, label = self.ctl, DLSS_FILE_KINDS[kind][0]
+        """Download the DLSS file of `kind` ('fg': the frame generation files, v1.00.0) from the Overtime server in a
+        job (the Help bar and the Picture block say how far), then save() -> {'ok'} / {'error'} stores the choice that
+        needs it. `always`: also when the download failed (the upscaler: the game uses FSR 1 until the file is here, as
+        with no file before)."""
+        c, label = self.ctl, FILE_LABELS[kind]
+        head = label[:1].upper() + label[1:]
         if self._wait():
             return {'error': waiting(c.busy)}
         table = self.boost_table
@@ -1653,21 +1742,23 @@ class SetupController(Part):
             with c.lock:
                 self.dlss_getting, self.dlss_part = kind, 0.0
             try:
-                kept = dlssfiles.fetch(kind, progress, table)
+                kept = dlssfiles.fg_fetch(progress, table) if kind == 'fg' else dlssfiles.fetch(kind, progress, table)
             except dlssfiles.DlssFileError as err:
                 if not always:
                     raise
                 return str(err)
-            c.host.log(f'{label} downloaded: {kept}')
+            c.host.log(f'{head} downloaded: {kept}')
             if kind == 'dlss':
                 dlssfiles.place_beside(boost.exe_path(boost.NATIVE3))
+            elif kind == 'fg':
+                dlssfiles.fg_place_beside(boost.exe_path(boost.NATIVE3))
             return ''
 
         def said(why):
             out = save()
             if why:
-                c.host.log(f'{label} not downloaded: {why}')
-                return f'{label} not downloaded: {why}', 'caution'
+                c.host.log(f'{head} not downloaded: {why}')
+                return f'{head} not downloaded: {why}', 'caution'
             return ('', '') if out.get('ok') else (out.get('error') or '', 'caution')
 
         def after():
@@ -1677,7 +1768,7 @@ class SetupController(Part):
                   expected=(dlssfiles.DlssFileError,), rescan=False, after=after)
         return {'ok': True, 'downloading': kind}
 
-    def _save_picture(self, changes, said):
+    def _save_picture(self, changes, said, warn=''):
         user = self._emu_user()
         if not user:
             return {'error': 'Find NHL 19 in Setup first.'}
@@ -1690,7 +1781,8 @@ class SetupController(Part):
             self.ctl.say(f'The picture setting was not saved: {err}', 'caution')
             return {'error': str(err)}
         self.ctl.host.log(said)
-        self.ctl.say(f'{said}. NHL 19 uses it from its next start.', 'good')
+        self.ctl.say(f'{said}. NHL 19 uses it from its next start.{" " + warn if warn else ""}',
+                     'caution' if warn else 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -1700,9 +1792,14 @@ class SetupController(Part):
         if value not in UPSCALERS:
             return {'error': f'no upscaler {value}'}
         changes, said = {'GPU.upscaler': value, 'GPU.fsr_enabled': value == 'fsr1'}, f'Upscaler: {UPSCALERS[value]}'
+        warn = ''
+        if value == 'dlss' and boost.BUILDS[self.build].get('picture') and self._gpu_info()['dlss']:
+            screen = gpuinfo.screen_height()        # DLSS picked at a Resolution above the screen: it does not run there
+            if screen and self.resolution > screen:
+                warn = dlss_above(self.resolution, screen)
         if value == 'dlss' and self._dlss_download('dlss'):     # its file from the Overtime server first (0.99.0)
-            return self._fetch_dlss('dlss', lambda: self._save_picture(changes, said), always=True)
-        return self._save_picture(changes, said)
+            return self._fetch_dlss('dlss', lambda: self._save_picture(changes, said, warn), always=True)
+        return self._save_picture(changes, said, warn)
 
     def setup_dlss5(self, on):
         """The Picture block's DLSS 5 switch: on only with a DLSS 5 file here (its path goes in the config). Turned on
@@ -1714,7 +1811,8 @@ class SetupController(Part):
         if on and not kept:
             return {'error': 'Add your DLSS 5 file (nvngx_dlssnr.dll) first.'}
         return self._save_picture({'GPU.dlss_nr': on, 'GPU.dlss_nr_dll': kept if on else ''},
-                                  f"DLSS 5: {'on' if on else 'off'}")
+                                  f"DLSS 5: {'on' if on else 'off'}",
+                                  f'It {PICTURE_RISK}: turn it off before online games.' if on else '')
 
     def setup_dlss_file(self, kind):
         """Add DLSS file / Add DLSS 5 file: Windows' picker, then the player's own file is copied into the app's folder
@@ -1796,6 +1894,75 @@ class SetupController(Part):
                     self.ctl.host.log(f'DLSS 5 not switched off: {err}')
         self.ctl.host.log(f'{label} removed')
         self.ctl.say(f'{label} removed.', 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
+
+    def setup_frame_gen(self, level):
+        """The Picture block's Frame generation (v1.00.0): 0 off, 1..3 the frames NVIDIA adds after each one the game
+        draws (2x..4x), up to what the card takes. Turned on with no files here, it downloads the Overtime server's
+        first; the choice is saved once they are here (without them the game would only pay for the motion passes)."""
+        if not FRAME_GEN:
+            return {'error': 'Frame generation is not in this version of Overtime.'}
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            return {'error': f'no frame generation level {level}'}
+        if level not in FRAME_GEN_LEVELS:
+            return {'error': f'no frame generation level {level}'}
+        if not level:
+            return self._save_picture({'GPU.frame_gen': 'off'}, 'Frame generation: off')
+        most = self._gpu_info().get('framegen_max', 0)
+        if level > most:
+            text = (f'{FRAME_GEN_NEEDS}.' if not most else
+                    f'{FRAME_GEN_LEVELS[level]} frame generation needs an NVIDIA RTX 50 card.')
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+        changes = {'GPU.frame_gen': 'dlss', 'GPU.frame_gen_frames': level}
+        said = f'Frame generation: {FRAME_GEN_LEVELS[level]}'
+        warn = f'It {PICTURE_RISK}: turn it off before online games.'
+        if dlssfiles.fg_here():
+            return self._save_picture(changes, said, warn)
+        if (self.boost_table or {}).get(dlssfiles.FG_PACK) is None:
+            text = f'The Overtime server does not offer the {dlssfiles.FG_LABEL} now. Try again later.'
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+        return self._fetch_dlss('fg', lambda: self._save_picture(changes, said, warn))
+
+    def setup_frame_gen_get(self):
+        """Download beside Frame generation: the Overtime server's files now (after a first try that failed)."""
+        if not FRAME_GEN:
+            return {'error': 'Frame generation is not in this version of Overtime.'}
+        if dlssfiles.fg_here():
+            return {'ok': True}
+        if (self.boost_table or {}).get(dlssfiles.FG_PACK) is None:
+            text = f'The Overtime server does not offer the {dlssfiles.FG_LABEL} now. Try again later.'
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+
+        def saved():
+            self.ctl.say('Frame generation files downloaded. NHL 19 uses them from its next start.', 'good')
+            self.ctl.changed('setup')
+            return {'ok': True}
+        return self._fetch_dlss('fg', saved)
+
+    def setup_frame_gen_remove(self):
+        """Remove beside Frame generation: the app's copy and the copies beside Overtime Native v3 go, and frame
+        generation goes off."""
+        if self._wait():
+            return {'error': waiting(self.ctl.busy)}
+        try:
+            dlssfiles.fg_remove((boost.exe_path(boost.NATIVE3),))
+        except dlssfiles.DlssFileError as err:
+            self.ctl.say(str(err), 'caution')
+            return {'error': str(err)}
+        user = self._emu_user()
+        if user and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            try:
+                emusettings.save(user, {'GPU.frame_gen': 'off'}, self.resolution)
+            except (emusettings.SettingsError, OSError) as err:
+                self.ctl.host.log(f'Frame generation not switched off: {err}')
+        self.ctl.host.log('Frame generation files removed')
+        self.ctl.say('Frame generation files removed.', 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -1942,7 +2109,12 @@ class SetupController(Part):
         else:
             then = 'Patch the game again to use it.'
         note = ' (8K, the newest: it may not run on every PC)' if value == 4320 else ''
-        self.ctl.say(f'Resolution set to {value}p{note}. {then}'.strip(), 'good')
+        screen = self._dlss_screen()
+        above = bool(screen) and value > screen
+        if above:
+            then += (f' DLSS does not run at this size: the picture is bigger than your screen ({screen} px high), so '
+                     'the game uses FSR 1.')
+        self.ctl.say(f'Resolution set to {value}p{note}. {then}'.strip(), 'caution' if above else 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -2033,6 +2205,19 @@ class SetupController(Part):
         return {'ok': True}
 
     # --- Game settings, Controllers, Keyboard (Boost card; emusettings.py, emuinput.py) ----------------------------
+    def risky_picture(self):
+        """The Picture options turned on that can crash the game, by name (DLSS 5, frame generation), when NHL 19
+        plays on a Picture build (Overtime Native v3); [] otherwise. Multiplayer's checks warn with it."""
+        if not boost.BUILDS[self.build].get('picture'):
+            return []
+        user = self._emu_user()
+        if not user:
+            return []
+        on = ['DLSS 5'] if emusettings.value(user, 'GPU.dlss_nr') else []
+        if FRAME_GEN and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            on.append('frame generation')
+        return on
+
     def _emu_user(self):
         emu = self.known_emulator()
         return gamesetup.emu_user_dir(emu) if emu else ''
@@ -2690,7 +2875,22 @@ class SetupController(Part):
         else:
             line = {'tone': '', 'text': 'Press Check now to look for a newer version.'}
         return {'version': VERSION, 'check_on_start': on, 'newer': dict(newer) if newer else None, 'state': line,
-                'skipped': self.skipped or None}
+                'skipped': self.skipped or None, 'ai': self._ai()}
+
+    def _ai(self):
+        """Connect an AI (owner 2026-11-25): what an MCP client (Claude Desktop, Claude Code) needs to start this copy
+        as its roster server (overtime_roster/mcp, `--mcp`). Made once: the program's path does not change."""
+        if getattr(self, '_ai_card', None) is None:
+            from .. import mcp
+            cfg = mcp.config()
+            if sys.platform == 'win32':
+                where = os.path.join(os.environ.get('APPDATA', '~'), 'Claude', 'claude_desktop_config.json')
+            elif sys.platform == 'darwin':
+                where = '~/Library/Application Support/Claude/claude_desktop_config.json'
+            else:
+                where = '~/.config/Claude/claude_desktop_config.json'
+            self._ai_card = {'desktop': cfg['desktop'], 'code': cfg['code'], 'config_file': where}
+        return dict(self._ai_card)
 
     def view(self):
         c = self.ctl

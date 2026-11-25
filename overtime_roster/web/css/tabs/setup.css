@@ -259,6 +259,14 @@
 .tab-setup .su-bal { font-size: 12.5px; color: var(--text-3); }
 /* This program: one row */
 .tab-setup .su-newest { font-size: 13.5px; font-weight: 600; color: var(--text-2); margin-right: 10px; }
+.tab-setup .su-ai-row { margin-top: 8px; }
+.tab-setup .su-ai-l { font-size: 13.5px; color: var(--text-2); }
+.su-ai .su-snip { margin: 12px 0; }
+.su-ai .su-snip-l { font-size: 13.5px; color: var(--text-soft); line-height: 1.4; }
+.su-ai .su-snip .row { align-items: flex-end; gap: 10px; }
+.su-ai .su-code { margin: 6px 0 0; padding: 8px 10px; background: var(--input); border: 1px solid var(--line-hi);
+  color: var(--text); font-family: Consolas, 'Cascadia Mono', Menlo, monospace; font-size: 12.5px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-all; user-select: all; max-height: 160px; overflow: auto; }
 .tab-setup .su-newest.good { color: var(--good); }
 .tab-setup .su-newest.good::before { content: '✓  '; }
 .tab-setup .su-newest.caution { color: var(--caution); }

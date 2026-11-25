@@ -45,6 +45,17 @@
 .tab-roster .ro-ovr span { font-family: var(--font-head); font-style: var(--head-style); font-weight: 700; font-size: 10.5px;
   letter-spacing: .1em; color: var(--text-2); }
 .tab-roster .ro-who { min-width: 0; flex: 1; }
+/* the player's photo (Photo...: click it): the head of NHL 19's 512 x 256 portrait */
+.tab-roster .ro-photo { position: relative; flex: none; width: 92px; height: 64px; }
+.tab-roster .ro-photo-pic { display: block; width: 100%; height: 100%; padding: 0; border: 0; cursor: pointer; overflow: hidden;
+  background: var(--tile); box-shadow: inset 0 0 0 1px var(--line); }
+.tab-roster .ro-photo-pic:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--accent); }
+.tab-roster .ro-photo-pic img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 0; }
+.tab-roster .ro-photo-pic span { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-2); }
+.tab-roster .ro-photo.mine .ro-photo-pic { box-shadow: inset 0 0 0 1px var(--accent); }
+.tab-roster .ro-photo-x { position: absolute; top: 0; right: 0; width: 18px; height: 18px; padding: 0; border: 0; cursor: pointer;
+  font-size: 13px; line-height: 18px; color: var(--text); background: rgba(0, 0, 0, .55); }
+.tab-roster .ro-photo-x:hover:not(:disabled) { background: var(--accent); }
 .tab-roster .ro-sub { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tab-roster .ro-strong { font-size: 14px; font-weight: 600; color: var(--text); }
 .tab-roster .ro-teamline { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
@@ -57,8 +68,6 @@
 .tab-roster .ro-track { height: 5px; background: var(--tile); }
 .tab-roster .ro-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--bar), var(--accent)); }
 .tab-roster .ro-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
-.tab-roster .ro-pair { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.tab-roster .ro-later { font-size: 11.5px; color: var(--text-3); }
 .tab-roster .ro-waiting { margin: 0; }
 .tab-roster .ro-sec { flex: none; display: flex; align-items: baseline; gap: 8px; margin-top: 5px; padding-bottom: 3px;
   font-size: 13.5px; color: var(--text); border-bottom: 1px solid var(--line-hi); }
@@ -198,6 +207,7 @@
 /* --- Move / trade, Bring in game moves (roster-trade.js), and the next-step note -------------------------------------- */
 .tab-roster .ro-import-btn { flex: none; margin-left: auto; }
 .tab-roster .ro-teamnote + .ro-import-btn { margin-left: 0; }
+.tab-roster .ro-new-btn { flex: none; }
 .tab-roster .ro-next { flex: none; margin: 0 12px 8px; padding: 9px 12px 10px; font-size: 13px; line-height: 1.45;
   color: var(--text-2); background: rgba(255, 255, 255, .03); box-shadow: inset 3px 0 0 var(--good), inset 0 0 0 1px var(--line); }
 .tab-roster .ro-next.unsaved { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--line); }
@@ -232,6 +242,37 @@
   font-size: 13px; color: var(--text-soft); background: var(--tile); cursor: pointer; }
 .ro-trade .ro-tr-hit:hover:not(:disabled) { color: var(--text); background: var(--tile-hi); }
 .ro-trade .ro-tr-problems, .ro-import .note { margin: 0; }
+/* New player (roster-new.js) */
+.modal.ro-newplayer .m-body { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; }
+.modal.ro-newplayer .m-body > p, .modal.ro-newplayer .note { margin: 0; }
+.modal.ro-newplayer .m-buttons { align-items: center; flex-wrap: wrap; }
+.ro-newplayer .ro-np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.ro-newplayer .ro-np-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ro-newplayer .ro-np-row:last-child { grid-column: 1 / -1; }
+.ro-newplayer .ro-np-ctl { display: flex; min-width: 0; }
+.ro-newplayer .ro-np-ctl > .field { width: 100%; }
+.ro-newplayer .ro-np-row.bad .field { box-shadow: inset 0 0 0 1px var(--bad); }
+.ro-newplayer .ro-problem { font-size: 12.5px; color: var(--bad); }
+.ro-newplayer .ro-np-where { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ro-newplayer .ro-np-league { width: 170px; }
+.ro-newplayer .ro-np-team { width: 220px; }
+@media (max-width: 560px) { .ro-newplayer .ro-np-grid { grid-template-columns: 1fr; } }
+/* the League maker window (roster-league.js) */
+.modal.ro-league .m-body { display: flex; flex-direction: column; gap: 10px; max-height: 74vh; overflow-y: auto; }
+.modal.ro-league .m-body > p, .modal.ro-league .note { margin: 0; }
+.modal.ro-league .m-buttons { align-items: center; flex-wrap: wrap; }
+.ro-league .ro-lg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+.ro-league .ro-lg-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ro-league .ro-lg-row > .field { width: 100%; }
+.ro-league .ro-lg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ro-league .ro-lg-count { font-size: 12.5px; color: var(--text-3); }
+.ro-league .ro-lg-count.bad { color: var(--bad); }
+.ro-league .ro-lg-kept { font-size: 12.5px; color: var(--accent); }
+.ro-league .ro-lg-warn { color: var(--caution); }
+.ro-league .ro-lg-clubs { width: 100%; min-height: 220px; resize: vertical; padding: 8px 10px; font-size: 13.5px;
+  line-height: 1.45; font-variant-numeric: tabular-nums; }
+.ro-league .ro-lg-notes { display: flex; flex-direction: column; gap: 2px; }
+@media (max-width: 560px) { .ro-league .ro-lg-grid { grid-template-columns: 1fr; } }
 .ro-import .ro-im-pick { display: flex; align-items: center; gap: 10px; }
 .ro-import .ro-im-pick .field { flex: 1; min-width: 0; max-width: 520px; }
 .ro-import .ro-im-rows { display: flex; flex-direction: column; gap: 3px; }

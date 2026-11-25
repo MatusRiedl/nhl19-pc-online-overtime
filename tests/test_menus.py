@@ -29,7 +29,7 @@ CRLF = b'\r\n'
 def fake_playnow():
     return CRLF.join([menus.PLAYNOW_STOCK[0], b'    --NHL19 BETA ProAM mode should be disabled',
                       menus.PROAM_LOCK_ANCHOR + b'    return o', b'end', b'function PlayNowMenu:_Initialize()',
-                      b''.join(old for old, _new in menus.DROPIN_ACTIONS) + b'    ' + menus.PLAYNOW_STOCK[1], b''])
+                      menus.DROPIN_ACTIONS[0][0] + menus.DROPIN_ACTIONS[1][0] + b'    ' + menus.PLAYNOW_STOCK[1], b''])
 
 
 def fake_playnow_layout():
@@ -179,16 +179,14 @@ def test_game_files_edit_is_only_insertions(game_dir, chel):
     assert menus.edit_layout(layout) == layout.replace(b'"numSections": 6,', b'"numSections": 5,')
 
 
-def test_the_play_menu_has_three_tiles_with_drop_in_3s_and_6s():
-    """World of Chel's PLAY menu: Threes | Drop-in 3s (the Pro-Am slot, unlocked) | Drop-in 6s (the EASHL slot), Ones
-    hidden (0.97.0: off the cursor and the canvas, its action does nothing); each Drop-in tile names its room and opens
-    the EASHL menu; served with every build."""
+def test_the_play_menu_has_four_tiles_with_drop_in_3s_and_6s():
+    """World of Chel's PLAY menu: Ones | Threes | Drop-in 3s (the Pro-Am slot, unlocked) | Drop-in 6s (the EASHL slot);
+    each Drop-in tile names its room and opens the EASHL menu; served with every build."""
     lua = menus.edit_playnow(fake_playnow())
     assert lua.count(b'o.mProAmModeLocked = false') == 1 and lua.count(b'_G.OvertimeDropIn = nil') == 1
     assert b"_G.OvertimeDropIn = '3s'; self:_OnAdvanceEASHL()" in lua and b"_G.OvertimeDropIn = '6s'; self:_OnAdvanceEASHL()" in lua
-    assert b'EVENTS.GAUNTLET' not in lua and b'RegisterAction(ACTIONS.GAUNTLET, function() end)' in lua
     lay = menus.edit_playnow_layout(fake_playnow_layout())
-    assert menus.PLAYNOW_ORDER in lay and menus.PROAM_ART[0] not in lay and b'"GauntletTile"' not in lay.split(b']')[0]
+    assert menus.PLAYNOW_ORDER in lay and menus.PROAM_ART[0] not in lay
     for name, (_old, new) in menus.TILE_X.items():
         at = lay.index(b'"name": "' + name + b'",')
         assert lay.index(b'"x": ' + new + b',', at) < (lay.find(b'"name": "', at + 1) % (len(lay) + 1))
@@ -213,14 +211,14 @@ def test_the_play_menu_edit_on_the_games_own_files(game_dir):
     read = lambda path: gamefiles.read_latest(game_dir, path)[0]
     lay = json.loads(menus.edit_playnow_layout(read(menus.PLAYNOW_LAYOUT_PATH)))
     sel = next(b for b in lay['behaviors'] if b['name'] == 'SelectionManager')
-    assert sel['targets'] == ['ThreesTile', 'ProamTile', 'EASHLTile']
-    assert {c['name']: c['x'] for c in lay['children']} == {'ProamTile': 755.0, 'GauntletTile': 6000.0,
-                                                           'ThreesTile': 335.0, 'EASHLTile': 1175.0}
+    assert sel['targets'] == ['GauntletTile', 'ThreesTile', 'ProamTile', 'EASHLTile']
+    assert {c['name']: c['x'] for c in lay['children']} == {'ProamTile': 965.0, 'GauntletTile': 125.0,
+                                                           'ThreesTile': 545.0, 'EASHLTile': 1385.0}
     assert next(c for c in lay['children'] if c['name'] == 'ProamTile')['type'] == 'resort_brand_eashl'
     json.loads(menus.edit_playnow_dd(read(menus.PLAYNOW_DD_PATH)))
     menus.edit_dropinhub_direct(read(menus.DROPINHUB_PATH))
     raw = read(menus.PLAYNOW_PATH)
-    assert [tag for tag, _a, _b in changes(raw, menus.edit_playnow(raw))] == ['insert', 'replace']   # the 3 actions in a row
+    assert [tag for tag, _a, _b in changes(raw, menus.edit_playnow(raw))] == ['insert', 'replace', 'replace']
 
 
 # --- the zero-press launch hook (docs/plans/m2-zero-press.md) ---------------------------------------------------

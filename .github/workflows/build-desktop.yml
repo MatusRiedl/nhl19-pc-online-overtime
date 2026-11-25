@@ -199,6 +199,76 @@ jobs:
           cat ~/.local/share/OvertimeRoster/logs/selftest-window.txt 2>/dev/null || true
           exit $code
 
+  # 1.00.0 (owner: "so even steamdeck can run this"): SteamOS 3 is Arch Linux with Mesa's AMD driver (RADV), so the
+  # nearest machine GitHub has to a Steam Deck's Desktop Mode is an Arch container with that driver. Same questions as
+  # host-linux, plus the AI server's handshake (--mcp) on that system. No real Deck ran this (docs/notes/linux-support.md).
+  deck-linux:
+    needs: linux
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux
+          path: dist
+      - name: The Deck's graphics driver loads beside the app's libraries
+        timeout-minutes: 15
+        run: |
+          pacman -Syu --noconfirm --needed tar gzip gawk mesa vulkan-radeon libglvnd ttf-dejavu >/dev/null
+          grep PRETTY_NAME /etc/os-release
+          mkdir run && tar -xzf dist/OvertimeNHL19-linux*.tar.gz -C run
+          cd run && ./OvertimeNHL19-x86_64.AppImage --appimage-extract >/dev/null
+          app="$PWD/squashfs-root/usr/lib/overtime-nhl19/_internal"     # the frozen app's LD_LIBRARY_PATH
+          for f in /usr/lib/libEGL_mesa.so.0 /usr/lib/libGLX_mesa.so.0 /usr/lib/libgbm.so.1 \
+                   /usr/lib/libgallium*.so /usr/lib/dri/*.so /usr/lib/libvulkan_radeon.so; do
+            [ -e "$f" ] || continue
+            { LD_LIBRARY_PATH="$app" ldd "$f" 2>&1 || true; } | sed "s|^|$f: |"
+          done > ldd.txt
+          echo "$(cut -d: -f1 ldd.txt | sort -u | wc -l) driver files checked"
+          if ! grep -q '^/usr/lib/libEGL_mesa.so.0: ' ldd.txt; then
+            echo "::error::no Mesa EGL file to check (/usr/lib/libEGL_mesa.so.0)"; exit 1
+          fi
+          {
+            echo "### $(grep PRETTY_NAME /etc/os-release | cut -d= -f2) (SteamOS's base): the driver takes from the app's folder"
+            echo '```'
+            { grep -F "$app" ldd.txt || true; } | awk '{print $2}' | sort -u
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if grep 'not found' ldd.txt; then
+            echo "::error::the Deck's graphics driver does not load beside the app's libraries"; exit 1
+          fi
+      - name: The app starts on this system, its window draws the page, and the AI server answers
+        timeout-minutes: 15
+        env:
+          QT_QPA_PLATFORM: offscreen            # no screen here
+        run: |
+          app="$PWD/run/squashfs-root/usr/lib/overtime-nhl19"
+          I="$app/_internal"
+          keys="$app/OvertimeNHL19 $I/PySide6/Qt/libexec/QtWebEngineProcess $(ls $I/libQt6*.so.6 \
+            $I/PySide6/Qt/plugins/platforms/*.so $I/PySide6/Qt/plugins/xcbglintegrations/*.so $I/PySide6/*.abi3.so \
+            2>/dev/null || true)"
+          need=$(for f in $keys; do LD_LIBRARY_PATH="$I" ldd "$f" 2>/dev/null || true; done |
+                 awk '$2=="=>" && $3=="not" {print $1}' | sort -u)
+          echo "the app asks this system for:" $need
+          if [ -n "$need" ]; then
+            pacman -Fy --noconfirm >/dev/null
+            pkgs=$(for n in $need; do pacman -F -q "$n" 2>/dev/null | head -1; done | sed 's|.*/||' | sort -u)
+            echo "pacman packages:" $pkgs
+            [ -z "$pkgs" ] || pacman -S --noconfirm --needed $pkgs >/dev/null
+          fi
+          # root here: the app turns Chromium's sandbox off inside an AppImage (APPDIR), as at a player's start
+          code=0
+          APPDIR="$PWD/run/squashfs-root" timeout 300 run/squashfs-root/AppRun --selftest-window || code=$?
+          cat ~/.local/share/OvertimeRoster/logs/selftest-window.txt 2>/dev/null || true
+          hello='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"deck","version":"1"}}}'
+          answer=$(printf '%s\n' "$hello" | APPDIR="$PWD/run/squashfs-root" timeout 120 run/squashfs-root/AppRun --mcp 2>mcp.log | head -1)
+          echo "--mcp said: $answer"
+          case "$answer" in
+            *'"overtime-nhl19"'*) ;;
+            *) echo "::error::the AI server (--mcp) did not answer"; cat mcp.log; code=1 ;;
+          esac
+          exit $code
+
   macos:
     if: ${{ !inputs.emulator }}
     runs-on: ${{ inputs.mac_runner }}

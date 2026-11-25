@@ -46,7 +46,7 @@ import subprocess
 import sys
 import unicodedata
 
-from . import art as art_mod, durable, eb, gamefiles, menus as menus_mod, textpack
+from . import art as art_mod, durable, eb, gamefiles, leaguemaker as LM, menus as menus_mod, textpack
 from .teams import TEAMS
 from .schema import parse_schema
 from .tdb import Database
@@ -425,8 +425,9 @@ def club_texts(stock_teams, served_teams):
     """{artabbr: {role: text}} for the club slots the served database renamed (teams rows {index: row}). A slot that
     took another club (abbreviation changed): City Nick split from its name and city (else the whole name on line 2,
     the city as nickname), CLUB_LOC laid over; one that kept its club: CLUB_LOC only, else nothing. Slots whose texts
-    NAMES sets (Utah, the AHL and Allsvenskan moves, the Vees) and slots without an artabbr are left out."""
-    fixed = {sid.rsplit('_', 1)[1].upper() for sid in NAMES if '_' in sid}
+    NAMES sets (Utah, the AHL and Allsvenskan moves, the Vees) are left out unless a league took them (taken_fixed);
+    slots without an artabbr are left out."""
+    fixed = {sid.rsplit('_', 1)[1].upper() for sid in NAMES if '_' in sid} - taken_fixed(stock_teams, served_teams)
     out = {}
     for index, row in served_teams.items():
         old = stock_teams.get(index)
@@ -459,8 +460,35 @@ def club_strings(raw, meta, stock_teams, served_teams):
     """The names layer's {stringid: text} for the club slots the served database renamed (club_texts), on the loc ids
     the loc database has (a role a club has no id for is skipped), only where the text changes. A letter no loc text
     uses (Č, ě: the fonts may lack it) is written without its accent."""
-    want = {f'{role}_{art}': text for art, texts in club_texts(stock_teams, served_teams).items()
-            for role, text in texts.items()}
+    return _loc_writes(raw, meta, {f'{role}_{art}': text for art, texts in club_texts(stock_teams, served_teams).items()
+                                   for role, text in texts.items()})
+
+
+def _names_team(art):
+    """The club NAMES puts on art `art`'s slot (Utah Mammoth on PHX, Östersunds IK on BJOR), or None."""
+    return next((new for sid, (_old, new) in NAMES.items()
+                 if sid.upper() == f'NHLTEAMNAME_{art}'), None)
+
+
+def taken_fixed(stock_teams, served_teams):
+    """The arts whose texts NAMES sets (fixed in club_texts) on a slot the served database gave another club than
+    NAMES' (a league maker's club in an Allsvenskan or OHL place): their NAMES ids give way to club_strings."""
+    out = set()
+    for index, row in served_teams.items():
+        old, art = stock_teams.get(index), (row.get('artabbr') or '').upper()
+        new = _names_team(art) if art else None
+        if not old or new is None or _clean(row['teamname']) == _clean(old['teamname']):
+            continue
+        key, want = _club_key(row['teamname']), _club_key(new)
+        if not (key == want or len(key) >= 8 and want.startswith(key)):
+            out.add(art)
+    return out
+
+
+def _loc_writes(raw, meta, want):
+    """{stringid: text} for `want` ({stringid in any case: text}) on the loc ids the loc database has, only where the
+    text changes; a letter no loc text uses is written without its accent."""
+    want = {sid.upper(): text for sid, text in want.items()}
     if not want:
         return {}
     t = Database.parse(raw, parse_schema(meta))['LanguageStrings']
@@ -479,6 +507,60 @@ def club_strings(raw, meta, stock_teams, served_teams):
 
 def _team_rows(db):
     return {r['index']: r for r in db[TEAMS].rows()}
+
+
+# The club league slots a league maker takes (overtime_core.leaguemaker.SLOTS), by exhibitionteams.league: the loc ids
+# besides the slot's stockleagues key that show its name (Season's League Type picker reads fixed ids: ECHL's is not its
+# stockleagues key TXT_ECHL) and its standings title. Play Now's league picker looks the stockleagues name up as a loc
+# id, case ignored (lab c32d, docs/notes/league-maker.md): the name goes on the ids, the database keeps the stock keys.
+LEAGUE_LOC = {2: ((), 'TXT_SHL_STANDINGS'), 3: ((), 'TXT_LIIGA_STANDINGS'), 4: ((), 'TXT_DEL_STANDINGS'),
+              5: ((), 'TXT_ELH_STANDINGS'), 6: ((), 'TXT_NL_STANDINGS'), 7: ((), 'TXT_EBEL_STANDINGS'),
+              8: ((), 'TXT_ALLSVENSKAN_STANDINGS'), 11: ((), 'TXT_OHL_STANDINGS'), 12: ((), 'TXT_QMJHL_STANDINGS'),
+              13: ((), 'TXT_WHL_STANDINGS'), 15: (('ECHL',), 'TXT_ECHL_STANDINGS')}
+
+
+def league_texts(stock_db, leagues):
+    """{loc id: text} for `leagues` ([{'name', 'slot', ...}], overtime_core.leaguemaker): the name on the slot's
+    stockleagues key and LEAGUE_LOC's ids, "<name> Standings" on its standings title. A later league of one slot wins."""
+    t = stock_db['stockleagues']
+    keys = {t.get(i, 'leagueid'): t.get(i, 'name') for i in range(t.count)}
+    out = {}
+    for lg in leagues:
+        league = LM.SLOTS.get(lg.get('slot'), (None,))[0]
+        name = _clean(lg.get('name'))
+        if league not in LEAGUE_LOC or not name or league not in keys:
+            continue
+        extra, standings = LEAGUE_LOC[league]
+        for sid in (keys[league],) + extra:
+            out[sid] = name
+        out[standings] = f'{name} Standings'
+    return out
+
+
+def league_strings(raw, meta, stock_db, leagues):
+    """The names layer's {stringid: text} for the leagues (league_texts)."""
+    return _loc_writes(raw, meta, league_texts(stock_db, leagues))
+
+
+def leagues_digest(leagues):
+    """sha256 of `leagues` as the names layer takes them ('' for none): the Patch card tells a league kept since."""
+    if not leagues:
+        return ''
+    rows = sorted((json.dumps(lg, sort_keys=True, ensure_ascii=False) for lg in leagues))
+    return hashlib.sha256('\n'.join(rows).encode('utf-8')).hexdigest()
+
+
+def with_leagues(raw_db, schema, leagues):
+    """(a copy of the database `raw_db` with the leagues' clubs written into their places, [the leagues it could not
+    take: name]): the names layer's club texts follow the leagues too (the roster saves carry the clubs, not the
+    loc texts the menus show by art)."""
+    db, skipped = Database.parse(raw_db, schema), []
+    for lg in leagues:
+        try:
+            LM.make(db, lg)
+        except LM.LeagueError:
+            skipped.append(_clean(lg.get('name')) or str(lg.get('slot')))
+    return db, skipped
 
 
 def capdefs_2026(raw, path=CAPDEFS_PATH):
@@ -697,22 +779,29 @@ def _served_menus(state):
     return served
 
 
-def build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None, art=None, launch=None):
+def build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None, art=None, launch=None, leagues=None):
     """_build, with each game archive's table of contents parsed once (the layers look up the winning copy of
     their files many times over; building writes no archive it reads)."""
     with eb.cached_tocs():
-        return _build(game_dir, layers, pack, database, lang, menus, art, launch)
+        return _build(game_dir, layers, pack, database, lang, menus, art, launch, leagues)
 
 
-def _build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None, art=None, launch=None):
+def _build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None, art=None, launch=None, leagues=None):
     """{game archive path: {entry: new bytes}} and the layer records for the state file. An archive path that is not
     in the game folder is a new archive (the art layer's). `launch` ({'until': unix seconds}) is the menus layer's
-    zero-press hook (set_menus); apply never passes it, so a full apply serves the stock menus."""
+    zero-press hook (set_menus); apply never passes it, so a full apply serves the stock menus. `leagues`: the names
+    layer's league maker leagues ([{'name', 'slot', 'clubs'}]: their names and their clubs' texts)."""
     unknown = set(layers) - set(LAYERS)
     if unknown:
         raise PatchError(f'unknown layer(s): {", ".join(sorted(unknown))}')
     edits, info = {}, {}
     checked = check_database(database, game_dir) if 'database' in layers and database is not None else None
+    leagues = list(leagues or ()) if 'names' in layers else []
+    stock_db = schema = None
+    if checked is not None or leagues:
+        schema = parse_schema(gamefiles.schema_xml(game_dir)[0])
+        stock_raw = gamefiles.default_database(game_dir)[0]
+        stock_db = Database.parse(stock_raw, schema)
     if 'text' in layers or 'names' in layers:
         db_path = textpack.loc_paths(lang)[0]
         archive = textpack._winner(game_dir, db_path)
@@ -731,13 +820,24 @@ def _build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None
         strings = {}
         if 'names' in layers:
             strings.update(names_strings(raw, meta))
-            clubs = {}
-            if checked is not None:  # the club slots that Update renamed (club_strings)
-                schema = parse_schema(gamefiles.schema_xml(game_dir)[0])
-                clubs = club_strings(raw, meta, _team_rows(Database.parse(gamefiles.default_database(game_dir)[0], schema)),
-                                     _team_rows(checked))
+            clubs, names_db, skipped = {}, checked, []
+            if leagues:     # the leagues' clubs over the database served (else the game's): their club texts
+                names_db, skipped = with_leagues(database if checked is not None else stock_raw, schema, leagues)
+            if names_db is not None:  # the club slots that Update or a league renamed (club_strings)
+                stock_teams, served_teams = _team_rows(stock_db), _team_rows(names_db)
+                taken = taken_fixed(stock_teams, served_teams)
+                for sid in [sid for sid in strings if '_' in sid and sid.rsplit('_', 1)[1].upper() in taken]:
+                    del strings[sid]
+                clubs = club_strings(raw, meta, stock_teams, served_teams)
                 strings.update(clubs)
-            info['names'] = {'strings': len(NAMES) + len(clubs), 'clubs': len(clubs), 'file': lang}
+            if leagues:
+                strings.update(league_strings(raw, meta, stock_db, leagues))
+            info['names'] = {'strings': len(strings), 'clubs': len(clubs), 'file': lang}
+            if leagues:
+                info['names']['leagues'] = [_clean(lg.get('name')) for lg in leagues]
+                info['names']['leagues_sha256'] = leagues_digest(leagues)
+                if skipped:
+                    info['names']['leagues_skipped'] = skipped
         if 'text' in layers:
             pack = pack or textpack.load_pack(lang=lang)
             clash = sorted(set(pack['strings']) & set(strings))
@@ -757,10 +857,12 @@ def _build(game_dir, layers, pack=None, database=None, lang='eng_us', menus=None
             raise PatchError('database layer: no database given')
         db = checked
         # the portrait flags follow the art served (art_mod.portrait_flags): the same database serves both ways
-        schema = parse_schema(gamefiles.schema_xml(game_dir)[0])
-        stock = Database.parse(gamefiles.default_database(game_dir)[0], schema)
+        stock = stock_db
         served = art if 'art' in layers and art else []
-        changed = art_mod.portrait_flags(db, stock, art_mod.merge(served) if served else {})
+        before = [db[art_mod.BIOS].get(i, 'artid') for i in range(db[art_mod.BIOS].count)] if art_mod.BIOS in db else []
+        art_mod.rebind_portraits(db, served)    # each person's photo by person, not by the roster's own numbering
+        changed = sum(a != db[art_mod.BIOS].get(i, 'artid') for i, a in enumerate(before))
+        changed += art_mod.portrait_flags(db, stock, art_mod.merge(served) if served else {})
         changed += art_mod.alternate_rows(db, served)   # NHL 27 alternates ride on throwback rows (build_alts)
         if changed:
             database = db.to_bytes()
@@ -848,13 +950,14 @@ def layer_fits(game_dir, layer, lang):
 
 
 def apply(game_dir, layers=('text', 'names'), pack=None, database=None, lang='eng_us', running=None, menus=None,
-          art=None, progress=None):
+          art=None, progress=None, leagues=None):
     """Write the overlay for `layers` (replacing whatever an earlier apply wrote). The game folder is only read.
 
     `database` is the whole nhl_game.db for the database layer; when the layer is asked for without one, the
     database the patch already serves is kept. `menus` is the menus layer's options ({'chel': bool, 'news':
     bool}); the ones served now are kept for every option not given. `art` is the art layer's packs ([art_mod.Pack], a later one
-    wins); without them the art the patch already serves is kept. Returns the new state.
+    wins); without them the art the patch already serves is kept. `leagues`: the league maker's leagues the names layer
+    names (_build). Returns the new state.
 
     `progress(stage, amount)`: once ('plan', {'copy': bytes, 'write': bytes, 'verify': bytes}) when the layers are
     built and it is known what will be written, then ('copy' / 'write' / 'verify', n) for n more bytes done. The
@@ -862,10 +965,10 @@ def apply(game_dir, layers=('text', 'names'), pack=None, database=None, lang='en
     if (running or emulator_running)():
         raise PatchError('NHL 19 is running: close the game first')
     with art_mod.reading():     # one handle per pack zip / archive the art is read from, not one per texture
-        return _apply(game_dir, tuple(layers), pack, database, lang, menus, art, progress)
+        return _apply(game_dir, tuple(layers), pack, database, lang, menus, art, progress, leagues)
 
 
-def _apply(game_dir, layers, pack, database, lang, menus, art, progress=None):
+def _apply(game_dir, layers, pack, database, lang, menus, art, progress=None, leagues=None):
     old = _load_state(game_dir)
     if 'database' in layers and database is None:
         database = _current_database(game_dir, old)
@@ -877,7 +980,7 @@ def _apply(game_dir, layers, pack, database, lang, menus, art, progress=None):
     if 'art' in layers and not art:
         served = _current_art(game_dir, old)
         art = [served] if served else None
-    edits, info = build(game_dir, layers, pack, database, lang, menus, art)
+    edits, info = build(game_dir, layers, pack, database, lang, menus, art, leagues=leagues)
     ours = dict((old or {}).get('files', {}))
     stamp = _stamp(game_dir)
     rels = {archive: _rel(game_dir, archive) for archive in edits}
@@ -1069,6 +1172,27 @@ def _legacy_files(game_dir):
             if name.endswith(LEGACY_SUFFIX):
                 out.append(os.path.join(big_dir, name[:-len(LEGACY_SUFFIX)]))
     return out
+
+
+def menus_stale(game_dir, state=None):
+    """True when the applied menus layer serves other bytes than this version's menus edits make with the options it
+    serves (a patch from an older Overtime: 0.99.2 moved Ones off World of Chel's PLAY menu, 1.00.0 shows it). False
+    with no menus layer, with a launch hook on (set_menus owns it then), or when a file cannot be read (the status
+    lists a missing patch file as a problem of its own)."""
+    state = _load_state(game_dir) if state is None else state
+    rec = (state or {}).get('layers', {}).get('menus')
+    if not rec or rec.get('autoplay_until'):
+        return False
+    try:
+        with eb.cached_tocs():  # each archive's table once (a look runs this after every job: about 0.1 s)
+            new = menus_mod.edits(_read_winner(game_dir), menus_mod.options(None, _served_menus(state)))
+            for path, raw in new.items():
+                with eb.EbArchive(_target(game_dir, _rel(game_dir, textpack._winner(game_dir, path)))) as served:
+                    if path not in served.entries or served.read(path) != raw:
+                        return True
+    except (menus_mod.MenuError, OSError, ValueError):
+        return False
+    return False
 
 
 def set_menus(game_dir, launch=None, running=None):

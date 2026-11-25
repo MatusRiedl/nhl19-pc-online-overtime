@@ -30,12 +30,15 @@ PARTS = (
     ('roster', 'roster_ctl', 'RosterCtl'),
     ('faces', 'faces_ctl', 'FacesCtl'),
     ('gear', 'gear_ctl', 'GearCtl'),
+    ('photo', 'photo_ctl', 'PhotoCtl'),
     ('jerseys', 'jerseys_ctl', 'JerseysCtl'),
     ('lines', 'lines_ctl', 'LinesCtl'),
     ('strategy', 'strategy_ctl', 'StrategyCtl'),
     ('calendar', 'calendar_ctl', 'CalendarCtl'),
     ('office', 'office_ctl', 'OfficeCtl'),
     ('trade', 'trade_ctl', 'TradeCtl'),
+    ('newplayer', 'newplayer_ctl', 'NewPlayerCtl'),
+    ('leaguemaker', 'leaguemaker_ctl', 'LeagueMakerCtl'),
     ('multiplayer', 'multiplayer_ctl', 'MultiplayerCtl'),
 )
 
@@ -78,13 +81,13 @@ class Part:
 def part_classes():
     """[(key, class)] of every part. The modules are imported here, not at the top (each imports Part from this
     module), and by name (not importlib): the exe's builder must see them."""
-    from . import (calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, lines_ctl, multiplayer_ctl, office_ctl, patch_ctl,
-                   patchall_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell, strategy_ctl,
-                   trade_ctl, update_ctl)
+    from . import (calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, leaguemaker_ctl, lines_ctl, multiplayer_ctl,
+                   newplayer_ctl, office_ctl, patch_ctl, patchall_ctl, photo_ctl, rail, roster_ctl, rosters_ctl,
+                   save_ctl, setup_controller, shell, strategy_ctl, trade_ctl, update_ctl)
     modules = {m.__name__.rsplit('.', 1)[-1]: m for m in (
-        calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, lines_ctl, multiplayer_ctl, office_ctl, patch_ctl,
-        patchall_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell, strategy_ctl, trade_ctl,
-        update_ctl)}
+        calendar_ctl, faces_ctl, gear_ctl, jerseys_ctl, leaguemaker_ctl, lines_ctl, multiplayer_ctl, newplayer_ctl, office_ctl,
+        patch_ctl, patchall_ctl, photo_ctl, rail, roster_ctl, rosters_ctl, save_ctl, setup_controller, shell,
+        strategy_ctl, trade_ctl, update_ctl)}
     return [(key, getattr(modules[module], name)) for key, module, name in PARTS]
 
 

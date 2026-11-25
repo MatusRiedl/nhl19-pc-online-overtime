@@ -53,6 +53,7 @@ class FakeService:
         self.fail = None            # an exception the next call raises
         self.public = [{'code': 'AB123', 'host': 'Bo', 'players': 1, 'age': 130}]
         self.hist = {'me': 1, 'matches': []}       # the history answer the report tests set
+        self.ones = None            # the list's `ones` (v1.00.0 servers): None = a server that does not say
 
     def history(self, ext=None, pid=None, limit=None):
         return self.hist
@@ -149,7 +150,7 @@ class FakeService:
 
     def lobbies(self):
         self._go('lobbies')
-        return {'lobbies': self.public}
+        return {'lobbies': self.public, **({} if self.ones is None else {'ones': self.ones})}
 
 
 @pytest.fixture
@@ -387,6 +388,25 @@ def test_an_unreachable_service_is_told_and_recovers(mp):
     assert 'did not answer' in mp.view()['error'] and mp.view()['lobby'] is not None
     mp.poll_once()
     assert mp.view()['error'] == ''
+
+
+def test_a_picture_row_warns_before_online_play_when_dlss5_or_frame_generation_is_on(mp):
+    """Owner 2026-11-25, after a graphics driver reset with DLSS 5 and 4x frame generation on: warn that they can
+    lead to crashes, turn them off before online play. A caution row (no block) with Setup as its fix."""
+    assert 'picture' not in [r['key'] for r in mp.view()['checks']]      # a Setup without the check: no row
+    mp.ctl.setup.risky_picture = lambda: []
+    assert 'picture' not in [r['key'] for r in mp.view()['checks']]
+    mp.ctl.setup.risky_picture = lambda: ['DLSS 5', 'frame generation']
+    row = next(r for r in mp.view()['checks'] if r['key'] == 'picture')
+    assert row == {'key': 'picture', 'label': 'Picture', 'tone': 'caution', 'go': 'setup',
+                   'text': 'DLSS 5 and frame generation on: can crash the game. Turn them off before online play'}
+    mp.ctl.setup.risky_picture = lambda: ['DLSS 5']
+    assert next(r for r in mp.view()['checks'] if r['key'] == 'picture')['text'].endswith('Turn it off before online play')
+
+    def broken():
+        raise OSError('config unreadable')
+    mp.ctl.setup.risky_picture = broken                       # a check never fails the tab
+    assert 'picture' not in [r['key'] for r in mp.view()['checks']]
 
 
 def test_the_server_row_follows_the_public_list_ask(mp):
@@ -1676,18 +1696,78 @@ def test_create_chel_sends_the_kind_mode_and_split(mp):
     lv = mp.view()['lobby']
     assert lv['kind'] == 'chel' and lv['chel_mode'] == RU.CHEL_DROPIN and lv['split'] is True and lv['cap'] == 12
     assert lv['rules'] is None and lv['side_pick'] == {'edit': True, 'mine': 0}
-    assert {m['mode'] for m in mp.view()['chel_modes']} == set(MC.CHEL_PICK)
+    assert {m['mode'] for m in mp.view()['chel_modes']} == set(MC.CHEL_PICK) - {RU.CHEL_ONES}   # Ones: the server says
     assert RU.CHEL_PROAM not in MC.CHEL_PICK                                 # Pro-Am stays locked in the game
 
 
 @pytest.mark.usefixtures('chel_on')
-def test_create_chel_refuses_other_modes_and_ones(mp):
-    """0.97.0 (owner 2026-11-16): Ones fails on the hub and its tile is hidden, so a CHEL lobby picks a Drop-in only."""
+def test_create_chel_refuses_other_modes(mp):
     mp.set_name('iksperial')
     mp.set_ext('16349')
     assert 'World of Chel' in mp.create_chel(RU.VERSUS)['error']
-    assert 'World of Chel' in mp.create_chel(RU.CHEL_ONES, True, True)['error']
-    assert MC.CHEL_PICK == (RU.CHEL_DROPIN, RU.CHEL_DROPIN3, RU.CHEL_GM3ON3) and set(MC.CHEL_PICK) <= set(MC.CHEL_SPLIT)
+    assert MC.CHEL_PICK == (RU.CHEL_DROPIN, RU.CHEL_DROPIN3, RU.CHEL_GM3ON3, RU.CHEL_ONES)
+    assert set(MC.CHEL_PICK) - set(MC.CHEL_SPLIT) == {RU.CHEL_ONES}          # Ones has no Home and Away
+
+
+@pytest.mark.parametrize('said', [None, False, 'yes'])
+@pytest.mark.usefixtures('chel_on')
+def test_ones_only_while_the_server_says_it_is_open(mp, said):
+    """Ones is back (owner 2026-11-24) while the server's list says `ones` true: a server that says false, or one
+    before v1.00.0 that says nothing, would take the lobby and the game would fail (game 69)."""
+    mp.set_name('iksperial')
+    mp.set_ext('16349')
+    mp.service.ones = said
+    mp._lobbies()
+    assert RU.CHEL_ONES not in {m['mode'] for m in mp.view()['chel_modes']}
+    assert mp.create_chel(RU.CHEL_ONES)['error'] == MC.ONES_CLOSED
+    assert not any(c[0] == 'create' for c in mp.service.calls)
+
+
+@pytest.mark.usefixtures('chel_on')
+def test_a_ones_lobby_while_the_server_has_it_open(mp):
+    mp.set_name('iksperial')
+    mp.set_ext('16349')
+    mp.service.ones = True
+    mp._lobbies()
+    assert {'mode': RU.CHEL_ONES, 'name': 'Ones', 'split': False} in mp.view()['chel_modes']
+    assert mp.create_chel(RU.CHEL_ONES, True, True) == {'ok': True}
+    assert mp.service.create_kw == {'mode': RU.CHEL_ONES, 'kind': 'chel', 'split': False}   # never split
+    mp.service.ones = False
+    mp._lobbies()                       # switched off meanwhile: the host cannot pick it again
+    assert mp.set_mode(RU.CHEL_ONES)['error'] == MC.ONES_CLOSED
+
+
+def _no_ones_two():
+    return xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/', xmlpatch.EARLIER[9])    # 0.99.2's patch
+
+
+def _broken():
+    raise xmlpatch.PatchError('no patch')
+
+
+@pytest.mark.parametrize('xml', [_no_ones_two, _broken])
+@pytest.mark.usefixtures('chel_on')
+def test_ones_only_with_the_ones_two_block_in_this_apps_patch(mp, xml):
+    """Ones open on the server but this app's patch lacks the two-player block (or cannot be made): the lobby match takes
+    the block from each player's own patch, so the game would fail the match with 21028. No tile, no create, no switch
+    to Ones, no joining a listed Ones lobby."""
+    mp.set_name('iksperial')
+    mp.set_ext('16349')
+    mp.ctl.setup._xml = xml
+    mp.service.ones = True
+    mp.service.public = [{'code': 'AB123', 'host': 'Bo', 'players': 1, 'age': 130, 'kind': 'chel',
+                          'mode': RU.CHEL_ONES}]
+    mp._lobbies()
+    assert mp.ones_open and not mp.ones_patched
+    assert RU.CHEL_ONES not in {m['mode'] for m in mp.view()['chel_modes']}
+    assert mp.create_chel(RU.CHEL_ONES)['error'] == MC.ONES_UNPATCHED
+    assert mp.join('ab123')['error'] == MC.ONES_UNPATCHED
+    assert not any(c[0] in ('create', 'join') for c in mp.service.calls)
+    assert mp.create_chel(RU.CHEL_DROPIN) == {'ok': True}
+    assert mp.set_mode(RU.CHEL_ONES)['error'] == MC.ONES_UNPATCHED
+    mp.ctl.setup._xml = lambda: xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/')
+    mp._lobbies()                       # this version's patch: the tile is back
+    assert {'mode': RU.CHEL_ONES, 'name': 'Ones', 'split': False} in mp.view()['chel_modes']
 
 
 @pytest.mark.usefixtures('chel_on')
@@ -1753,7 +1833,7 @@ def test_a_team_match_row_puts_my_side_first():
     assert m['result']['status'] == H.CONFIRMED
     row = HV.match_row(m, 3, 60)
     assert row['team'] is True and row['entry'] is None and row['mine'] is True
-    assert row['sides'][0] == {'names': ['C'], 'score': 2, 'won': False, 'you': True}
+    assert row['sides'][0] == {'names': ['C'], 'score': 2, 'won': False, 'you': True, 'lines': []}   # 1.00.0: no WoC line
     assert row['sides'][1]['names'] == ['A', 'B'] and row['sides'][1]['won'] is True
     assert row['against'] == 'A, B'
 
@@ -2034,3 +2114,28 @@ def test_a_quick_lobby_has_no_player_stats(mp):
     mp.set_ext('16349')
     assert mp.create() == {'ok': True}
     assert mp.view()['lobby']['chel_stats'] is None
+
+
+def test_the_host_picks_direct_p2p_and_the_view_shows_it_only_where_the_server_offers_it(mp):
+    # 1.00.0 (owner: a toggle for players far from the server): 'server' by default, 'p2p' experimental
+    def net(code, token, mode):
+        mp.service._go('net', code, token, mode)
+        mp.service.lobby = {**mp.service.lobby, 'net': mode}
+        return {**mp.service.lobby, 'you': 0}
+    mp.service.net = net
+    start_lobby(mp)
+    assert mp.view()['lobby']['net'] is None                 # a server before 1.00.0 says nothing
+    mp.lobby = {**mp.service.lobby, 'net': 'server', 'p2p_open': False}
+    assert mp.view()['lobby']['net'] is None                 # switched off on the server: no tile
+    mp.service.lobby = mp.lobby = {**mp.service.lobby, 'net': 'server', 'p2p_open': True}
+    assert mp.view()['lobby']['net'] == {'mode': 'server', 'edit': True, 'open': True}
+    assert 'Pick' in mp.set_net('direct')['error']
+    assert mp.set_net('p2p') == {'ok': True} and mp.service.calls[-1] == ('net', 'K7M2Q', 'secret-token', 'p2p')
+    assert mp.view()['lobby']['net']['mode'] == 'p2p'
+    mp.lobby = {**mp.lobby, 'p2p_open': False}                # closed after the pick: still shown, not offered
+    assert mp.view()['lobby']['net'] == {'mode': 'p2p', 'edit': True, 'open': False}
+    mp.lobby = {**mp.lobby, 'state': 'launching'}
+    assert mp.view()['lobby']['net']['edit'] is False
+    assert 'fixed' in mp.set_net('server')['error']
+    mp.lobby, mp.me = {**mp.lobby, 'state': 'open'}, 1
+    assert 'host' in mp.set_net('server')['error']

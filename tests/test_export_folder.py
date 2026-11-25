@@ -152,3 +152,22 @@ def test_folder_export_for_the_european_game(session, game, tmp_path):
     save = os.path.join(out.folder, howto.DATA_DIR, *parts, 'RosterCustom0')
     assert sfo.values(open(os.path.join(save, 'sce_sys', 'param.sfo'), 'rb').read())['TITLE_ID'] == 'CUSA11116'
     assert '/savedata/CUSA11116/RosterCustom0' in open(os.path.join(out.folder, howto.FILE), encoding='utf-8').read()
+
+
+def test_a_saved_roster_carries_the_photos_by_person(session, game, tmp_path):
+    """Owner 2026-11-25: the player's own photo shows on his saved roster too. The file written gives each person the
+    art id of his photo (patch.served_portraits) and the flag; the open roster keeps its own."""
+    from overtime_core import art, clubdata
+    t = session.db[art.BIOS]
+    row = next(i for i in range(t.count) if (t.get(i, 'firstname'), t.get(i, 'lastname')) == ('Connor', 'McDavid'))
+    before = t.get(row, 'artid'), t.get(row, 'hasportrait'), session.db.digest()
+    person = [clubdata._key('Connor', 'McDavid'), art.YEAR_BASE + t.get(row, 'year'), t.get(row, 'month') + 1,
+              t.get(row, 'day') + 1, art.YOURS_ARTIDS.start]
+    out = install.run(session, game, install.TARGET_FOLDER, 'Photos', str(tmp_path / 'no-saves'),
+                      str(tmp_path / 'home' / 'exports'), log=lambda *a: None,
+                      portraits=({art.PORTRAIT.format(art.YOURS_ARTIDS.start)}, [person]))
+    assert out.ok, out.lines
+    rs = savegame.read(os.path.join(out.folder, howto.DATA_DIR, *howto.SAVE_PARTS, 'RosterCustom0'))
+    w = tdb.Database.parse(rs.db_bytes, game.schema())[art.BIOS]
+    assert (w.get(row, 'artid'), w.get(row, 'hasportrait')) == (art.YOURS_ARTIDS.start, 1)
+    assert (t.get(row, 'artid'), t.get(row, 'hasportrait'), session.db.digest()) == before

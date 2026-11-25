@@ -169,3 +169,73 @@ def test_the_opponents_report_gives_shots_against_and_faceoffs_lost():
     assert H.with_opponent(mine, None) == mine and H.with_opponent(mine, {}) is not mine
     s = H.stat_summary([{'stats': {'fow': 8}, 'for': 2, 'against': 4}])
     assert s['rates']['faceoffs'] is None and s['rates']['saving'] is None   # no opponent numbers: no rate
+
+
+# --- World of Chel player lines (v1.00.0): each player's own skater or goalie line, goalie metrics apart ---------------
+
+GOALIE_LINE = {'pos': 0, 'glgp': 1, 'glshots': 20, 'glsaves': 18, 'glga': 2, 'glso': 0, 'toiseconds': 3600}
+SKATER_LINE = {'pos': 4, 'skgp': 1, 'skgoals': 1, 'skassists': 2, 'skplusmin': -1, 'skshots': 4, 'skhits': 3}
+
+
+def woc_match(mid, home, away, lines, score=(3, 2), mode='chel_dropin'):
+    """A two-side WoC match where every player reported (`home`/`away` pids, `lines` {pid: his stats})."""
+    players = [{'pid': p, 'name': p, 'side': s} for s, pids in enumerate((home, away)) for p in pids]
+    claims = {p['pid']: {'team': None, 'opp_team': None, 'for': score[p['side']], 'against': score[1 - p['side']],
+                         'source': 'game', 'at': 1.0, 'side': p['side'], 'stats': lines.get(p['pid'])} for p in players}
+    return {'id': mid, 'started': 1000.0 + mid, 'code': None, 'rules': None, 'mode': mode, 'sides': 2,
+            'players': players, 'claims': claims}
+
+
+def test_clean_woc_stats_keeps_whole_skater_and_goalie_numbers_and_the_position():
+    raw = {**GOALIE_LINE, 'glsavepct': 0.9, 'glgaa': 2.0, 'playername': 'x', 'ratingDefense': 70.5, 'skplusmin': -3,
+           'skgoals': True, 'skshots': -1, 'skhits': H.STAT_MAX + 1, 'toi': 60}
+    assert H.clean_woc_stats(raw) == {**GOALIE_LINE, 'skplusmin': -3}
+    assert H.clean_woc_stats(None) is None and H.clean_woc_stats({'pos': 0}) is None
+    assert H.clean_woc_stats({'glsavepct': 0.9, 'skgoals': 1.0}) is None
+    assert H.clean_woc_stats({'skgoals': 1, 'pos': 12}) == {'skgoals': 1}
+    assert H.clean_woc_stats({'skplusmin': -H.STAT_MAX - 1}) is None
+
+
+def test_the_role_and_the_line_tell_a_goalie_from_a_skater():
+    assert H.woc_role(GOALIE_LINE) == H.GOALIE and H.woc_role(SKATER_LINE) == H.SKATER
+    assert H.woc_role({'glgp': 1}) == H.GOALIE and H.woc_role({'glgp': 1, 'skgp': 1}) == H.SKATER
+    assert H.woc_line(GOALIE_LINE) == {'role': 'goalie', 'pos': 'G', 'shots': 20, 'saves': 18, 'ga': 2, 'svpct': 0.9}
+    assert H.woc_line(SKATER_LINE) == {'role': 'skater', 'pos': 'C', 'g': 1, 'a': 2, 'pts': 3, 'plusmin': -1,
+                                       'shots': 4, 'hits': 3}
+    assert H.woc_line({'pos': 0, 'glshots': 10, 'glga': 3})['saves'] == 7   # no saves in the report: shots - goals
+    assert H.woc_line({'pos': 0})['svpct'] is None
+
+
+def test_woc_summary_counts_each_game_for_its_own_role_only():
+    shutout = {**GOALIE_LINE, 'glga': 0, 'glsaves': 20, 'glso': 1, 'glbrkshots': 2, 'glbrksaves': 1}
+    s = H.woc_summary([{'stats': GOALIE_LINE, 'won': True}, {'stats': shutout, 'won': True},
+                       {'stats': SKATER_LINE, 'won': False}])
+    gl, sk = s['goalie'], s['skater']
+    assert (gl['gp'], gl['w'], gl['l'], gl['shots'], gl['saves'], gl['ga'], gl['so'], gl['toi']) == (2, 2, 0, 40, 38, 2, 1, 7200)
+    assert (gl['svpct'], gl['gaa'], gl['brk_shots'], gl['brk_saves'], gl['brk_svpct'], gl['pen_svpct']) == (0.95, 1.0, 2, 1, 0.5, None)
+    assert (sk['gp'], sk['w'], sk['l'], sk['g'], sk['a'], sk['pts'], sk['plusmin'], sk['shots'], sk['hits']) == (
+        1, 0, 1, 1, 2, 3, -1, 4, 3)
+    one = H.woc_summary([{'stats': GOALIE_LINE, 'won': False}])
+    assert one['skater'] is None and (one['goalie']['svpct'], one['goalie']['gaa'], one['goalie']['l']) == (0.9, 2.0, 1)
+    assert H.woc_summary([{'stats': SKATER_LINE, 'won': True}])['goalie'] is None and H.woc_summary([]) is None
+    # GAA only over the goalie games that say their time on ice
+    untimed = {'pos': 0, 'glshots': 10, 'glga': 5}
+    assert H.woc_summary([{'stats': GOALIE_LINE, 'won': True}, {'stats': untimed, 'won': False}])['goalie']['gaa'] == 2.0
+
+
+def test_player_detail_gives_world_of_chel_lines_and_keeps_them_out_of_the_versus_totals():
+    m1 = woc_match(1, ['g1', 's1'], ['s2'], {'g1': GOALIE_LINE, 's1': SKATER_LINE}, score=(3, 2))
+    m2 = woc_match(2, ['s2'], ['g1'], {'g1': SKATER_LINE}, score=(4, 1))        # g1 skates this one and loses
+    m3 = woc_match(3, ['g1'], ['s2'], {'g1': GOALIE_LINE}, mode='chel_gm3on3')
+    d = H.player_detail([m3, m2, m1], 'g1')
+    assert (d['woc']['goalie']['gp'], d['woc']['goalie']['w'], d['woc']['skater']['gp'], d['woc']['skater']['l']) == (2, 2, 1, 1)
+    assert d['stats'] is None and d['shootout'] is None                       # no Versus totals from WoC lines
+    assert [r['line']['role'] for r in d['recent']] == ['goalie', 'skater', 'goalie']
+    assert all(r['box'] == [] for r in d['recent'])
+    assert H.player_detail([m1], 's2')['woc'] is None and 'line' not in H.player_detail([m1], 's2')['recent'][0]
+    assert len(H.woc_games([m3, m2, m1], 'g1')) == 3
+    assert len(H.woc_games([m3, m2, m1], 'g1', ('chel_dropin',))) == 2
+    assert H.woc_games([woc_match(4, ['g1'], ['s2'], {'g1': GOALIE_LINE}, mode=H.ONES)], 'g1') == []
+    waiting = woc_match(5, ['g1'], ['s2'], {'g1': GOALIE_LINE})
+    del waiting['claims']['s2']
+    assert H.woc_games([waiting], 'g1') == []                                 # only confirmed games count

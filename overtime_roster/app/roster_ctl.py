@@ -13,7 +13,7 @@ import copy
 
 from overtime_core import faces as F, equipment as EQ
 
-from . import labels as L, myedits, roster_card as RC
+from . import labels as L, myedits, office, roster_card as RC
 from .rail import COACHELLA, SEATTLE
 from .registry import Part
 from .session import EditError
@@ -31,7 +31,11 @@ COPY_NOTES = {
     'play_now': 'His Play Now card. His Season and Franchise card is on the free agent list (Seattle copy). Edits here '
                 'change Play Now and that card alike.',
 }
-CONTRACT = {'enabled': False, 'title': 'Comes later: cap hit, years and clauses in one window.'}
+# Contract... on the card (1.00.0; "comes later" since 0.1.0-beta2, before Front office had its contract window): opens
+# that window for him on the Front office tab. Free agents sign there, with the club picked on the rail.
+CONTRACT_TITLE = 'Cap hit, years and one-way or two-way, in the Front office contract window.'
+CONTRACT_FREE = 'A free agent signs in Front office: pick the club, then the Free agents group.'
+CONTRACT_NONE = 'He has no contract (his rights belong to a team).'
 LETTER_WORDS = {1: 'Captain', 2: 'Alternate'}
 POS_ORDER = RC.POS_ORDER
 
@@ -39,7 +43,7 @@ POS_ORDER = RC.POS_ORDER
 class RosterCtl(Part):
     SLICES = {'roster': 'view', 'roster_card': 'card_view'}
     CALLS = {'roster_search': 'search', 'roster_player': 'player', 'roster_apply': 'apply',
-             'roster_undo': 'roster_undo', 'roster_keep': 'keep',
+             'roster_undo': 'roster_undo', 'roster_keep': 'keep', 'roster_contract': 'contract',
              'search': 'search', 'player': 'pick_player', 'apply': 'apply', 'undo': 'undo'}
     TAB = 'roster'
 
@@ -161,8 +165,10 @@ class RosterCtl(Part):
         myedits.forget(data, s, clock, gone)
         # only the edits not kept yet: one kept before keeps its value (an update since may have refused it)
         myedits.record(data, s, clock, [it for it in live if id(it['ch']) not in kept_before])
+        myedits.follow_made(data, s, clock)     # a made player moved since (Move / trade): his club now
         for team, slots, letters in self.ctl.parts['lines'].kept_of(ids):
             myedits.record_lines(data, s, clock, team, slots, letters)
+        self.ctl.parts['leaguemaker'].keep(data, ids)
         return data, live
 
     def kept_saved(self, data, live):
@@ -176,15 +182,22 @@ class RosterCtl(Part):
     def kept_remove(self, key):
         """My edits' Remove: that player's kept edit goes (the roster keeps what it has). Returns his name or ''.
         Under the lock."""
-        e = (self.kept()['lines'].get(key[len(myedits.LINES):]) if key.startswith(myedits.LINES)
-             else self.kept()['players'].get(key))
+        if key.startswith(myedits.LEAGUE):
+            e = self.kept().get(myedits.LEAGUES, {}).get(key[len(myedits.LEAGUE):])
+            label = e and f"the {e['name']} league"
+        elif key.startswith(myedits.LINES):
+            e = self.kept()['lines'].get(key[len(myedits.LINES):])
+            label = e and (e.get('label') or e['abbr'])
+        else:
+            e = self.kept()['players'].get(key)
+            label = e and (e.get('label') or e['id']['last'])
         if e is None:
             return ''
         data = copy.deepcopy(self.kept())
         myedits.remove(data, key)
         myedits.save(data)
         self._kept = data
-        return e.get('label') or e['id']['last']
+        return label
 
     def take_back(self, pi, what=None):
         """Take back his applied edits (of one kind, or all of them: only the newest), newest first. Returns (taken,
@@ -284,6 +297,31 @@ class RosterCtl(Part):
                 'selected': c.player, 'empty': empty, 'note': note,
             }
 
+    def contract(self, pi):
+        """Contract... on the card: his club picked on the rail (so Front office shows his organisation), the contract
+        window opened for him, then the Front office tab. A refusal (no deal, a free agent) is said as Front office
+        says it."""
+        c = self.ctl
+        with c.lock:
+            s = c.session
+            try:
+                _, b = s.bio(int(pi)) if s is not None else (None, None)
+            except (TypeError, ValueError):
+                b = None
+            if b is None:
+                return {'ok': False, 'error': 'No player picked.'}
+            if RC.rail_team(s, int(pi)) == L.FREE_AGENTS:
+                return {'ok': False, 'error': CONTRACT_FREE}
+            if not b.get('contractdollars'):                # rights only: what the off button says, in Front office words
+                return {'ok': False, 'error': office.NO_DEAL}
+            team, key = b.get('team', -1), b['game_id']     # his club (the bio's), also from an all-star or national card
+        if team is not None and team >= 0 and team != c.team:
+            c.parts['rail'].pick_team(team)
+        result = c.parts['office'].contract(key)
+        if result.get('ok'):
+            c.host.send('goto', 'office')
+        return result
+
     # --- the card ----------------------------------------------------------------------------------------------------
     def card_view(self):
         c = self.ctl
@@ -346,7 +384,10 @@ class RosterCtl(Part):
                             if pi in c.parts[part].picks],
                 'can_undo': last is not None,
                 'undo_label': f"Take back: {', '.join(last['short'])}" if last else 'Nothing to take back',
-                'contract': dict(CONTRACT), 'made_up': False, 'busy': bool(c.busy),
+                'contract': {'enabled': bool(b.get('contractdollars')) and not free,
+                             'title': CONTRACT_FREE if free else CONTRACT_TITLE if b.get('contractdollars')
+                             else CONTRACT_NONE},
+                'made_up': False, 'busy': bool(c.busy),
             }
 
     @staticmethod

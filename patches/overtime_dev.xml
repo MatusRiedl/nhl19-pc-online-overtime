@@ -430,6 +430,16 @@
       <Line Type="bytes" Address="0x475A7C0" Value="BE6300000083FB01751831F6EB14"/>
     </PatchList>
   </Metadata>
+  <!-- Tweak gForceThreePlayerGauntlet ("Force minimum of three players in Ones", bool, object 0x6191d48): its static
+       initialiser stores the default 1 (mov byte [rip+0x41a410b], 1 at 0x1fedc6e -> +0x38), the E32 pattern. Its only
+       reader, 0x1f5552d in the gauntlet's configure step (ResortGameSetup), fails the match with 21028 "The session
+       does not meet the minimum user requirements" when it is on and the step counts at most 2 users; off, that test
+       goes the way it goes for 3 or more. Default 0 = two players can start a Ones match (docs/notes/ones.md). -->
+  <Metadata Name="Ones: two players can start a match" AppVer="01.60" AppElf="eboot.bin" isEnabled="true">
+    <PatchList>
+      <Line Type="bytes" Address="0x23EDC6E" Value="C6050B411A0400"/>
+    </PatchList>
+  </Metadata>
   <!-- 0x423ad80 appends a 0x38 entry to a team's fixed list (32 slots of 366 inline entries, header begin/end/cap)
        with no capacity check; a full list's next entry zeroes the next team's begin/end and that team's next append
        writes to 0 (0xc0000005 at 0x423ce8c after "Too few players"). Hook 0x423ce71 -> cave 0x56eb000 (text padding):
@@ -449,6 +459,24 @@
       <Line Type="bytes" Address="0x5AEB0A0" Value="488B5408104839D67315488D440808488D5638C5F857C0488910E90012B4FE488D76C8E92A12B4FE"/>
       <Line Type="bytes" Address="0x462487F" Value="E94C684C019090909090909090"/>
       <Line Type="bytes" Address="0x5AEB0D0" Value="488B5408104939D47312488D440808498D542438488910E9A097B3FE4D8D6424C8E9CD97B3FE"/>
+    </PatchList>
+  </Metadata>
+  <!-- The comp builder 0x4047440 sets a competition's team count at 0x40474bb (esi, or the comp's setting 7
+       at [r14+r15*0x158+0x294] when esi is 0; list type != 2). Classic Franchise (list 0) and NHL Season (list 1)
+       build their NHL / AHL comps there with the stock 31 while the 32-team switch is live: Seattle took Utah's place.
+       Hook 0x40474bb (19 bytes) -> call cave 0x56eb1e0 (the hooked test / imul / mov, then count 31?) -> 0x56eb020
+       (list type 0/1, the mode's league type NHL [r14+0xe40] == 0, switch live [[0x5f4a790]+0x29]) -> 0x56ebfe4:
+       the count becomes 32 and is written back to setting 7. Only the NHL (31) and AHL (31) comps have that count.
+       A Season of League Type AHL builds its AHL comp at list 1 too and keeps the stock 31 (lab c32e-a: a check on
+       the comp's league alone gave it Seattle 499). Expansion passes 32 itself; Playoff (list 2), Be a Pro (list 4),
+       the mode-5 init (list 3) and the CHL comps are untouched. With the switch off it does nothing (lab runs c32c,
+       c32d, c32e). -->
+  <Metadata Name="C32: 32 clubs in Classic Franchise and Season" AppVer="01.60" AppElf="eboot.bin" isEnabled="true">
+    <PatchList>
+      <Line Type="bytes" Address="0x44474BB" Value="E8203D6A019090909090909090909090909090"/>
+      <Line Type="bytes" Address="0x5AEB1E0" Value="85C0750F4969C758010000418B84069402000083F81F7505E923FEFFFFC3"/>
+      <Line Type="bytes" Address="0x5AEB020" Value="83F901771A4183BE400E0000007510488B155AF785004885D20F85A50F0000C3"/>
+      <Line Type="bytes" Address="0x5AEBFE4" Value="807A29007411B0204969D7580100004189841694020000C3"/>
     </PatchList>
   </Metadata>
   <!-- Be a Pro's Choose Team job (0x14827b0) sends Context "Exhibition"; its lea at 0x1482899 points at the job's

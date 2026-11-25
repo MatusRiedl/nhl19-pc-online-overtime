@@ -10,6 +10,8 @@ import { cardDraft } from '../savebar.js';
 import { FaceWindow } from './roster-face.js';
 import { GearWindow } from './roster-gear.js';
 import { TradeModals, NextNote } from './roster-trade.js';
+import { NewPlayerWindow } from './roster-new.js';
+import { LeagueWindow } from './roster-league.js';
 
 export const tip = 'Pick a player, change his card, then Apply. Ctrl+F finds a player.';   // Alt+Up / Down: the rail's title
 
@@ -24,7 +26,7 @@ export function onKey(e) {
 }
 
 export function Modals() {
-  return html`<${Fragment}><${FaceWindow}/><${GearWindow}/><${TradeModals}/><//>`;
+  return html`<${Fragment}><${FaceWindow}/><${GearWindow}/><${TradeModals}/><${NewPlayerWindow}/><${LeagueWindow}/><//>`;
 }
 
 // --- the players --------------------------------------------------------------------------------------------------
@@ -80,6 +82,10 @@ function Players({ s, onPick }) {
       ${s.note && html`<span class="ro-teamnote" title=${s.note}>${s.note}</span>`}
       <${Button} small className="ro-import-btn" disabled=${s.busy} onClick=${() => call('trade_import_open')}
         title="Moved players in NHL 19 and saved the roster there? Bring those moves into this roster">Bring in game moves...<//>
+      <${Button} small className="ro-new-btn" disabled=${s.busy} onClick=${() => call('newplayer_open')}
+        title="Make a new player for any club or the free agents (yourself, a prospect, a mod's player)">New player...<//>
+      <${Button} small className="ro-new-btn" disabled=${s.busy} onClick=${() => call('leaguemaker_open')}
+        title="Make a league of your own clubs (a KHL) in one of NHL 19's club leagues, or import a league file">New league...<//>
     </div>
     <${NextNote} note=${t && t.note}/>
     <div class="card-body fill ro-table" ref=${box}>
@@ -123,6 +129,37 @@ function Summary({ c }) {
   </div>`)}</div>`;
 }
 
+// Photo...: Windows' picker; in a browser Python answers {type: true} and the path is typed
+async function pickPhoto(id, done) {
+  const reply = await call('roster_photo_pick', id);
+  if (reply && reply.type) {
+    const typed = window.prompt('The full path of the picture (PNG, JPG or WebP):', '');
+    if (typed && typed.trim()) await call('roster_photo_path', id, typed.trim());
+  }
+  done();
+}
+
+// the photo NHL 19 shows after Patch (app/photo_ctl.py): his own pick, the photo pack's, the game's own or none
+function Photo({ id, off }) {
+  const [p, setP] = useState(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let live = true;
+    call('roster_photo', id).then((r) => { if (live) setP(r || null); });
+    return () => { live = false; };
+  }, [id, tick]);
+  const again = () => setTick((n) => n + 1);
+  const src = p && p.src;
+  return html`<div class=${cls('ro-photo', !src && 'none', p && p.yours && 'mine')}>
+    <button type="button" class="ro-photo-pic" disabled=${off} onClick=${() => pickPhoto(id, again)}
+      title=${`${(p && p.note) || ''} Click to pick a picture of your own.`.trim()}>
+      ${src ? html`<img src=${src} alt=""/>` : html`<span>No photo</span>`}
+    </button>
+    ${p && p.yours && html`<button type="button" class="ro-photo-x" disabled=${off} title="Take your photo away"
+      onClick=${async () => { await call('roster_photo_remove', id); again(); }}>×</button>`}
+  </div>`;
+}
+
 function PlayerCard({ s, c, form, set, setRating, dirty, onApply, onUndo }) {
   const body = useRef(null);
   const problems = c ? c.problems.map((p) => p.key).join(' ') : '';
@@ -154,6 +191,7 @@ function PlayerCard({ s, c, form, set, setRating, dirty, onApply, onUndo }) {
           <div class="ro-sub">${[c.age != null && `${c.age} years`, from].filter(Boolean).join(' · ')}</div>
           <div class="ro-sub ro-teamline">${c.team && html`<${Code} team=${c.team} small/>`}<span>${c.free_agent ? 'Free agent' : c.team ? c.team.name : ''}</span></div>
         </div>
+        <${Photo} id=${c.id} off=${off}/>
       </div>
       ${c.copy_note && html`<div class="small-note ro-copy-note">${c.copy_note}</div>`}
       <${Summary} c=${c}/>
@@ -164,8 +202,8 @@ function PlayerCard({ s, c, form, set, setRating, dirty, onApply, onUndo }) {
           title=${c.gear_note || 'Stick, helmet, gloves, skates, visor, the tucks and the tape'}>Equipment...<//>
         <${Button} small className="ro-trade-btn" disabled=${off} onClick=${() => call('trade_open', c.id)}
           title="Move him to another club or the free agents, or trade him for other players">Move / trade...<//>
-        <span class="ro-pair"><${Button} small kind="gold-line" disabled title=${c.contract.title}>Contract...<//>
-          <span class="ro-later">comes later</span></span>
+        <${Button} small kind="gold-line" className="ro-contract-btn" disabled=${off || !c.contract.enabled}
+          title=${c.contract.title} onClick=${() => call('roster_contract', c.id)}>Contract...<//>
       </div>
       ${c.waiting.length > 0 && html`<div class="note caution ro-waiting">${c.waiting.join(' and ')}: picked, not applied yet.
         Open the window and press Apply to this player.</div>`}

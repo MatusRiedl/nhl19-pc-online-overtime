@@ -260,8 +260,8 @@ def gather_files(season, pack_dir, rosters_path, schedule_path, log=lambda msg: 
                     photos=photos.links(pack) if pack else None)
 
 
-def plan(db, gathered, aliases=None):
-    return U.plan(db, gathered.real, season=gathered.season, aliases=aliases)
+def plan(db, gathered, aliases=None, keep=()):
+    return U.plan(db, gathered.real, season=gathered.season, aliases=aliases, keep=keep)
 
 
 def _where(names, key):

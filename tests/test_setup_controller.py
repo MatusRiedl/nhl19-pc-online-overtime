@@ -1278,6 +1278,32 @@ def test_patch_writes_wait_while_a_lobby_match_setup_is_in_place(sc, monkeypatch
     assert patch_ctl.look(sc)['match_setup'] is True
 
 
+def test_a_look_rewrites_a_menus_layer_an_older_overtime_wrote(monkeypatch):
+    """Owner 2026-11-25: 1.00.0 opened on a game 0.99.2 patched said Patched while its PLAY menu had no Ones."""
+    from overtime_roster.app import matchsetup, patch_ctl
+    calls, logs, stale = [], [], {'v': True}
+    ctl = types.SimpleNamespace(host=types.SimpleNamespace(log=logs.append))
+    monkeypatch.setattr(overlay, 'menus_stale', lambda game_dir: stale['v'])
+    monkeypatch.setattr(overlay, 'set_menus', lambda game_dir, launch: calls.append((game_dir, launch)))
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+    assert patch_ctl.refresh_menus(ctl, 'G') is True and calls == [('G', None)] and 'older Overtime' in logs[-1]
+    stale['v'] = False
+    assert patch_ctl.refresh_menus(ctl, 'G') is False and len(calls) == 1
+    stale['v'] = True
+    for running, match in ((True, False), (False, True)):          # NHL 19 running, a lobby match set up: later
+        monkeypatch.setattr(overlay, 'emulator_running', lambda r=running: r)
+        monkeypatch.setattr(matchsetup, 'active', lambda m=match: m)
+        assert patch_ctl.refresh_menus(ctl, 'G') is False and len(calls) == 1
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+
+    def changed(game_dir, launch):
+        raise overlay.PatchError('boot.big changed since the patch wrote it')
+    monkeypatch.setattr(overlay, 'set_menus', changed)
+    assert patch_ctl.refresh_menus(ctl, 'G') is False and 'changed since' in logs[-1]   # only the log: the patch stays
+
+
 def test_the_game_patch_card_says_a_match_setup_is_in_place():
     from overtime_roster.app import patch_ctl
     f = {'busy': '', 'checked': True, 'running': False, 'match_setup': True, 'error': '', 'patched': False,
@@ -1770,3 +1796,13 @@ def test_compute_off_switch_writes_the_patch_file_and_is_kept(sc):
     said = len(sc.ctl.said)
     assert sc.setup_compute(False) == {'ok': True} and len(sc.ctl.said) == said       # no change: nothing said
     assert sc._boost_card(emu)['compute_off'] is False and sc._boost_card(emu)['resolution'] == 4320
+
+
+def test_patch_serves_the_leagues_my_edits_keeps(sc, monkeypatch):
+    from overtime_roster.app import patch_ctl
+    khl, got = {'name': 'KHL', 'slot': 'del', 'clubs': []}, []
+    monkeypatch.setattr(patch_ctl, 'kept_leagues', lambda ctl: [khl])
+    monkeypatch.setattr(overlay, 'apply', lambda game_dir, layers, leagues=None, **kw: got.append(leagues) or {'layers': layers})
+    sc.setup_refresh()
+    sc.setup_patch()
+    assert got == [[khl]]

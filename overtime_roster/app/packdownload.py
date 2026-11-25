@@ -62,7 +62,8 @@ PACKS = {
 # not art: the DLSS files of Native v3's Picture options (dlssfiles.fetch, 0.99.0: hosted by the Overtime server, owner
 # 2026-11-22), each one DLL, downloaded into app_dir('dlss'); never in the exe or staged with the release
 PICTURE_PACKS = tuple(f['name'] for f in dlssfiles.FILES.values())
-KNOWN = (*PACKS, *TOOL_PACKS, *PICTURE_PACKS)     # every name published() reads and download() takes
+FRAMEGEN_PACK = dlssfiles.FG_PACK   # not art: DLSS frame generation's DLLs (v1.00.0, Overtime Native v3, Windows)
+KNOWN = (*PACKS, *TOOL_PACKS, *PICTURE_PACKS, FRAMEGEN_PACK)     # every name published() reads and download() takes
 CORE = tuple(name for name, pack in PACKS.items() if pack['core'])
 STATES = ('here', 'missing', 'newer', 'offline', 'wrong_roster', 'not_served')
 DEFAULT_FILE = 'packs/' + KITS_PACK
@@ -745,6 +746,14 @@ def check_dlss(path):
         raise art.ArtError(why)
 
 
+def check_framegen(path):
+    """The frame generation pack (dlssfiles.fg_pack_problem: Streamline's DLLs and NVIDIA's licence texts). ArtError
+    otherwise."""
+    why = dlssfiles.fg_pack_problem(path)
+    if why:
+        raise art.ArtError(why)
+
+
 def check_clubart(path):
     """The club art source pack's manifest reads (clubart.Source). ArtError otherwise."""
     clubart.Source(path)
@@ -765,7 +774,8 @@ def check_kitlayers(path):
 
 CHECKS = {EMULATOR_PACK: check_emulator, KRAVICKAS_PACK: check_emulator, NIGHTLY_PACK: check_emulator,
           NATIVE2_PACK: check_emulator, NATIVE3_PACK: check_emulator, CPUTEST_PACK: check_cputest, CLUBART_PACK: check_clubart,   # not art packs
-          **{name: check_kitlayers for name in KITLAYER_PACKS}, **{name: check_dlss for name in PICTURE_PACKS}}
+          **{name: check_kitlayers for name in KITLAYER_PACKS}, **{name: check_dlss for name in PICTURE_PACKS},
+          FRAMEGEN_PACK: check_framegen}
 
 
 def recorded(name, cache_dir):

@@ -460,8 +460,9 @@ def edit_layout(raw):
     return raw.replace(GRID_ANCHOR, b'"numSections": 5,\r\n')
 
 
-# World of Chel's PLAY menu, three tiles: Threes | Drop-in 3s | Drop-in 6s (owner 2026-11-15 had four with Ones first;
-# 2026-11-16 Ones is hidden for 0.97.0: it fails on the game-server hub, game-server-hub.md game 69). Pro-Am's challenge
+# World of Chel's PLAY menu, four tiles (owner 2026-11-15): Ones | Threes | Drop-in 3s | Drop-in 6s (Ones was hidden in
+# 0.97.0 to 0.99.2, 28f0ab8, and is back for 1.00.0, owner 2026-11-24: lab p3 played a whole Ones game; while the
+# server's switch state/ones is off a Ones search is refused and the game backs out of it). Pro-Am's challenge
 # room stalls (no server answer found), so its slot is Drop-in 3s; the EASHL slot is Drop-in 6s (the EASHL menu has
 # only Drop-in left once Online Seasons is hidden). A Drop-in tile sets _G.OvertimeDropIn ('3s' / '6s') and opens the
 # EASHL menu as the EASHL tile did; the EASHL menu then picks Drop-in and the Drop-in hub picks that room by themselves
@@ -475,21 +476,17 @@ PLAYNOW_STOCK = (b'function PlayNowMenu:new(init)', b'self.im.ChangeActionState(
 DROPIN_ACTIONS = ((b'    self.im.RegisterAction(ACTIONS.PROAM, function() self:_OnAdvance(EVENTS.PROAM) end)\r\n',
                    b"    self.im.RegisterAction(ACTIONS.PROAM, function() _G.OvertimeDropIn = '3s'; self:_OnAdvanceEASHL() end)"
                    b'   -- Overtime menus: Drop-in 3s\r\n'),
-                  (b'    self.im.RegisterAction(ACTIONS.GAUNTLET, function() self:_OnAdvance(EVENTS.GAUNTLET) end)\r\n',
-                   b'    self.im.RegisterAction(ACTIONS.GAUNTLET, function() end)   -- Overtime menus: Ones hidden\r\n'),
                   (b'    self.im.RegisterAction(ACTIONS.EASHL, function() self:_OnAdvanceEASHL() end)\r\n',
                    b"    self.im.RegisterAction(ACTIONS.EASHL, function() _G.OvertimeDropIn = '6s'; self:_OnAdvanceEASHL() end)"
                    b'   -- Overtime menus: Drop-in 6s\r\n'))
-# playnowmenu.layout: the tiles' order on screen and for the cursor: Threes 335, Pro-Am slot (Drop-in 3s) 755, EASHL slot
-# (Drop-in 6s) 1175, centred like the stock four (stock: Pro-Am 125, Ones 545, Threes 965, EASHL 1385); the Pro-Am slot
-# gets the EASHL art. Ones (GauntletTile) leaves the cursor's targets and the canvas, and its action does nothing (the
-# Seasons tile's way, SEASONS_*); the Ones walk (CHEL_WALKS 'ones') calls _OnAdvance itself and still works.
+# playnowmenu.layout: the tiles' order on screen and for the cursor: Ones 125, Threes 545, Pro-Am slot (Drop-in 3s) 965,
+# EASHL slot (Drop-in 6s) 1385 (stock: Pro-Am 125, Ones 545, Threes 965, EASHL 1385); the Pro-Am slot gets the EASHL art.
 PLAYNOW_TARGETS = (b'                "ProamTile",\r\n                "GauntletTile",\r\n                "ThreesTile",\r\n'
                    b'                "EASHLTile"\r\n')
-PLAYNOW_ORDER = (b'                "ThreesTile",\r\n                "ProamTile",\r\n'
+PLAYNOW_ORDER = (b'                "GauntletTile",\r\n                "ThreesTile",\r\n                "ProamTile",\r\n'
                  b'                "EASHLTile"\r\n')
-TILE_X = {b'ProamTile': (b'125.0', b'755.0'), b'GauntletTile': (b'545.0', b'6000.0'), b'ThreesTile': (b'965.0', b'335.0'),
-          b'EASHLTile': (b'1385.0', b'1175.0')}
+TILE_X = {b'ProamTile': (b'125.0', b'965.0'), b'GauntletTile': (b'545.0', b'125.0'), b'ThreesTile': (b'965.0', b'545.0'),
+          b'EASHLTile': (b'1385.0', b'1385.0')}
 PROAM_ART = (b'"type": "resort_brand_proam",', b'"type": "resort_brand_eashl",')
 PLAYNOW_LAYOUT_STOCK = (b'"name": "PlayNowMenu",', b'"name": "ProamTile",', b'"name": "EASHLTile",')
 # playnowmenu.dd: the two Drop-in tiles' titles are the Drop-in hub's own button texts; the Pro-Am action starts VALID.
@@ -500,7 +497,7 @@ PLAYNOW_DD_EDITS = ((b'"tag": "TXT_PROAM_MODE_DESCR",', b'"tag": "TXT_PLAY_3S",'
 
 
 def edit_playnow(raw):
-    """playnowmenu.lua with the Pro-Am slot as Drop-in 3s, the EASHL tile as Drop-in 6s and Ones' action doing nothing."""
+    """playnowmenu.lua with the Pro-Am slot as Drop-in 3s and the EASHL tile as Drop-in 6s."""
     path = PLAYNOW_PATH
     if MARK in raw:
         raise MenuError(f'{path} is already edited')
@@ -530,7 +527,7 @@ def _tile_x(raw, name, old, new, path):
 
 
 def edit_playnow_layout(raw):
-    """playnowmenu.layout as Threes | Drop-in 3s (the Pro-Am slot, EASHL art) | Drop-in 6s (the EASHL slot), Ones hidden."""
+    """playnowmenu.layout as Ones | Threes | Drop-in 3s (the Pro-Am slot, EASHL art) | Drop-in 6s (the EASHL slot)."""
     path = PLAYNOW_LAYOUT_PATH
     if raw.count(b'\r\n') != raw.count(b'\n'):
         raise MenuError(f'{path} does not have CRLF line ends')

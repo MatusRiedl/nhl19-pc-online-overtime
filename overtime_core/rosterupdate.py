@@ -195,6 +195,7 @@ class Plan:
     releases: list = field(default_factory=list)  # (playerindex, name, from (table, team))
     kept: list = field(default_factory=list)     # (playerindex, name, team): off NHL.com's roster, stays to dress 20
     stay: int = 0
+    keep: frozenset = frozenset()   # game ids of the players the user made (plan `keep`): apply leaves them alone too
 
     def summary(self):
         return {'players': len(self.placed), 'stay': self.stay, 'moves': len(self.moves), 'new': len(self.new),
@@ -358,15 +359,18 @@ def free_and_on_a_club(db):
     return out
 
 
-def plan(db, real, season=DEFAULT_SEASON, aliases=None):
+def plan(db, real, season=DEFAULT_SEASON, aliases=None, keep=()):
     """What `apply` would do with the real rosters `real` (gather_rosters, with_absent). Birth dates match as they are or
     on the game's clock (teams.year_shift: what an earlier update for `season` stored). `aliases` {game_id: (first, last,
-    real birth date or None)}: players the user renamed (the app's My edits) match under the name and birth date they had."""
+    real birth date or None)}: players the user renamed (the app's My edits) match under the name and birth date they had.
+    `keep`: game ids of players the user made (My edits' New player): no NHL.com player is matched to them (a namesake
+    would take him over), their club does not release them, and apply neither signs one who is a free agent to a club
+    short of players nor retires him."""
     state = State(db)
     bios = db[BIOS]
     people = []
     for game_id, b in state.bio_row.items():
-        if state.main_pi(game_id) is not None:
+        if state.main_pi(game_id) is not None and game_id not in keep:
             r = bios.row(b)
             first, last, born = (aliases or {}).get(game_id) or (r['firstname'], r['lastname'], None)
             people.append(Person(game_id, first, last, born or _birth(r)))
@@ -377,7 +381,7 @@ def plan(db, real, season=DEFAULT_SEASON, aliases=None):
             unique.append(p)
     real = unique
     reals = [Person(i, p['first'], p['last'], p.get('birth') or '') for i, p in enumerate(real)]
-    out = Plan()
+    out = Plan(keep=frozenset(keep))
     placed = set()
     for p, m in zip(real, Matcher(people, shifts=range(T.year_shift(season) + 1)).match_all(reals)):
         to = target_of(p['team'])
@@ -396,8 +400,9 @@ def plan(db, real, season=DEFAULT_SEASON, aliases=None):
         else:
             out.moves.append((pi, f"{p['first']} {p['last']}", now if now else ('FA' if pi in state.free else None), to))
     leaving = {}
+    kept_pis = {pi for gid in keep for pi in state.pis_of.get(gid, ())}
     for pi, (name, team) in state.entry.items():
-        if pi in placed:
+        if pi in placed or pi in kept_pis:
             continue
         if (name == ROSTER and team in NHL) or (name == CUSTOM_ROSTER and team == T.SEATTLE):
             leaving.setdefault((name, team), []).append(pi)
@@ -772,6 +777,8 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     min_age = NHL27_RETIRE_AGE if nhl27 and nhl27.get('players') else FA_RETIRE_AGE
     retiring = (retirees(db, active, start_year or DEFAULT_SEASON, min_age, retired_list or ())
                 if retire and active is not None else [])
+    if todo.keep:   # a player the user made stays a free agent (plan `keep`)
+        retiring = [r for r in retiring if state.bio(r[0])['game_id'] not in todo.keep]
     # numbers of the players who stay
     for table in (ROSTER, CUSTOM_ROSTER):
         if table not in db:
@@ -785,7 +792,7 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     changed |= {f for _pi, _n, f, _to in todo.moves if isinstance(f, tuple)}
     changed |= {f for _pi, _n, f in todo.releases}
     signed = []
-    club_listed = _club_listed(db, (nhl27 or {}).get('players'), (clubs or {}).get('players'), shift)
+    club_listed = _club_listed(db, (nhl27 or {}).get('players'), (clubs or {}).get('players'), shift) | todo.keep
     # a club whose league is rebuilt below signs nobody before: the rebuild sets its roster and fills it to 2 goalies
     # and 18 skaters from its own 2018 players; a free agent signed before it was taken off again (the OHL's clubs
     # signed Georgiev, Sprong and Kunin when NHL.com called a junior up, then lost them to their league's rebuild)

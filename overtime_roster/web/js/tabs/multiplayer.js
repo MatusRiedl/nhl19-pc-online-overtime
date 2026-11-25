@@ -7,6 +7,7 @@ import { useSlice } from '../store.js';
 import { call } from '../bridge.js';
 import { Button, Card, Modal, Segmented, Select, Tag, TextField, Toggle } from '../ui.js';
 import { OnlineLines } from './setup.js';
+import { onesPlaced } from './ones.js';     // Ones: each player's place after his name (1st, 2nd, 3rd)
 
 export const tip = 'Create a lobby or join one from the list; everyone presses Ready and the game starts by itself.';
 
@@ -290,7 +291,7 @@ function Pick({ s, go }) {
   </div>`;
 }
 
-function Player({ p, launching, chel }) {
+function Player({ p, launching, chel, ones }) {
   // 0.97.0 (owner): no "roster ok" or "game differs" tags; a roster that differs still says so (it blocks the start)
   const roster = p.roster === 'mismatch' ? html`<${Tag} tone="bad">roster differs<//>` : null;
   return html`<div class=${cls('mp-player', p.ready && 'ready')}>
@@ -299,7 +300,7 @@ function Player({ p, launching, chel }) {
       ${launching && chel && p.bench ? html`<${Tag} tone="caution">next match<//>`
         : launching ? html`<${Tag} tone="info">${STAGE_TEXT[p.stage] || p.stage}<//>`
         : html`<${Tag} tone=${p.ready ? 'good' : 'caution'}>${p.ready ? 'ready' : 'not ready'}<//>`}
-      ${launching && chel && !p.bench && html`<${Tag} tone="accent">${SIDE_NAMES[p.side] || 'Home'}<//>`}
+      ${launching && chel && !p.bench && !ones && html`<${Tag} tone="accent">${SIDE_NAMES[p.side] || 'Home'}<//>`}
       ${p.build && html`<${Tag} title="The shadPS4 build this player's game plays on (from their last Ready): each player picks their own">${p.build}<//>`}
       ${roster}
     </div>
@@ -324,7 +325,7 @@ function ChelPlayers({ l, launching }) {
   const room = Math.max(0, l.cap - l.players.length);
   if (!l.split && !l.picks) {
     return html`<div class="mp-players">
-      ${l.players.map((p) => html`<${Player} key=${p.name + p.you} p=${p} launching=${launching} chel/>`)}
+      ${l.players.map((p) => html`<${Player} key=${p.name + p.you} p=${p} launching=${launching} chel ones=${l.mode === 'chel_ones'}/>`)}
       ${room > 0 && html`<div class="mp-player empty">Room for ${room} more${launching ? ' (next match)' : ''}</div>`}
     </div>`;
   }
@@ -532,6 +533,39 @@ function RosterRule({ roster }) {
   </label>`;
 }
 
+// 1.00.0 (owner: a toggle for players far from the server): how the match connects. Through the server (the relay,
+// default) or Direct P2P (experimental): each game is told the other's internet address. The host picks; the guest's
+// Ready agrees. A direct game that never connects puts the lobby back on the server (Python, lobby.direct_failed).
+const NET_OPTIONS = [
+  { value: 'server', label: 'Server (default)' },
+  { value: 'p2p', label: 'Direct P2P (test)' },
+];
+
+function NetRule({ net }) {
+  const p2p = net.mode === 'p2p';
+  const options = net.open ? NET_OPTIONS : NET_OPTIONS.filter((o) => o.value === 'server' || o.value === net.mode);
+  const picked = NET_OPTIONS.find((o) => o.value === net.mode);
+  return html`<label class=${cls('mp-rule', p2p && 'changed')}
+      title="How the two games connect: through the Overtime server, or straight to each other (experimental)">
+    <span class="mp-rule-label caps">Connection</span>
+    ${net.edit
+      ? html`<${Select} value=${net.mode} options=${options} onChange=${(v) => call('mp_net', v)}/>`
+      : html`<span class="mp-rule-value">${picked ? picked.label : net.mode}</span>`}
+  </label>`;
+}
+
+function NetNote({ net, host, hostName }) {
+  if (net.mode !== 'p2p') return null;
+  const who = host ? 'You picked it' : `${hostName || 'The host'} picked it`;
+  const text = `${who}: the two games connect straight to each other, not through the Overtime server. It can lower `
+    + "the ping for players far from Europe. Each game gets the other player's internet address."
+    + (host ? '' : ' Pressing Ready agrees to it.')
+    + ' Some home routers need UDP port 3659 forwarded to this PC. If the games cannot reach each other, the next game'
+    + ' goes through the server.';
+  return html`<div class="mp-note warn"><b>Direct P2P (experimental).</b>${' ' + text}${!net.open
+    && html`${' '}<b>Direct P2P is switched off on the server now, so the game goes through the server.</b>`}</div>`;
+}
+
 // 0.98.0 (a tester: the host's changes did not reach the match): the host sees what Ready sent (or will send) and its
 // CRC; a change after Ready un-readies them (Python), so the match never plays an older roster than the one open here
 function RosterNote({ roster, host, hostName }) {
@@ -566,7 +600,7 @@ function ModePick({ mode, pick }) {
   </div>`;
 }
 
-function Rules({ rules, host, hostName, roster, mode, modePick }) {
+function Rules({ rules, host, hostName, roster, net, mode, modePick }) {
   const edit = rules.can_edit;
   return html`<${Card} n=${3} title="Match rules"
       aside=${html`<${Tag} tone=${rules.is_default ? 'info' : 'accent'}>${rules.summary}<//>`}>
@@ -574,7 +608,7 @@ function Rules({ rules, host, hostName, roster, mode, modePick }) {
       ${modePick && html`<${ModePick} mode=${mode} pick=${modePick}/>`}
       ${mode === 'shootout' && html`<div class="mp-note">Shootout: 1 against 1 penalty shots; the greyed rules do not apply. Counts in the same rating.</div>`}
       ${mode === 'threes' && html`<div class="mp-note">Threes: 3 on 3 with its own rules, so every rule is greyed. Counts in the same rating.</div>`}
-      <div class="mp-rules">${roster && html`<${RosterRule} roster=${roster}/>`}${rules.rows.map((r) => {
+      <div class="mp-rules">${roster && html`<${RosterRule} roster=${roster}/>`}${net && html`<${NetRule} net=${net}/>`}${rules.rows.map((r) => {
         const picked = r.options.find((o) => o.value === r.value);
         return html`<label key=${r.key} class=${cls('mp-rule', r.value !== r.default && 'changed', r.off && 'off')}
             title=${r.off ? 'Does not apply to ' + (mode === 'threes' ? 'Threes' : 'Shootout') : null}>
@@ -585,6 +619,7 @@ function Rules({ rules, host, hostName, roster, mode, modePick }) {
         </label>`;
       })}</div>
       ${roster && html`<${RosterNote} roster=${roster} host=${host} hostName=${hostName}/>`}
+      ${net && html`<${NetNote} net=${net} host=${host} hostName=${hostName}/>`}
       ${edit && html`<div class="mp-row"><span class="mp-note">Changing a rule clears Ready for both of you.</span><span class="sp"></span>
         <${Button} small kind="ghost" disabled=${rules.is_default} onClick=${() => call('mp_reset_rules')}>Reset to default<//></div>`}
       ${!host && html`<div class="mp-note">${hostName || 'The host'} picks the rules. Both games play them.</div>`}
@@ -630,9 +665,39 @@ const restSide = (rest) => ({
   score: rest.every((x) => x.score != null) ? Math.max(...rest.map((x) => x.score)) : null,
 });
 
+// v1.00.0: under a World of Chel match, each player's own line from the game's report (a goalie's saves, a skater's
+// goals, assists and +/-), my side first
+function MatchLines({ sides }) {
+  const shown = (sides || []).filter((x) => (x.lines || []).length > 0);
+  if (!shown.length) return null;
+  return html`<div class="mp-match-lines">${shown.map((x, i) => html`<div key=${i} class=${cls('mp-lines', x.you && 'you')}>
+    ${x.lines.map((p) => html`<span class="mp-line" key=${p.name}><${PosTag} pos=${p.pos}/><b>${p.name}</b> ${p.line}</span>`)}</div>`)}</div>`;
+}
+
+const PosTag = ({ pos }) => (pos ? html`<span class=${cls('mp-pos', pos === 'G' && 'goalie')} title=${pos === 'G' ? 'Goalie' : 'Skater'}>${pos}</span>` : null);
+
+// My World of Chel numbers: "As skater" and "As goalie" apart (owner 2026-11-24: goalies get their own metrics)
+function WocPart({ title, p }) {
+  return html`<div class="mp-woc-part">
+    <div class="mp-woc-head"><span class="caps">${title}</span><span class="mp-note">${p.games} ${p.games === 1 ? 'game' : 'games'} · ${p.record}</span></div>
+    <div class="mp-woc-cells">${p.cells.map((c) => html`<div class="mp-woc-cell" key=${c.label}><b>${c.value}</b><span>${c.label}</span></div>`)}</div>
+    ${p.extra.length > 0 && html`<div class="mp-rates">${p.extra.map((r) => html`<span key=${r.label}><b>${r.value}</b> <span class="mp-note">${r.label}</span></span>`)}</div>`}
+  </div>`;
+}
+
+function Woc({ w }) {
+  if (!w) return null;
+  return html`<div class="mp-woc"><div class="caps mp-sub">World of Chel <span class="mp-note">(from the game's own report of each game)</span></div>
+    ${w.skater && html`<${WocPart} title="As skater" p=${w.skater}/>`}
+    ${w.goalie && html`<${WocPart} title="As goalie" p=${w.goalie}/>`}</div>`;
+}
+
+const chelText = (mode) => (mode && mode.startsWith('chel_') ? `CHEL ${CHEL_MODE_NAMES[mode] || ''}`.trim() : '');
+
 function MatchRow({ m }) {
-  const [a, b] = m.team && m.sides && m.sides.length === 2 ? m.sides.map(teamSide)
-    : m.team && m.sides && m.sides.length > 2 ? [teamSide(m.sides[0]), restSide(m.sides.slice(1))] : m.players;
+  const sides = m.team && m.sides && m.mode === 'chel_ones' ? onesPlaced(m.sides) : m.sides;
+  const [a, b] = m.team && sides && sides.length === 2 ? sides.map(teamSide)
+    : m.team && sides && sides.length > 2 ? [teamSide(sides[0]), restSide(sides.slice(1))] : m.players;
   const chelName = m.mode && m.mode.startsWith('chel_') ? ` · CHEL ${(CHEL_MODE_NAMES[m.mode] || '')}` : '';
   const shown = a.score != null && b.score != null;
   const score = shown ? `${a.score}–${b.score}` : (a.score != null ? `${a.score}–${b.score}?` : '–');
@@ -660,8 +725,20 @@ function MatchRow({ m }) {
           ${m.entry.again ? 'Change my result' : 'Enter result'}<//>`}
       </div>
     </div>
+    ${m.team && html`<${MatchLines} sides=${m.sides}/>`}
   </div>`;
 }
+
+// one game in My games or the player window: a World of Chel game has no teams, so its score, then its mode
+function GameMain({ m }) {
+  if (m.for == null || m.status !== 'confirmed') return html`Against ${m.opponent}`;
+  const chel = chelText(m.mode);
+  return chel
+    ? html`${m.for}–${m.against}<span class="mp-note"> against ${m.opponent}</span>`
+    : html`${m.team || '?'} ${m.for}–${m.against} ${m.opp_team || '?'}<span class="mp-note"> against ${m.opponent}</span>`;
+}
+
+const gameMode = (m) => (m.mode === 'shootout' ? ' · Shootout' : m.mode === 'threes' ? ' · Threes' : chelText(m.mode) ? ` · ${chelText(m.mode)}` : '');
 
 function PlayerRow({ p }) {
   return html`<button type="button" class=${cls('mp-prow', p.you && 'you')} onClick=${() => call('mp_history_player', p.pid)}>
@@ -778,24 +855,24 @@ function MyGames({ g, big }) {
               <span class="mp-note">over ${o.games} Versus ${o.games === 1 ? 'game' : 'games'} with the game's numbers</span>
               ${vs && html`<span class="mp-vs-legend caps"><span>Me</span><span>Them</span></span>`}</div>
             <div class="mp-vs-list">${o.avg.map((a) => html`<${VsRow} key=${a.key} a=${a}/>`)}</div>`
-          : !g.shootout && html`<div class="mp-empty">No numbers yet. They come from the game's own match report after an
+          : !g.shootout && !g.woc && html`<div class="mp-empty">No numbers yet. They come from the game's own match report after an
             online game; a result typed in the app has no numbers.</div>`}
       </div>
     </div>
     ${g.shootout && html`<div class="caps mp-sub">Shootout over ${g.shootout.games} ${g.shootout.games === 1 ? 'game' : 'games'}</div>
       <div class="mp-note">${g.shootout.line}</div>
       ${g.shootout.rates.length > 0 && html`<div class="mp-rates">${g.shootout.rates.map((r) => html`<span key=${r.label}><b>${r.value}</b> <span class="mp-note">${r.label}</span></span>`)}</div>`}`}
+    <${Woc} w=${g.woc}/>
     <div class="caps mp-sub">Each game <span class="mp-note">(open one for its box score)</span></div>
     <div class="mp-recent">${g.games.map((m) => html`<details class=${cls('mp-game', m.result)} key=${m.id}>
       <summary class=${cls('mp-recent-row', m.result)}>
         <span class="mp-res">${m.result || '–'}</span>
-        <span class="mp-recent-main">${m.for != null && m.status === 'confirmed'
-          ? html`${m.team || '?'} ${m.for}–${m.against} ${m.opp_team || '?'}<span class="mp-note"> against ${m.opponent}</span>`
-          : html`Against ${m.opponent}`}</span>
-        <span class="mp-ago">${m.status === 'confirmed' ? '' : m.status + ' · '}${m.ago}${m.mode === 'shootout' ? ' · Shootout' : m.mode === 'threes' ? ' · Threes' : ''}</span></summary>
+        <span class="mp-recent-main"><${PosTag} pos=${m.pos}/><${GameMain} m=${m}/></span>
+        <span class="mp-ago">${m.status === 'confirmed' ? '' : m.status + ' · '}${m.ago}${gameMode(m)}</span></summary>
       ${m.box.length
         ? html`<div class="mp-box"><div class="mp-box-row head caps"><span></span><span>Me</span><span>Them</span></div>
             ${m.box.map((r) => html`<div class="mp-box-row" key=${r.label}><span>${r.label}</span><b>${r.me}</b><span>${r.them}</span></div>`)}</div>`
+        : m.line ? html`<div class="mp-note mp-box-none">${m.pos === 'G' ? 'As goalie' : 'As skater'}: <b>${m.line}</b></div>`
         : html`<div class="mp-note mp-box-none">No numbers for this game.</div>`}
     </details>`)}</div>
   </div>`;
@@ -884,13 +961,12 @@ function PlayerWindow({ d }) {
         <div><div class="caps mp-sub">Teams played with</div><${Record} rows=${d.teams} empty="No teams yet."/></div>
         <div><div class="caps mp-sub">Teams played against</div><${Record} rows=${d.against} empty="No teams yet."/></div>
       </div>
+      <${Woc} w=${d.woc}/>
       <div class="caps mp-sub">Latest matches</div>
       <div class="mp-recent">${d.recent.map((m) => html`<div class=${cls('mp-recent-row', m.result)} key=${m.id}>
         <span class="mp-res">${m.result || '\u2013'}</span>
-        <span class="mp-recent-main">${m.for != null && m.status === 'confirmed'
-          ? html`${m.team || '?'} ${m.for}\u2013${m.against} ${m.opp_team || '?'}<span class="mp-note"> against ${m.opponent}</span>`
-          : html`Against ${m.opponent}`}</span>
-        <span class="mp-ago">${m.status === 'confirmed' ? '' : m.status + ' \u00b7 '}${m.ago}</span></div>`)}</div>
+        <span class="mp-recent-main"><${PosTag} pos=${m.pos}/><${GameMain} m=${m}/>${m.line && html`<span class="mp-note"> \u00b7 ${m.line}</span>`}</span>
+        <span class="mp-ago">${m.status === 'confirmed' ? '' : m.status + ' \u00b7 '}${m.ago}${gameMode(m)}</span></div>`)}</div>
     </div>
   <//>`;
 }
@@ -963,7 +1039,7 @@ export default function Multiplayer({ go }) {
                   <div class="mp-spacer"></div><${HowTo}/></div>`}
           </${Card}>`}
       ${s.lobby && s.lobby.rules && html`<${Rules} rules=${s.lobby.rules} host=${s.lobby.host} hostName=${s.lobby.host_name}
-          roster=${s.lobby.roster_mode} mode=${s.lobby.mode} modePick=${s.lobby.mode_pick}/>`}
+          roster=${s.lobby.roster_mode} net=${s.lobby.net} mode=${s.lobby.mode} modePick=${s.lobby.mode_pick}/>`}
       ${s.lobby && s.lobby.kind === 'chel' && html`<${ChelCard} l=${s.lobby} modes=${s.chel_modes}/>`}
       ${s.game && html`<${Game} game=${s.game}/>`}
     </div>

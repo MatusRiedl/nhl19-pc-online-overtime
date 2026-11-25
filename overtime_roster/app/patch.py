@@ -11,8 +11,10 @@ agent list too (rosterupdate.expansion_free_agents; other modes do not list a ro
 The art layer serves the art packs found (ART_PACKS: NHL 27's team art; built on the owner's PC by tools/build_looks.py,
 never committed): switch ART_SWITCH. The packs (all-team logos / menus / centre ice, Utah's and Seattle's whole look, the 3D kits) are downloads
 from the release host, never inside the exe; the 3D kits are a delta pack (KITS_PACK, switch `kits`; overtime_roster.
-app.packdownload). NHL.com portraits (PHOTOS_PACK, built by tools/build_photopack.py) are keyed by the served bios'
-art ids, and the overlay's database step sets each bio's portrait flag from the art served (art.portrait_flags).
+app.packdownload). Player photos come from the people pack (PEOPLE_PACK, keyed by person): the overlay's database
+step gives each bio of a person it has that photo's art id (art.rebind_portraits), then sets the portrait flags from the
+art served (art.portrait_flags). PHOTOS_PACK (NHL.com portraits by the default roster's art ids, which every roster
+build numbers anew) is served only without a people pack.
 NHL 27's other jerseys (the NHL's alternates, the national teams, the clubs) and the NHL kits' 2026 pants are made on
 the player's PC at Patch from small layer packs and the game's own files (make_kits, overtime_core.kitcompose), as the
 clubs' logos are (make_clubart, overtime_core.clubart): no game texture is downloaded for them.
@@ -136,7 +138,7 @@ ART_SWITCH = {'art': 'Updated team art: logos, menu jerseys and centre ice of al
                      'Utah\'s arena', 'kits': 'Updated 3D jerseys of all teams (a download)'}
 LOOKS32_PACK = 'looks32.zip'   # all teams: logos, menu jerseys, centre ice (a core download)
 KITS_PACK = 'kits.zip'         # all teams' 3D kits, a delta pack on the game's own files (downloaded)
-PHOTOS_PACK = 'photos.zip'     # NHL.com portraits, p<artid> of the default database's bios
+PHOTOS_PACK = 'photos.zip'     # NHL.com portraits, p<artid> of one default database's bios: only without PEOPLE_PACK
 PEOPLE_PACK = 'people.zip'     # the players of every league (tools/build_people.py): Update gives them these art ids
 ICE_PACK = 'ice_all.zip'       # centre ice of every team NHL 27 has one for (build_looks --teams every), over looks32's
 RINK_PACK = 'rink.zip'         # NHL 27 pucks, ice lines, board ads, league logos and the IIHF art (build_looks --parts rink,iihf), over ice_all
@@ -161,6 +163,9 @@ ART_PACKS = (LOOKS32_PACK, ICE_PACK, RINK_PACK, KITS_PACK, PHOTOS_PACK, PEOPLE_P
 # the photos the people pack lacks, drawn by Update on this PC (overtime_core.photos): only in the app's cache, no
 # download, served with the photos; its art ids are the people pack's free ones, so no other pack's file is replaced
 LOCAL_PEOPLE_PACK = photos.LOCAL_PACK
+# the photos the player picked for his players (Roster > Photo..., photos.keep_yours): only in the cache, served after
+# the people packs, so his pick beats theirs (art.rebind_portraits takes the last pack's art id)
+YOURS_PEOPLE_PACK = photos.YOURS_PACK
 # the clubs' 2026 logos and centre ice (overtime_core.clubart): CLUBART_PACK is a download of source pictures, never
 # served itself; Update makes the game's files of them on this PC into LOCAL_CLUBART_PACK, served last (it wins)
 CLUBART_PACK = clubart.PACK
@@ -242,6 +247,9 @@ def art_pack_paths(cache_dir=None, game_dir=None, kits=True, photos=True, extras
     for name in ART_PACKS:
         skip = (name == KITS_PACK and not kits) or (name in (PHOTOS_PACK, PEOPLE_PACK) and not photos) or \
             (name in EXTRA_PACKS and extras is not None and name not in extras)
+        if name == PHOTOS_PACK and not skip and any(os.path.isfile(os.path.join(f, PEOPLE_PACK))
+                                                    for f in art_places(cache_dir)):
+            continue        # the people pack has every face photos.zip has, bound by person (art.rebind_portraits)
         for folder in [] if skip else art_places(cache_dir):
             path = os.path.join(folder, name)
             if os.path.isfile(path) and name == PHOTOS_PACK and folder != cache_dir and \
@@ -259,8 +267,9 @@ def art_pack_paths(cache_dir=None, game_dir=None, kits=True, photos=True, extras
         if path:
             add(path)
     local = local_people(cache_dir) if photos else None
-    for path in (local, local_clubart(cache_dir)):     # the people's files are in no other pack; the clubs' come last:
-        if path:                                        # they win over looks32's and ice_all's of the same art id
+    mine = yours_people(cache_dir) if photos else None
+    for path in (local, mine, local_clubart(cache_dir)):   # the people's files are in no other pack; the clubs' come
+        if path:                                            # last: they win over looks32's and ice_all's of the same id
             add(path)
     return paths, problems
 
@@ -342,6 +351,36 @@ def local_people(cache_dir=None):
         return None
     path = os.path.join(cache_dir, LOCAL_PEOPLE_PACK)
     return path if os.path.isfile(path) else None
+
+
+def yours_people(cache_dir=None):
+    """Path of the photos the player picked (YOURS_PEOPLE_PACK), None as local_people."""
+    if not cache_dir or cache_dir not in art_places(cache_dir):
+        return None
+    path = os.path.join(cache_dir, YOURS_PEOPLE_PACK)
+    return path if os.path.isfile(path) else None
+
+
+def yours_folder(cache_dir):
+    """Where the player's own photos are kept (photos.keep_yours)."""
+    return os.path.join(cache_dir, photos.YOURS_DIR)
+
+
+def write_yours(cache_dir, game_dir):
+    """YOURS_PEOPLE_PACK from the photos the player picked (the game's own portrait as the template): how many."""
+    template = gamefiles.read_latest(game_dir, photos.TEMPLATE)[0]
+    path = os.path.join(cache_dir, YOURS_PEOPLE_PACK)
+    n = photos.write_yours(yours_folder(cache_dir), path, template)
+    if n:
+        mark_checked(cache_dir, path)
+    return n
+
+
+def people_packs(cache_dir=None):
+    """Paths of the people packs a Patch with photos on serves, in its order (the last that has a person wins): the
+    people pack, the photos drawn on this PC, the player's own."""
+    found = next((p for p in (os.path.join(f, PEOPLE_PACK) for f in art_places(cache_dir)) if os.path.isfile(p)), None)
+    return [p for p in (found, local_people(cache_dir), yours_people(cache_dir)) if p]
 
 
 def local_clubart(cache_dir=None):
@@ -536,6 +575,16 @@ def served_portraits(game_dir, cache_dir=None, serving=None):
         have = {tuple(r[:4]) for r in people}
         files |= set(pack.files)
         people += [r for r in pack.info.get('people') or [] if tuple(r[:4]) not in have]
+    mine = yours_people(cache_dir)      # the player's own picks, as served: they replace a person's other photo
+    try:
+        pack = art.listing(mine) if mine else None
+    except art.ArtError:
+        pack = None
+    if pack is not None and (serving if serving is not None else {'name': pack.name, 'sha256': pack.sha256} in
+                             [{'name': p.get('name'), 'sha256': p.get('sha256')} for p in records]):
+        picked = {tuple(r[:4]) for r in pack.info.get('people') or []}
+        files |= set(pack.files)
+        people = [r for r in people if tuple(r[:4]) not in picked] + list(pack.info.get('people') or [])
     return files, people
 
 

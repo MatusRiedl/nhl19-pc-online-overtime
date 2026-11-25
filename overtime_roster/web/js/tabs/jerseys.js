@@ -1,17 +1,26 @@
 // The Jerseys & gear tab: Legacy's Jerseys & ice slot and layout (tiles with a picture at the left) for NHL 19's team
-// gear: the gear colours, the team colours, another team's gear to copy, the sticks. Python keeps a draft per team;
-// Apply hands it to My edits. Slice `jerseys`, calls in docs/ui/jerseys.md.
+// gear: the gear colours (shades of one colour change together, so every jersey's gear does), what each jersey wears,
+// the team colours (editable; the gear follows), another team's gear to copy, the sticks. Python keeps a draft per
+// team; Apply hands it to My edits. Slice `jerseys`, calls in docs/ui/jerseys.md.
 import { html, cls, Fragment } from '../lib.js';
 import { useSlice } from '../store.js';
 import { call } from '../bridge.js';
 import { Button, Select, Why as UiWhy } from '../ui.js';
 import { Code } from '../rail.js';
 
-export const tip = 'Pick a new colour for a gear colour, or use the team colours, then Apply.';
+export const tip = 'Click a colour to change it on every jersey, or change a team colour, then Apply.';
 
 const bg = (h) => ({ background: `#${h}` });
 const poss = (name) => (name.endsWith('s') ? `${name}'` : `${name}'s`);
 const recolour = (from, to) => call('gear_recolour', { [from]: to });
+const teamColour = (slot, to) => call('gear_team_colour', slot, to);
+
+// a colour box: the swatch is the button, the browser's colour picker opens on click
+function Pick({ hex, label, onPick }) {
+  return html`<label class="jg-sw jg-pick" style=${bg(hex)} title=${`#${hex}: click to pick another colour`}>
+    <input type="color" value=${`#${hex.toLowerCase()}`} aria-label=${label}
+      onChange=${(e) => onPick(e.target.value.slice(1).toUpperCase())}/></label>`;
+}
 
 // a team the tab cannot show, or its gear still being read (Legacy's Why)
 function Why({ s }) {
@@ -73,44 +82,55 @@ function Tile({ pic, title, aside, className, children }) {
 
 // --- gear colours: each colour of the team's gear, what it becomes, where it is ------------------------------------------
 function Palette({ s }) {
-  const team = s.colours.now;
+  const team = s.colours.new || s.colours.now;
   return html`<${Fragment}><div class="jg-prow jg-phead">
-      <span class="th">Now</span><span></span><span class="th">New</span><span class="th">Where</span>
-      <span class="th">Team colours</span><span></span>
+      <span class="th">Colour</span><span></span><span class="th jg-th-new">New colour</span><span class="th">Worn on</span><span></span>
     </div>
     <div class="jg-palette">${s.palette.map((r) => html`<div key=${r.from} class=${cls('jg-prow', r.changed && 'changed')}
-        title=${`#${r.from}${r.changed ? ` to #${r.to}` : ''}: ${r.pieces.join(', ')} (${r.zones} zones)`}>
-      <span class="jg-sw" style=${bg(r.from)}></span>
+        title=${`${r.name}: ${r.shades.map((h) => `#${h}`).join(', ')}${r.changed ? ` to #${r.to}` : ''} (${r.zones} zones)`}>
+      <span class="jg-cname"><span class="jg-sw" style=${bg(r.from)}></span>
+        <span class="jg-cn"><b>${r.name}</b>${r.shades.length > 1 && html`<small>${r.shades.length} shades</small>`}</span></span>
       <${Arrow}/>
-      <label class="jg-sw jg-pick" style=${bg(r.to)} title=${`#${r.to}: pick any colour`}>
-        <input type="color" value=${`#${r.to.toLowerCase()}`} aria-label=${`New colour for #${r.from}`}
-          onChange=${(e) => recolour(r.from, e.target.value.slice(1).toUpperCase())}/></label>
-      <span class="jg-where faint">${r.pieces.join(', ')}</span>
-      <span class="jg-quick">${team.map((c) => html`<button type="button" key=${c} class=${cls('jg-qsw', r.to === c && 'on')}
-          style=${bg(c)} title=${`Use the team colour #${c}`} onClick=${() => recolour(r.from, c)}></button>`)}</span>
+      <${Pick} hex=${r.to} label=${`New colour for ${r.name} (#${r.from})`} onPick=${(h) => recolour(r.from, h)}/>
+      <span class="jg-quick">${team.map((c, k) => html`<button type="button" key=${k} class=${cls('jg-qsw', r.to === c && 'on')}
+          style=${bg(c)} title=${`The team's ${(s.colours.slots[k] || '').toLowerCase()} colour #${c}`}
+          onClick=${() => recolour(r.from, c)}></button>`)}</span>
+      <span class="jg-where">${r.follows ? html`<em>follows the team colour</em> · ` : ''}${r.pieces.join(', ')}</span>
       ${r.changed ? html`<${Button} small className="jg-back" onClick=${() => recolour(r.from, r.from)}
-          title=${`Back to #${r.from}`}>Back<//>` : html`<span></span>`}
+          title=${`Back to the roster's ${r.name.toLowerCase()}`}>Back<//>` : html`<span></span>`}
     </div>`)}</div><//>`;
 }
 
-function Pieces({ s }) {
-  return html`<div class="jg-pieces">${s.pieces.map((p) => html`<div key=${p.name} class="jg-piece">
-      <span class="jg-pname">${p.name}</span>
-      <span class="jg-bar">${p.colours.map((c) => html`<i key=${c.hex} style=${{ flex: c.n, background: `#${c.hex}` }}
-        title=${`#${c.hex}: ${c.n} zones`}></i>`)}</span>
-    </div>`)}</div>`;
+// the helmet and gloves each jersey is worn with (the draft laid over)
+function Worn({ s }) {
+  if (!s.jerseys || !s.jerseys.length) return null;
+  return html`<div class="jg-worn">
+    <span class="jg-sub">Worn with each jersey</span>
+    <div class="jg-jrow">${s.jerseys.map((j) => html`<div key=${j.label} class="jg-jcard">
+      <span class="jg-jname">${j.label}</span>
+      ${j.pieces.map((p) => html`<span key=${p.name} class="jg-jpiece"><span class="jg-pname">${p.name}</span>
+        ${p.colours.map((h) => html`<i key=${h} style=${bg(h)} title=${`#${h}`}></i>`)}</span>`)}
+    </div>`)}</div>
+  </div>`;
 }
 
 function Colours({ s }) {
   const c = s.colours;
-  const chips = (list) => list.map((h) => html`<span key=${h} class="jg-chip" title=${`#${h}`}><i style=${bg(h)}></i></span>`);
-  return html`<${Fragment}><div class="jg-crows">
-      <div class="jg-crow"><span class="jg-clabel">Now</span>${chips(c.now)}</div>
-      <div class="jg-crow"><span class="jg-clabel">NHL 19's own</span>${c.game ? chips(c.game) : html`<span class="faint">None</span>`}</div>
-    </div>
+  const chips = (list) => list.map((h, k) => html`<span key=${k} class="jg-chip" title=${`#${h}`}><i style=${bg(h)}></i></span>`);
+  return html`<${Fragment}><div class="jg-tcols">${c.now.map((h, k) => html`<div key=${k} class=${cls('jg-tcol', c.changed[k] && 'changed')}>
+      <span class="jg-clabel">${c.slots[k]}</span>
+      <span class="jg-sw" style=${bg(h)} title=${`#${h} now`}></span>
+      <${Arrow}/>
+      <${Pick} hex=${c.new[k]} label=${`New ${c.slots[k].toLowerCase()} team colour`} onPick=${(to) => teamColour(k, to)}/>
+      <span class="jg-hex">#${c.new[k]}</span>
+      ${c.changed[k] ? html`<${Button} small className="jg-back" onClick=${() => teamColour(k, h)}
+          title=${`Back to #${h}`}>Back<//>` : ''}
+    </div>`)}</div>
+    <p class="small-note faint jg-tnote">The team's colours in NHL 19's menus and the team list. The gear that wore a colour you change follows it.</p>
+    <div class="jg-crow"><span class="jg-clabel">NHL 19's own</span>${c.game ? chips(c.game) : html`<span class="faint">None</span>`}</div>
     <div class="jg-actions">
       <${Button} disabled=${!c.can_propose} onClick=${() => call('gear_propose')}
-        title="Gear colours that wear NHL 19's old team colours change to the colours now">Use the team colours<//>
+        title="Gear colours that wear NHL 19's old team colours change to the colours now">Gear to the team colours<//>
       <span class="small-note faint">${c.note}</span>
     </div><//>`;
 }
@@ -161,12 +181,12 @@ export default function Jerseys() {
       <div class="jg-grid">
         <div class="jg-left">
           <${Tile} className="jg-gear" pic=${html`<${Helmet} c=${helmet}/>`} title="Gear colours"
-            aside=${`${s.rows} pieces · ${s.palette.length} colours${s.copy.from_name ? ` · ${poss(s.copy.from_name)}` : ''}`}>
-            <${Palette} s=${s}/><${Pieces} s=${s}/>
+            aside=${`every jersey · ${s.palette.length} colours${s.copy.from_name ? ` · ${poss(s.copy.from_name)}` : ''}`}>
+            <${Palette} s=${s}/><${Worn} s=${s}/>
           <//>
         </div>
         <div class="jg-right">
-        <${Tile} className="jg-colours" pic=${html`<${Jersey} c=${s.colours.now}/>`} title="Team colours">
+        <${Tile} className="jg-colours" pic=${html`<${Jersey} c=${s.colours.new || s.colours.now}/>`} title="Team colours">
           <${Colours} s=${s}/>
         <//>
         <${Tile} className="jg-copy" pic=${html`<${Copies} c=${helmet}/>`} title="Copy another team's gear">
@@ -184,7 +204,7 @@ export default function Jerseys() {
       <${Button} disabled=${!s.can_undo} onClick=${() => call('jerseys_undo')}
         title="Drop your changes and put back the gear the roster had">Take back my gear<//>
       <span class="small-note faint jg-foot-note">${s.mine ? 'This team wears your gear. Save the roster to keep it.'
-        : 'Changes wait here until you press Apply. Jerseys come from the game; the updated jerseys go in with Patch.'}</span>
+        : 'Changes wait here until you press Apply. The jerseys themselves come with Patch (its Jerseys switches).'}</span>
     </div>
   </section>`;
 }

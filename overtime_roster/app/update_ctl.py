@@ -306,6 +306,14 @@ class UpdateCtl(Part):
         c = self.ctl
         return myedits.aliases(c.parts['roster'].kept(), session, c.parts['roster'].clock(session)) or None
 
+    def _keep(self, session, rec):
+        """Game ids of the kept players the user made (myedits.made_ids): the plan leaves them where they are. Call under
+        the lock."""
+        if not rec['kept']:
+            return ()
+        c = self.ctl
+        return myedits.made_ids(c.parts['roster'].kept(), session, c.parts['roster'].clock(session))
+
     def _replay(self, session, rec):
         """My edits back in after the update, folded into its change (one Undo takes both back). Call under the
         lock."""
@@ -352,7 +360,7 @@ class UpdateCtl(Part):
             self._step(1, 'Planning the changes...')
             self._upd_step('plan', 'run')
             with c.lock:
-                todo = update.plan(session.db, gathered, self._aliases(session, rec))
+                todo = update.plan(session.db, gathered, self._aliases(session, rec), self._keep(session, rec))
                 if rec['opts']['retire']:
                     rec['retiring'] = update.retirees(session.db, gathered, rec['opts']['nhl27'])
                 state = self._state(session)
@@ -490,7 +498,7 @@ class UpdateCtl(Part):
                 if c.session is not session:
                     raise update.UpdateError('Another roster was opened: nothing was changed.')
                 if todo is None:
-                    todo = update.plan(session.db, gathered, self._aliases(session, rec))
+                    todo = update.plan(session.db, gathered, self._aliases(session, rec), self._keep(session, rec))
                     planned_on = self._state(session)
             rec['todo'] = todo
             sm = todo.summary()
@@ -504,7 +512,8 @@ class UpdateCtl(Part):
                 if self._state(session) != planned_on:
                     # an edit came in between (a page call takes the lock while it is free): plan on the roster as
                     # it is now, not the one the plan was made on
-                    todo = rec['todo'] = update.plan(session.db, gathered, self._aliases(session, rec))
+                    todo = rec['todo'] = update.plan(session.db, gathered, self._aliases(session, rec),
+                                                     self._keep(session, rec))
                     planned_on = self._state(session)
                 rec['served'] = office.league_served(c.game_dir, c.patch_status) if served is None \
                     else bool(served.get('league'))
@@ -705,7 +714,7 @@ class UpdateCtl(Part):
         def work():
             with c.lock:
                 self._upd_step('apply', 'run')
-                todo = update.plan(session.db, gathered, self._aliases(session, rec))
+                todo = update.plan(session.db, gathered, self._aliases(session, rec), self._keep(session, rec))
                 rep = update.run(session, c.game, gathered, todo, per32=per32, names=c._code, log=c.host.log,
                                  nhl27=opts['nhl27'], schedule=opts['calendar'], retire=opts['retire'],
                                  expansion=True, lines=opts['lines'],

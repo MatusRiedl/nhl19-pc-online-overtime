@@ -169,13 +169,6 @@ function PatchCard({ s, u, pa, busy, go }) {
       ${s.groups.map((g) => html`<${Group} key=${g.key} g=${g} busy=${s.busy} open=${!!open[g.key]}
         onOpen=${(on) => fold(g.key, on)}/>`)}
       ${pa && pa.starter.show && html`<${StarterRow} st=${pa.starter} busy=${busy}/>`}
-      ${s.coming && html`<div class="gp-layer coming">
-        <div class="gp-layer-main">
-          <div class="gp-layer-title"><span>${s.coming.title}</span><${Tag} tone="info">Coming<//></div>
-          <div class="gp-layer-sub">${s.coming.sub}</div>
-        </div>
-        <${Info} title=${s.coming.title} text=${s.coming.sub}/>
-      </div>`}
     </div>
   <//>`;
 }

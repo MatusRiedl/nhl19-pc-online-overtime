@@ -154,4 +154,5 @@ def card(matches, rated, pid, now, hidden=frozenset()):
             'streak': row['streak'], 'peak': row['peak'], 'delta7': row['delta7'], 'form': ''.join(results[:FORM]),
             'gf': detail['gf'], 'ga': detail['ga'],
             'curve': [[t, round(r)] for t, _, r in rated['timeline'].get(pid, [])][-CURVE:],
-            'opponents': [opp(o) for o in detail['opponents'][:5]], 'teams': detail['teams'][:5]}
+            'opponents': [opp(o) for o in detail['opponents'][:5]], 'teams': detail['teams'][:5],
+            'chel': H.woc_card_lines(detail['woc'])}   # v1.00.0: World of Chel as skater / as goalie

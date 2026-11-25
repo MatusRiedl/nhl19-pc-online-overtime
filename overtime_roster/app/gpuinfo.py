@@ -15,6 +15,7 @@ _RTX = re.compile(r'\bRTX\s*(\d{4})\b', re.I)
 # compat file), DLSS frame generation from RTX 40
 DLSS_FROM, DLSS5_FROM, FG_FROM = 20, 20, 40
 DLSS5_NATIVE_FROM = 50      # RTX 50 runs NVIDIA's own DLSS 5 file; RTX 20/30/40 need the compat build
+MFG_FROM = 50               # multi frame generation (3x, 4x) from RTX 50; RTX 40 adds one frame (2x)
 DESKTOPVERTRES = 117        # GetDeviceCaps: the screen's height in real pixels, whatever the Windows scaling
 
 
@@ -82,9 +83,17 @@ def screen_height():
 
 def info(names=None):
     """{'name': the card the options are for ('' when unknown), 'rtx': its RTX generation (0: none), 'dlss', 'dlss5',
-    'dlss5_compat' (needs the RTX 20/30/40 compat file), 'framegen': bool}. Of several cards, the newest RTX one."""
+    'dlss5_compat' (needs the RTX 20/30/40 compat file), 'framegen': bool, 'framegen_max': the most frames it adds
+    after each drawn one (RTX 50: 3, i.e. 4x; RTX 40: 1, i.e. 2x; else 0)}. Of several cards, the newest RTX one."""
     names = adapter_names() if names is None else names
     best = max(names, key=rtx_generation, default='')
     rtx = rtx_generation(best)
     return {'name': best, 'rtx': rtx, 'dlss': rtx >= DLSS_FROM, 'dlss5': rtx >= DLSS5_FROM,
-            'dlss5_compat': DLSS5_FROM <= rtx < DLSS5_NATIVE_FROM, 'framegen': rtx >= FG_FROM}
+            'dlss5_compat': DLSS5_FROM <= rtx < DLSS5_NATIVE_FROM, 'framegen': rtx >= FG_FROM,
+            'framegen_max': framegen_max(rtx)}
+
+
+def framegen_max(rtx):
+    """The most frames DLSS frame generation adds after each drawn one on an RTX `rtx` card: 3 (4x) from MFG_FROM, 1
+    (2x) from FG_FROM, else 0. The driver caps it again at the game's start."""
+    return 3 if rtx >= MFG_FROM else 1 if rtx >= FG_FROM else 0

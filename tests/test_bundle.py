@@ -300,11 +300,15 @@ def test_the_smoke_run_asks_both_questions_and_survives_a_hang(capsys):
         asked.append(cmd[1])
         if cmd[1] == '--selftest-window':
             raise subprocess.TimeoutExpired(cmd, kw['timeout'])
+        if cmd[1] == '--mcp':
+            assert '"initialize"' in kw['input']
+            hello = {'jsonrpc': '2.0', 'id': 1, 'result': {'serverInfo': {'name': 'overtime-nhl19', 'version': '1'}}}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(hello) + chr(10), '')
         # Qt and Chromium warn on stderr at every healthy start: that is not the verdict
         noise = 'qt.qpa.plugin: offscreen' + chr(10) + 'libEGL warning' + chr(10)
         return subprocess.CompletedProcess(cmd, 0, GOOD, noise)
     assert smoke.main(['./app', '--timeout', '5'], runner) == 1
-    assert asked == ['--selftest', '--selftest-window']
+    assert asked == ['--selftest', '--selftest-window', '--mcp']
     out = capsys.readouterr().out
     assert 'no answer within 5 s' in out and 'smoke: --selftest failed' not in out
     assert '--- --selftest stderr' in out and 'libEGL warning' in out            # shown, for the run's log
@@ -313,3 +317,21 @@ def test_the_smoke_run_asks_both_questions_and_survives_a_hang(capsys):
     def missing(cmd, **kw):
         raise FileNotFoundError(cmd[0])
     assert smoke.main(['./app', '--no-window'], missing) == 1
+
+
+def test_the_smoke_run_asks_the_ai_server_for_its_name_on_stdin():
+    import subprocess
+
+    def answers(out, code=0):
+        return lambda cmd, **kw: subprocess.CompletedProcess(cmd, code, out, 'the log')
+    hello = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'serverInfo': {'name': 'overtime-nhl19', 'version': '1.00.0'}}})
+    assert smoke.mcp('./app', 5, answers(hello + chr(10)))[0]
+    ok, said = smoke.mcp('./app', 5, answers('Overtime MCP server: waiting' + chr(10) + hello))
+    assert not ok and 'not JSON' in said                    # a print on stdout would break every client
+    ok, said = smoke.mcp('./app', 5, answers('', 2))
+    assert not ok and 'exit 2' in said and 'the log' in said
+
+    def hangs(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw['timeout'])
+    assert smoke.mcp('./app', 5, hangs) == (False, '--mcp: no answer within 5 s')
+    assert smoke.main(['./app', '--no-window', '--no-mcp'], answers('PASS')) == 0

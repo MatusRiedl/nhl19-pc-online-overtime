@@ -110,9 +110,6 @@ GROUPS = (
     ('assets', 'Updated assets', 'Logos, jerseys, centre ice and player photos. Each downloads when you switch it on.',
      ('art', 'kits', 'photos', 'alts_nhl', 'alts_intl', 'alts_clubs', 'alts_hometown', 'ice_all', 'rink'), ('art', 'kits', 'photos')),
 )
-COMING = {'title': '32 teams in every mode',
-          'sub': 'Classic Franchise and NHL Season with both Seattle and Utah. Today a 32 Team Expansion Draft Franchise '
-                 'has both. Still being built.'}
 NAMES = (('City', 'Arizona', 'Utah'), ('Team', 'Arizona Coyotes', 'Utah Mammoth'), ('Nickname', 'Coyotes', 'Mammoth'),
          ('Short name', 'ARI', 'UTA'), ('AHL city', 'Burnaby', 'Coachella Valley'))
 ABOUT = (
@@ -289,14 +286,35 @@ def adopt_patch(setup):
         pass
 
 
+def refresh_menus(ctl, game_dir):
+    """A menus layer an older Overtime wrote (owner 2026-11-25: 1.00.0 opened on a game 0.99.2 patched said "Patched"
+    while its PLAY menu still had Ones off screen): rewrite it with this version's menus (overlay.set_menus, boot.big
+    only; the other layers' files stay), so an app update needs no Patch press for its menus. Not while NHL 19 runs
+    or a lobby match is set up. A failure only goes to the log: the patch as served stays."""
+    if overlay.emulator_running() or matchsetup.active():
+        return False
+    try:
+        if not overlay.menus_stale(game_dir):
+            return False
+        overlay.set_menus(game_dir, None)
+    except EXPECTED as err:
+        ctl.host.log(f'Menus layer refresh: {err}')
+        return False
+    ctl.host.log("The menus layer was an older Overtime's: rewritten with this version's menus.")
+    return True
+
+
 def look(setup):
     """What is in the game now (in the job's thread: overlay.status hashes the patch files): the overlay, whether
-    shadPS4 runs, the eboot patch and whether its 32-team switch is on, and the game folder's size (once a folder)."""
+    shadPS4 runs, the eboot patch and whether its 32-team switch is on, and the game folder's size (once a folder).
+    A menus layer from an older Overtime is brought up to date first (refresh_menus)."""
     ctl = setup.ctl
     adopt_patch(setup)
     game_dir = ctl.game_dir
     game = getattr(ctl, 'game', None)
     ok = bool(game_dir) and (game.ok if game is not None else gamesetup.read_game(game_dir)['ok'])
+    if ok:
+        refresh_menus(ctl, game_dir)
     emu = setup.emulator if setup.emulator and os.path.isfile(setup.emulator) else None
     st = gamesetup.status(emu)
     m = st.get('manifest') or {}
@@ -557,6 +575,26 @@ def in_background(fn):
     return fut
 
 
+def kept_leagues(ctl):
+    """The league maker's leagues My edits keeps ([league], by slot): the names layer names them (overlay.apply)."""
+    roster = getattr(ctl, 'parts', {}).get('roster')
+    if roster is None:
+        return []
+    try:
+        kept = roster.kept().get('leagues') or {}
+    except Exception:   # noqa: BLE001 - an unreadable edits.json names no league (myedits.load reports it)
+        return []
+    return [kept[k] for k in sorted(kept)]
+
+
+def leagues_changed(ctl, st):
+    """Whether the leagues My edits keeps are not the ones the names layer serves (both none: no)."""
+    names = ((st or {}).get('layers') or {}).get('names')
+    if names is None:
+        return False
+    return overlay.leagues_digest(kept_leagues(ctl)) != (names.get('leagues_sha256') or '')
+
+
 def one_click(setup, then=None):
     """Patch (Setup's setup_patch; patch_apply is beta1's name): checks, the clean-game record (the first time), the
     data overlay with exactly the switches that are on (one that is off is off: its served layer goes), the eboot
@@ -567,6 +605,7 @@ def one_click(setup, then=None):
     ctl = setup.ctl
     with ctl.lock:
         emu, game_dir, want = setup.emulator, ctl.game_dir, dict(ctl.patch_want)
+        leagues = kept_leagues(ctl)
     if not emu:
         text = 'Find NHL 19 in Setup first: the patch goes in with it.'
         ctl.say(text, 'caution')
@@ -659,7 +698,8 @@ def one_click(setup, then=None):
         if layers:
             # news is no switch: always the tile (a beta1 patch served the hub without it, and apply keeps served options)
             applied = overlay.apply(game_dir, layers, database=database, menus={'chel': on['chel'], 'news': True},
-                                    art=art, lang=lang or textpack.LANG, progress=apply_meter(meter))
+                                    art=art, lang=lang or textpack.LANG, progress=apply_meter(meter),
+                                    **({'leagues': leagues} if leagues else {}))
         elif now.get('applied'):
             overlay.undo(game_dir)  # every switch off: no data patch, the server alone
         for key in ('copy', 'write', 'verify'):
@@ -1152,6 +1192,9 @@ def state_line(f):
                 'tone': 'caution'}
     if f['changed']:
         return {'text': 'Patched. You changed the switches: press Patch again to use them.', 'tone': 'caution'}
+    if f.get('leagues_changed'):
+        return {'text': 'Patched. Your leagues changed (My edits): press Patch again so NHL 19 shows their names.',
+                'tone': 'caution'}
     teams32 = f['teams32'] if f['teams32'] is not None else f['served']['roster']
     if not teams32 and f['served']['roster']:
         return {'text': 'Patched, with 31 teams: the default roster has no Seattle. Run Update, then press Patch '
@@ -1375,6 +1418,7 @@ class PatchCtl(Part):
                 'problems': problems_of(st, eboot) if patched else [], 
                 'changed': patched and any(picked[k] != now[k] and not (now[k] is False and k in left)
                                            for k in picked), 'served': now, 'picked': picked,
+                'leagues_changed': patched and picked.get('names') and leagues_changed(c, st),
                 'want': want, 'kits': patch.KITS_PACK in found, 'teams32': self.teams32 if online else None,
                 'applied_at': friendly_date(when) if patched else '', 'st': st,
             }
@@ -1420,7 +1464,7 @@ class PatchCtl(Part):
                 'ready': ready, 'patched': patched, 'running': f['running'], 'busy': bool(f['busy']),
                 'changed': f['changed'], 'checked': f['checked'],
                 'state': state_line(f),
-                'layers': rows, 'groups': groups, 'coming': dict(COMING), 'kits': {'installed': f['kits']},
+                'layers': rows, 'groups': groups, 'kits': {'installed': f['kits']},
                 'pack': setup.pack_card(emulator),
                 'buttons': {'patch': {'text': 'Patch again' if patched else 'Patch', 'enabled': free},
                             'unpatch': {'enabled': free and patched},
