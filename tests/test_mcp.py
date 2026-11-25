@@ -229,6 +229,8 @@ def test_new_player_moves_league_and_saves_as_new_rosters(mcp, monkeypatch):
     r, bad = use('edit_player', player_id=pid, changes={'country': 'slovakia', 'num': 44})
     assert not bad, r
     assert use('get_player', player_id=pid)[0]['country_name'] == 'Slovakia'
+    r, bad = use('move_players', moves=[{'player_id': pid, 'to': club}])     # a misspelt key is not passed over
+    assert bad and r.startswith("Not moved: no key 'to'") and 'player_id, team' in r, r
     r, bad = use('move_players', moves=[{'player_id': pid, 'team': club}])
     assert not bad and r['players'][0]['team'] == nhl[0]['code'], r
     slots, _ = use('list_league_slots')
@@ -236,6 +238,9 @@ def test_new_player_moves_league_and_saves_as_new_rosters(mcp, monkeypatch):
     r, bad = use('make_league', slot=slot['slot'], name='Overtime Liga',
                  clubs=[{'name': 'Bratislava Lions', 'city': 'Bratislava', 'nickname': 'Lions', 'abbr': 'BRL'}])
     assert not bad, r
+    assert use('list_league_slots')[0]['slots'][0]['name_now'] == 'Overtime Liga'
+    r, bad = use('make_league', slot=slot['slot'], name='X', clubs=[{'name': 'A', 'abbreviation': 'AAA'}])
+    assert bad and r.startswith("Not made: no key 'abbreviation'") and 'abbr' in r, r
     assert use('list_league_slots')[0]['slots'][0]['name_now'] == 'Overtime Liga'
     r, bad = use('make_league', slot='nowhere', name='X', clubs=[{'name': 'A', 'abbr': 'AAA'}])
     assert bad and 'list_league_slots' in r
@@ -256,8 +261,10 @@ def test_new_player_moves_league_and_saves_as_new_rosters(mcp, monkeypatch):
     assert not bad, r
     r, bad = use('save_roster_as_new', name='AI roster 2')
     assert not bad, r
+    r, bad = use('save_roster_as_new', name='AI roster')       # the same name again: a third folder, none overwritten
+    assert not bad, r
     made = set(os.listdir(saves)) - before
-    assert len(made) == 2, made
+    assert len(made) == 3, made
     assert use('save_roster_as_new', name='x', target='folder')[1]
     assert use('list_edits')[0]['unsaved'] == 0
     status, _ = use('overtime_status')

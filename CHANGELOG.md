@@ -71,6 +71,10 @@ The first full release.
   address, so the other player's Ready is their OK, and the lobby chat says so. The default stays "Server". If the
   two games cannot reach each other, the lobby goes back to the server by itself and the next game goes through it.
   World of Chel always plays through the server.
+- **Linux, Steam Deck and Mac.** The Linux AppImage and the Mac dmg come with 1.00.0 too. On a Steam Deck (Desktop
+  Mode) the app shows the steps to add it to Steam as a Non-Steam game instead of making a menu entry, its message
+  boxes are KDE's, and the window fits the Deck's 1280x800 screen. Each build is checked on Ubuntu 22.04 and 24.04,
+  on Arch Linux with AMD's Mesa driver (what SteamOS is built on) and on macOS 26 with Apple and Intel chips.
 
 ### Fixed
 - **Potential labels.** Stars showed AHL potential in NHL 19's player cards ("AHL Bottom 6 F" on a 93 overall): new
@@ -136,6 +140,8 @@ The first full release.
   the PC (and NHL 19's emulator allowed in the firewall), or the games cannot reach each other; then the next game
   goes through the server. Both players need Overtime Roster 1.00.0: with an older app on either side the
   game goes through the server, and the lobby chat says so.
+- **Steam Deck:** no Deck has run it yet (Gaming Mode through Steam, the controller as a mouse). The Linux emulator
+  needs glibc 2.39 or newer, which SteamOS 3.6 and later should have.
 - **Frame generation** is new and still in testing. It works only while the game window is in front: click another
   window and it pauses until you click the game again. 3x and 4x cost more game frames (4x about a fifth). With
   DLSS 5 on as well it is heavy: about 80 game frames a second and some hitches on our RTX 5080, so use DLSS 5 or

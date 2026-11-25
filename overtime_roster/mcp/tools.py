@@ -85,6 +85,13 @@ def _int(value, what):
         raise ToolError(f'{what}: a whole number, please.') from None
 
 
+def _keys(item, keys, what):
+    """A list item's keys (the protocol checks only the top-level arguments): a misspelt one would be passed over."""
+    unknown = [k for k in item if k not in keys]
+    if unknown:
+        raise ToolError(f"{what}: no key {', '.join(map(repr, unknown))}. Keys: {', '.join(keys)}.")
+
+
 def _obj(props, required=()):
     return {'type': 'object', 'properties': props, 'required': list(required), 'additionalProperties': False}
 
@@ -306,6 +313,7 @@ class OvertimeTools:
         for m in moves:
             if not isinstance(m, dict):
                 raise ToolError('Each move is an object {player_id, team}.')
+            _keys(m, ('player_id', 'team'), 'Not moved')
             pi = self.player(s, m.get('player_id'))
             gid = tp._gid(s, pi)
             if gid is None:
@@ -329,6 +337,7 @@ class OvertimeTools:
         for club in clubs:
             if not isinstance(club, dict):
                 raise ToolError('Each club is an object {name, city, nickname, abbr}.')
+            _keys(club, ('name', 'city', 'nickname', 'abbr'), 'Not made')
             parts = [str(club.get(k) or '').replace('|', '/').strip() for k in ('name', 'city', 'nickname', 'abbr')]
             lines.append(' | '.join(parts))
         lm = c.parts['leaguemaker']
