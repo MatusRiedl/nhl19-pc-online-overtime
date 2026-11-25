@@ -132,6 +132,16 @@ class OvertimeTools:
             raise ToolError(f'No player {pi}: find_players gives the ids.')
         return pi
 
+    @staticmethod
+    def row(c, s, pi):
+        """His summary with the age the Roster tab shows: on the game's 2018-19 clock (the session's own age counts
+        to today, so a roster with moved birth dates would say Celebrini is 28)."""
+        row = s.summary(pi)
+        _, b = s.bio(pi)
+        if b is not None:
+            row['age'] = c.parts['roster'].clock(s).age(b)
+        return row
+
     # --- reading ---------------------------------------------------------------------------------------------------
     def status(self):
         from .. import VERSION
@@ -167,7 +177,7 @@ class OvertimeTools:
         else:
             raise ToolError('Give a name (part of it is enough) or a team id.')
         n = max(1, min(_int(limit, 'limit'), LIMIT))
-        return {'found': len(pis), 'players': [s.summary(pi) for pi in pis[:n]]}
+        return {'found': len(pis), 'players': [self.row(c, s, pi) for pi in pis[:n]]}
 
     def get_player(self, player_id):
         from ..app import labels as L, roster_card as RC
@@ -176,7 +186,7 @@ class OvertimeTools:
         _, b = s.bio(pi)
         v = RC.values(s, c.parts['roster'].clock(s), pi)
         labels = {f: label for g in RC.rating_groups(s, b) for f, label in g['items']}
-        row = s.summary(pi)
+        row = self.row(c, s, pi)
         return {'id': pi, 'name': row['name'], 'team': row['team'], 'team_id': RC.rail_team(s, pi),
                 'overall': row['ovr'], 'age': row['age'],
                 'values': {k: x for k, x in v.items() if k != 'ratings'}, 'country_name': L.country(v['country']),
@@ -237,6 +247,10 @@ class OvertimeTools:
         pi = self.player(s, player_id)
         if not isinstance(changes, dict) or not changes:
             raise ToolError(f'changes: an object with any of {KEYS}.')
+        from ..app import roster_card as RC
+        unknown = [k for k in changes if k not in RC.ORDER + ('ratings',)]
+        if unknown:     # the card would pass over them and say nothing changed
+            raise ToolError(f"Not changed: no key {', '.join(map(repr, unknown))}. Keys: {KEYS}.")
         changes = dict(changes)
         if isinstance(changes.get('country'), str) and not changes['country'].strip().isdigit():
             from ..app import labels as L
@@ -255,7 +269,7 @@ class OvertimeTools:
                 rc.problems.pop(pi, None)
             problems = [p['text'] for p in reply.get('problems') or []]
             raise ToolError('Not changed: ' + ('; '.join(problems) or reply.get('error') or self.said(c)))
-        return {'ok': True, 'changed': reply.get('changes', 0), 'note': self.said(c), 'player': s.summary(pi)}
+        return {'ok': True, 'changed': reply.get('changes', 0), 'note': self.said(c), 'player': self.row(c, s, pi)}
 
     def create_player(self, first, last, born, team, position='C', shoots='L'):
         from ..app import labels as L
@@ -281,7 +295,7 @@ class OvertimeTools:
             problems = [p['text'] for p in (np.window or {}).get('problems') or []]
             np.close()
             raise ToolError('Not made: ' + ('; '.join(problems) or self.said(c)))
-        return {'ok': True, 'player': s.summary(c.player), 'note': self.said(c)}
+        return {'ok': True, 'player': self.row(c, s, c.player), 'note': self.said(c)}
 
     def move_players(self, moves):
         c, s = self.session()
@@ -305,7 +319,7 @@ class OvertimeTools:
             tp.close()
             raise ToolError('Not moved: ' + ('; '.join(problems) or self.said(c)))
         moved = [tp._pi_of(s, gid) for gid, _to, _lg in rows]
-        return {'ok': True, 'note': self.said(c), 'players': [s.summary(pi) for pi in moved if pi is not None]}
+        return {'ok': True, 'note': self.said(c), 'players': [self.row(c, s, pi) for pi in moved if pi is not None]}
 
     def make_league(self, slot, name, clubs):
         c, s = self.session()

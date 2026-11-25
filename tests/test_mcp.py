@@ -182,8 +182,12 @@ def test_read_edit_refuse_and_undo(mcp):
     r, _ = use('find_players', name='mcdavid')
     pid = r['players'][0]['id']
     assert r['players'][0]['name'] == 'Connor McDavid'
+    assert r['players'][0]['age'] in (21, 22), r     # the Roster tab's age (2018-19 clock), not years to today
     p, bad = use('get_player', player_id=pid)
     assert not bad and p['values']['last'] == 'McDavid' and p['values']['pos'] == 'C'
+    assert p['age'] == r['players'][0]['age']
+    r, bad = use('edit_player', player_id=pid, changes={'number': 98})     # a key the card does not have
+    assert bad and r.startswith("Not changed: no key 'number'") and 'num (1-99)' in r, r
     field, rating = next(iter(p['ratings'].items()))
     assert rating['label'] and isinstance(rating['value'], int)
     new = rating['value'] - 1
