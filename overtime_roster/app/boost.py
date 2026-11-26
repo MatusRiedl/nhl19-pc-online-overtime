@@ -7,20 +7,19 @@ each a pack pinned by its sha256 (the release host's latest.json; Kravickas's: h
 - 'native2', shown as "Overtime Native v2" (the default and lobby build from 0.95.0 to 0.98.0, and still on Linux and
   macOS): v1's commits on Kravickas's nhl-perf-test plus six speed items (fork branch overtime-native-v2,
   docs/notes/native-v2.md) (packdownload.NATIVE2_PACK);
-- 'nightly', shown as "Overtime Native v1" (the default and lobby build from 0.92.0 to 0.97.0): Overtime's
-  build of upstream nightly 4788f0b + lazy RAM commit, the input poll thread, Kravickas's flip fix and the texture
-  collector by seconds (fork branch overtime-nightly, docs/notes/perf-ram.md, native-port.md)
-  (packdownload.NIGHTLY_PACK). Overtime publishes it with its releases; the id, folder and pack name keep "nightly"
-  (prefs, installed folders and the server's pin URL name them);
 - 'kravickas': Kravickas's own CI build of his NHL19-Build branch, the newest release his GitHub publishes
   (kravbuild.py: the API's sha256 of the file, no release host in between), with Kravickas's yes (owner, 2026-11-01)
   (packdownload.KRAVICKAS_PACK). Only the card's Get newest takes a newer one (owner 2026-11-21).
+Retired in 1.00.0 (owner 2026-11-26): Overtime Native v1, id 'nightly' (0.92.0 to 0.97.0), is not in BUILDS and the
+card does not offer it. A player on it moves to DEFAULT once (setup_controller); its own copy in boost\\nightly is
+removed (remove_retired). Its branch label stays in BRANCH_LABELS for other players' lobby rows.
 Each one's shadPS4.exe goes into the app's own folder (a player's own exe is never touched); every shadPS4 there uses
 %APPDATA%\\shadPS4, so saves, patch and ShadNet login stay what they are. QtLauncher is not changed (0.90.2; the
 "NHL 19 Boost" entry older apps added stays). Standard library only.
 """
 import os
 import re
+import shutil
 import sys
 
 from overtime_core import overlay
@@ -28,6 +27,7 @@ from overtime_core import overlay
 from . import emufile, gamesetup, kravbuild, packdownload, paths
 
 NATIVE3, NATIVE2, NIGHTLY, KRAVICKAS = 'native3', 'native2', 'nightly', 'kravickas'
+RETIRED_FOLDER = ('boost', 'nightly')     # Overtime Native v1's folder: the app's own copy, removed once (1.00.0)
 # 2026-11-21 (owner): Overtime Native v3 is the default and what every lobby plays on (v2 from 2026-11-16); Linux and
 # macOS keep v2, the one build made for them
 DEFAULT = NATIVE3 if sys.platform == 'win32' else NATIVE2
@@ -40,8 +40,6 @@ BUILDS = {      # GPL-2.0: each build's source code; the card's dropdown shows t
     # items, each with an OVERTIME_* off switch
     NATIVE2: {'pack': packdownload.NATIVE2_PACK, 'label': 'Overtime Native v2', 'folder': ('boost', 'native2'),
               'source': 'https://github.com/MatusRiedl/shadPS4/tree/overtime-native-v2'},
-    NIGHTLY: {'pack': packdownload.NIGHTLY_PACK, 'label': 'Overtime Native v1', 'folder': ('boost', 'nightly'),
-              'source': 'https://github.com/MatusRiedl/shadPS4/tree/overtime-nightly'},
     KRAVICKAS: {'pack': packdownload.KRAVICKAS_PACK, 'label': 'Kravickas', 'folder': ('boost',),
                 'source': f'https://github.com/{kravbuild.REPO}/tree/{kravbuild.BRANCH}'},
 }
@@ -51,10 +49,10 @@ if sys.platform != 'win32':     # Linux and macOS (0.97.0): Overtime Native v2 i
 # '<branch>.<rev7>'), every platform's, so a Linux row names a Windows player's v3 too. v3 ships from its speed branch
 # (bf8d94851, the 0.99.0 exe 85c998cb)
 BRANCH_LABELS = {'overtime-native-v3-speed': 'Overtime Native v3', 'overtime-native-v3': 'Overtime Native v3',
-                 'overtime-native-v2': 'Overtime Native v2', 'overtime-nightly': 'Overtime Native v1',
+                 'overtime-native-v2': 'Overtime Native v2', 'overtime-nightly': 'Overtime Native v1',   # v1 retired 1.00.0
                  kravbuild.BRANCH: 'Kravickas', 'main': 'shadPS4'}
 _BRANCH = re.compile(r'[A-Za-z0-9_+-]{1,40}')
-# the card's Update button: Overtime Native v1/v2 come with Overtime's releases (Play gets them)
+# the card's Update button: Overtime Native comes with Overtime's releases (Play gets them)
 UPDATABLE = tuple(b for b in (KRAVICKAS,) if b in BUILDS)
 PACK = packdownload.KRAVICKAS_PACK      # the Kravickas pack (from GitHub)
 LOBBY_PACK = BUILDS[DEFAULT]['pack']    # the lobby build when the server names none (onlineemu), online_boost's
@@ -80,6 +78,8 @@ def label_of(emu):
 
 
 def exe_path(build=KRAVICKAS):
+    if build == NIGHTLY:        # retired: no folder is made for it (app_dir would make one)
+        return os.path.join(paths.app_home(), *RETIRED_FOLDER, packdownload.EMULATOR_EXE)
     return os.path.join(paths.app_dir(*BUILDS[name_of(build)]['folder']), packdownload.EMULATOR_EXE)
 
 
@@ -88,8 +88,22 @@ def same(a, b):
 
 
 def build_of(exe):
-    """'nightly' / 'kravickas' when `exe` is one of the app's builds, else None."""
+    """'nightly' / 'kravickas' when `exe` is one of the app's builds (v1's folder included), else None."""
+    if same(exe, exe_path(NIGHTLY)):
+        return NIGHTLY
     return next((b for b in BUILDS if same(exe, exe_path(b))), None)
+
+
+def remove_retired():
+    """Remove Overtime Native v1's folder (the app's own copy) once no shadPS4 runs. Returns 'removed', 'running' (tried
+    again at the next start) or '' (nothing there). Raises OSError: the caller logs it and the start goes on."""
+    folder = os.path.join(paths.app_home(), *RETIRED_FOLDER)
+    if not os.path.isdir(folder):
+        return ''
+    if overlay.emulator_running():
+        return 'running'
+    shutil.rmtree(folder)
+    return 'removed'
 
 
 def here(build):

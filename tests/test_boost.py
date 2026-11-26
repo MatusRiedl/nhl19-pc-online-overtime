@@ -20,7 +20,6 @@ from test_setup_controller import sc, world  # noqa: F401  (fixtures)
 PROGRAM = emufile.name()                        # shadPS4.exe, shadps4.AppImage or shadps4 (emufile.NAMES)
 HEAD = emufile.MAGIC[emufile.system_of()][0]   # the first bytes of a program on this system
 BUILD = HEAD + b' the Kravickas build'
-NIGHTLY = HEAD + b' the Nightly build'
 NATIVE2 = HEAD + b' the Native v2 build'
 NATIVE3 = HEAD + b' the Native v3 build'
 DEFAULT_BYTES = {'native3': NATIVE3, 'native2': NATIVE2}[boost.DEFAULT]    # the default build (Windows: v3 from 0.99.0)
@@ -41,14 +40,14 @@ def github_release(asset, tag='NHL19-Build-2026-11-14-749170d', when='2026-11-14
                         **({'digest': 'sha256:' + hashlib.sha256(data).hexdigest()} if digest else {})}]}
 
 
-def release(root, content=BUILD, names=(PROGRAM,), nightly=NIGHTLY, native2=NATIVE2, native3=NATIVE3):
-    """A release folder with Overtime Native v1, v2 and v3 as packs of latest.json (nightly / native2 / native3 None: that one is not
+def release(root, content=BUILD, names=(PROGRAM,), native2=NATIVE2, native3=NATIVE3):
+    """A release folder with Overtime Native v2 and v3 as packs of latest.json (native2 / native3 None: that one is not
     served) and the Kravickas build as the newest release of a GitHub releases list (content=None: none); latest.json's
-    URL."""
+    URL. Overtime Native v1 is retired (1.00.0): no pack of it is served."""
     (root / 'packs').mkdir(parents=True, exist_ok=True)
     packs, sums, github = {}, '', []
-    for name, body in ((boost.PACK, content), (packdownload.NIGHTLY_PACK, nightly),
-                       (packdownload.NATIVE2_PACK, native2), (packdownload.NATIVE3_PACK, native3)):
+    for name, body in ((boost.PACK, content), (packdownload.NATIVE2_PACK, native2),
+                       (packdownload.NATIVE3_PACK, native3)):
         if body is None:
             continue
         pack = root / 'packs' / name
@@ -173,14 +172,18 @@ def test_only_one_windows_program_passes_as_the_pack(tmp_path, content, names):
 
 
 @pytest.mark.windows_only
-def test_the_nightly_pack_is_checked_as_a_program_pack():
-    assert packdownload.NIGHTLY_PACK in packdownload.TOOL_PACKS
-    assert packdownload.CHECKS[packdownload.NIGHTLY_PACK] is packdownload.check_emulator
+def test_the_retired_nightly_pack_is_no_longer_listed_and_the_others_are():
+    # 1.00.0: Overtime Native v1's pack is not shipped or listed any more (its name stays for old pins)
+    assert packdownload.NIGHTLY_PACK not in packdownload.TOOL_PACKS
+    assert packdownload.NIGHTLY_PACK not in packdownload.CHECKS
+    assert packdownload.NIGHTLY_PACK not in packdownload.KNOWN
+    assert 'nightly' not in boost.BUILDS and boost.name_of('nightly') == boost.DEFAULT
     assert packdownload.NATIVE2_PACK in packdownload.TOOL_PACKS
     assert packdownload.CHECKS[packdownload.NATIVE2_PACK] is packdownload.check_emulator
     assert packdownload.NATIVE3_PACK in packdownload.TOOL_PACKS
     assert packdownload.CHECKS[packdownload.NATIVE3_PACK] is packdownload.check_emulator
-    assert len({boost.exe_path(b) for b in boost.BUILDS}) == 4 and boost.build_of(boost.exe_path('native2')) == 'native2'
+    assert len({boost.exe_path(b) for b in boost.BUILDS}) == len(boost.BUILDS)
+    assert boost.build_of(boost.exe_path('native2')) == 'native2'
     assert boost.build_of(boost.exe_path('native3')) == 'native3'
     assert boost.exe_path('nightly') != boost.exe_path('kravickas') == boost.exe_path()
     assert boost.build_of(boost.exe_path('nightly')) == 'nightly' and boost.build_of(OWN) is None
@@ -194,9 +197,9 @@ def test_play_gets_the_default_overtime_native_and_keeps_the_players_own(sc, ser
     card = card_of(sc)
     win = sys.platform == 'win32'
     assert boost.DEFAULT == ('native3' if win else 'native2') and boost.BUILDS['native2']['label'] == 'Overtime Native v2'
-    ids, labels, updatable = (['native3', 'native2', 'nightly', 'kravickas'],
-                              ['Overtime Native v3', 'Overtime Native v2', 'Overtime Native v1', 'Kravickas'],
-                              [False, False, False, True]) if win else (['native2'], ['Overtime Native v2'], [False])
+    ids, labels, updatable = (['native3', 'native2', 'kravickas'],
+                              ['Overtime Native v3', 'Overtime Native v2', 'Kravickas'],
+                              [False, False, True]) if win else (['native2'], ['Overtime Native v2'], [False])
     assert card['build'] == boost.DEFAULT and [b['id'] for b in card['builds']] == ids
     assert [b['label'] for b in card['builds']] == labels
     assert [b['updatable'] for b in card['builds']] == updatable
@@ -222,15 +225,18 @@ def test_a_build_click_stays_chosen_without_a_warning_and_switches_when_here(sc,
     sc.setup_play()
     k = boost.exe_path('kravickas')
     assert pathlib.Path(k).read_bytes() == BUILD and started == [k]
-    sc.setup_build('nightly')                                       # not here: the next Play downloads it
+    assert sc.setup_build('nightly') == {'error': 'no build nightly'}   # retired (1.00.0): not offered any more
+    assert sc.build == 'kravickas'
+    label = boost.BUILDS[boost.DEFAULT]['label']
+    sc.setup_build(boost.DEFAULT)                                   # not here: the next Play downloads it
     text, tone = sc.ctl.said[-1]                                    # no experimental warning any more (owner 2026-11-13)
-    assert tone == 'good' and text == 'Overtime Native v1 chosen: Play NHL 19 gets it first.' and sc.emulator == k
+    assert tone == 'good' and text == f'{label} chosen: Play NHL 19 gets it first.' and sc.emulator == k
     sc.setup_play()
     sc.setup_build('kravickas')                                     # both here now: the click switches at once
     assert sc.emulator == k and card_of(sc)['build'] == 'kravickas'
     assert SC.SetupController(sc.ctl).build == 'kravickas'          # the next start of the app remembers it
-    sc.setup_build('nightly')
-    assert sc.ctl.said[-1] == ('NHL 19 plays on the Overtime Native v1 build of shadPS4.', 'good')
+    sc.setup_build(boost.DEFAULT)
+    assert sc.ctl.said[-1] == (f'NHL 19 plays on the {label} build of shadPS4.', 'good')
 
 
 @pytest.mark.windows_only
@@ -250,11 +256,16 @@ def test_apps_before_0920_move_to_overtime_native_and_apply_everywhere_once(sc):
 def test_players_on_an_old_default_move_to_the_new_one_once(sc):  # noqa: F811
     # owner 2026-11-16: v2 became the default, v1 players went to v2 once; owner 2026-11-21: v3 is the default on
     # Windows, so v2 players (and v1 players who never moved) go to v3 once
-    sc.ctl.prefs['setup'] = {'build': 'nightly', 'rebuild': SC.REBUILD}
+    # 1.00.0: v1 is retired; a player on it goes to the default once, logged once (see the v1 tests below)
+    sc.ctl.prefs['setup'] = {'build': 'nightly', 'rebuild': SC.REBUILD, SC.V2_MOVE: True}
     again = SC.SetupController(sc.ctl)
-    assert again.build == 'native3'
-    again.setup_build('nightly')                                    # chosen after the move: kept
-    assert sc.ctl.prefs['setup'][SC.V2_MOVE] is True and SC.SetupController(sc.ctl).build == 'nightly'
+    assert again.build == boost.DEFAULT and again.v1_moved
+    assert sum('Overtime Native v1 is retired' in m for m in sc.ctl.host.logs) == 1
+    again._remember()
+    assert sc.ctl.prefs['setup'][SC.V1_MOVE] is True and sc.ctl.prefs['setup']['build'] == boost.DEFAULT
+    kept = SC.SetupController(sc.ctl)                               # the next start: kept, nothing logged again
+    assert kept.build == boost.DEFAULT and not kept.v1_moved
+    assert sum('Overtime Native v1 is retired' in m for m in sc.ctl.host.logs) == 1
     sc.ctl.prefs['setup'] = {'build': 'native2', 'rebuild': SC.REBUILD, SC.V2_MOVE: True}
     assert SC.SetupController(sc.ctl).build == 'native3'
     sc.ctl.prefs['setup'] = {'build': 'native2', 'rebuild': SC.REBUILD, SC.V2_MOVE: True, SC.V3_MOVE: True}
@@ -279,9 +290,9 @@ def test_each_build_has_its_own_source_code(sc, monkeypatch):  # noqa: F811
     opened = []
     monkeypatch.setattr(SC.webbrowser, 'open', opened.append)
     sc.setup_boost_source('kravickas')
-    sc.setup_boost_source('nightly')
-    assert opened == [boost.BUILDS['kravickas']['source'], boost.BUILDS['nightly']['source']]
-    assert 'Kravickas/shadPS4' in opened[0] and 'overtime-nightly' in opened[1]
+    sc.setup_boost_source(boost.DEFAULT)
+    assert opened == [boost.BUILDS['kravickas']['source'], boost.BUILDS[boost.DEFAULT]['source']]
+    assert 'Kravickas/shadPS4' in opened[0] and 'overtime-native' in opened[1]
 
 
 @pytest.mark.windows_only
@@ -494,7 +505,7 @@ def test_the_card_names_the_newest_github_build(sc, served, world):  # noqa: F81
     assert card['news'] == "Newest on Kravickas's GitHub: NHL19-Build 749170d (2026-11-14)."
     assert card['upstream'].startswith('NHL19-Build-2026-11-14-749170d: https://github.com/Kravickas/shadPS4/')
     assert 'downloads it first' in card['text']
-    sc.setup_build('nightly')
+    sc.setup_build(boost.DEFAULT)
     assert card_of(sc)['news'] == ''
 
 
@@ -540,3 +551,34 @@ def test_no_release_on_github_says_so(sc, served, world, started):  # noqa: F811
 def test_the_lobby_names_each_players_build_by_its_branch(emu, label):
     # 0.99.2: the branches the published packs report (shadps4_native3 / nightly, the native2 and Kravickas exes)
     assert boost.label_of(emu) == label
+
+
+@pytest.mark.windows_only
+def test_v1_folder_is_removed_once_and_kept_while_a_shadps4_runs(sc, monkeypatch):  # noqa: F811
+    # 1.00.0: the app's own copy of Overtime Native v1 (boost\\nightly) goes once no shadPS4 runs; not while one does
+    folder = pathlib.Path(boost.exe_path('nightly')).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / PROGRAM).write_bytes(HEAD + b' the old v1 build')
+    sc.ctl.prefs['setup'] = {'build': 'nightly', 'rebuild': SC.REBUILD}
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: True)
+    SC.SetupController(sc.ctl)
+    assert folder.is_dir() and boost.build_of(str(folder / PROGRAM)) == 'nightly'     # running: kept, tried again later
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    SC.SetupController(sc.ctl)
+    assert not folder.exists()
+    assert any('removed from the app folder' in m for m in sc.ctl.host.logs)
+    assert SC.SetupController(sc.ctl).build == boost.DEFAULT                          # next starts: nothing to do
+
+
+@pytest.mark.windows_only
+def test_v1_folder_removal_error_is_logged_and_the_start_goes_on(sc, monkeypatch):  # noqa: F811
+    folder = pathlib.Path(boost.exe_path('nightly')).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+
+    def locked(path):
+        raise PermissionError('in use')
+    monkeypatch.setattr(boost.shutil, 'rmtree', locked)
+    again = SC.SetupController(sc.ctl)                              # no exception: the app starts
+    assert again.build == boost.DEFAULT and folder.is_dir()
+    assert any('not removed now: in use' in m for m in sc.ctl.host.logs)

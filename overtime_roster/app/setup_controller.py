@@ -150,6 +150,7 @@ REBUILD = '0.92.0'      # setup pref 'rebuild': the 0.92.0 defaults (boost.DEFAU
 DMEM_MOVE = 'dmem0:'     # defaults_done entry: this data folder's first-default DMem 3500 -> 0 at 1080p / 720p is done
 V2_MOVE = 'v2_moved'     # setup pref: a player on Overtime Native v1 (the old default) was put on v2 once (2026-11-16)
 V3_MOVE = 'v3_moved'     # setup pref: a player on Overtime Native v2 (the old default) was put on v3 once (0.99.0)
+V1_MOVE = 'v1_moved'     # setup pref: a player on Overtime Native v1 (retired in 1.00.0) was put on the default once
 # the Boost card's Picture block (Overtime Native v3, 0.99.0): the upscaler choices and the player's DLSS files
 UPSCALERS = {'off': 'Off', 'fsr1': 'FSR 1', 'dlss': 'DLSS'}
 # DLSS quality (owner 2026-11-22): NVIDIA's modes by render height / screen height (DLAA 1, Quality 0.667, Balanced
@@ -268,8 +269,10 @@ class SetupController(Part):
         # sha256 of the pack in place}}
         rebuilt = prefs.get('rebuild') == REBUILD
         self.build = boost.name_of(prefs.get('build')) if rebuilt else boost.DEFAULT
-        if self.build == boost.NIGHTLY and not prefs.get(V2_MOVE):     # v1, the default before v2: on v2 once
-            self.build = boost.NATIVE2
+        # v1 is retired (1.00.0): a player on it goes to the default once (logged in _retire_v1)
+        self.v1_moved = rebuilt and prefs.get('build') == boost.NIGHTLY and not prefs.get(V1_MOVE)
+        if self.v1_moved:
+            self.build = boost.DEFAULT
         if self.build == boost.NATIVE2 and boost.DEFAULT == boost.NATIVE3 and not prefs.get(V3_MOVE):
             self.build = boost.NATIVE3      # v2, the default before v3 (owner 2026-11-21): on v3 once
         self._gpu = None        # gpuinfo.info(), read once
@@ -296,14 +299,26 @@ class SetupController(Part):
         # folder set here is never replaced by what a look finds (a tester's portable shadPS4, 2026-11-07)
         self.custom = {k: v for k, v in (prefs.get('custom') or {}).items() if k in FOLDERS and v}
         gamesetup.set_custom_data(self.custom.get('data') or '')
+        self._retire_v1()
 
     # --- helpers -------------------------------------------------------------------------------------------
+    def _retire_v1(self):
+        """Overtime Native v1 is retired (1.00.0): the move to the default is logged once (see __init__), and the app's
+        own copy in boost\\nightly is removed when no shadPS4 runs (else at the next start). Never fails the start."""
+        if self.v1_moved:
+            self.ctl.host.log(f'Overtime Native v1 is retired: this player moves to the {self._build_label()} build, once.')
+        try:
+            if boost.remove_retired() == 'removed':
+                self.ctl.host.log('Overtime Native v1 removed from the app folder boost\\nightly (retired in 1.00.0).')
+        except Exception as err:    # log only: the app starts anyway
+            self.ctl.host.log(f'Overtime Native v1 folder not removed now: {err}')
+
     def _remember(self):
         self.ctl.remember(setup={'emulator': self.emulator, 'skipped': self.skipped, 'boost': self.boost,
                                  'build': self.build, 'defaults_done': list(self.defaults_done),
                                  'resolution': self.resolution, 'replays60': self.replays60,
                                  'compute_off': self.compute_off, 'rebuild': REBUILD,
-                                 V2_MOVE: True, V3_MOVE: True, 'display': gamesetup.display_mode(),
+                                 V2_MOVE: True, V3_MOVE: True, V1_MOVE: True, 'display': gamesetup.display_mode(),
                                  'custom': dict(self.custom),
                                  'server': {k: v for k, v in self.server.items() if v != SERVER.get(k)}})
 

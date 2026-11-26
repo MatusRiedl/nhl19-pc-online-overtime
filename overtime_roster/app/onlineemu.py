@@ -16,6 +16,9 @@ PACK = boost.LOBBY_PACK
 # Linux, macOS: Overtime Native v2 alone. The Kravickas build a lobby plays is the release host's (EMULATOR_PACK, the
 # one the server pins), not the newest from his GitHub that Play takes (boost's KRAVICKAS_PACK)
 PACKS = tuple(packdownload.EMULATOR_PACK if key == boost.KRAVICKAS else b['pack'] for key, b in boost.BUILDS.items())
+# 1.00.0: a lobby still pinned to the retired Overtime Native v1 pack is recognised (not swapped for another build); the app
+# cannot fetch it any more, so that lobby says so instead of playing another build
+PACKS += (packdownload.NIGHTLY_PACK,)
 KEEP = 2            # builds kept: the current one and the one before (a server switch mid-update still finds it)
 
 

@@ -80,6 +80,10 @@ The first full release.
   boxes are KDE's, and the window fits the Deck's 1280x800 screen. Each build is checked on Ubuntu 22.04 and 24.04,
   on Arch Linux with AMD's Mesa driver (what SteamOS is built on) and on macOS 26 with Apple and Intel chips.
 
+### Changed
+- **Overtime Native v1 is retired.** It left the Boost performance card. A player on it moves to Overtime
+  Native v3 (Linux and macOS: v2) once, and the app removes its own copy of v1 to free the disk.
+
 ### Fixed
 - **Potential labels.** Stars showed AHL potential in NHL 19's player cards ("AHL Bottom 6 F" on a 93 overall): new
   and moved players kept the potential of the 2018 player whose slot they took. The roster update now sets each NHL

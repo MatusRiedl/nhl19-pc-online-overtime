@@ -128,12 +128,11 @@ function WhereCard({ s }) {
   <//>`;
 }
 
-// --- Boost performance: the shadPS4 build the green Play NHL 19 button starts, Overtime Native v2 / v1 or Kravickas ----------
+// --- Boost performance: the shadPS4 build the green Play NHL 19 button starts, Overtime Native v3 / v2 or Kravickas ----------
 const BOOST_INFO = [
   { head: 'What it does', items: ['Picks the shadPS4 build that the green Play NHL 19 button starts.',
     'Overtime Native v3 (the default on Windows): v2 plus the Picture options below the build choice, all off until you turn one on. With them off the game runs as on v2.',
-    "Overtime Native v2: v1 plus six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread.",
-    "Overtime Native v1: Overtime's own build of shadPS4 for NHL 19, with less RAM reserved, lighter controller polling, steadier frames and the fix for the \"Out of order flip IRQ\" crash.",
+    "Overtime Native v2: Overtime's own build of shadPS4 for NHL 19, with less RAM reserved, lighter controller polling, steadier frames, the fix for the \"Out of order flip IRQ\" crash and six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread.",
     'The Overtime Native builds come with Overtime releases.',
     "Kravickas: Kravickas's NHL 19 build, with his fix for the same crash: the newest one his GitHub publishes (branch NHL19-Build). Get newest gets it now.",
     'Play downloads the chosen build the first time, and again when a newer one is published.',
@@ -149,7 +148,7 @@ const BOOST_INFO = [
     'Your own shadPS4 plays online too. On an Intel PC it needs the cross-CPU fix (every build in this list has it); without it a lobby pairs you only with players with the same setup.'] },
   { head: 'Source code (GPL-2.0)', items: ['Overtime Native v3: github.com/MatusRiedl/shadPS4, branch overtime-native-v3.',
     'Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
-    'Overtime Native v1: github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
+    'Overtime Native v1 (retired in 1.00.0, its code stays here): github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
     'Kravickas: Source code, beside the build choice on the card while his build is chosen.'] },
   { head: 'Your own shadPS4', items: ['It stays where it is, untouched.',
     'A portable shadPS4 with its own "user" folder keeps playing itself: the builds would not find its saves.'] },
@@ -246,9 +245,8 @@ function BoostCard({ s }) {
   const noEmu = !(s.emulator && s.emulator.path);
   const why = noEmu ? 'Find NHL 19 first' : undefined;
   const shut = () => setView(null);
-  const BUILD_TITLES = { native3: 'Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default)',
-    native2: 'Overtime Native v1 plus six speed changes (no Picture options)',
-    nightly: "Overtime's own build of shadPS4 for NHL 19 (the default until v2)", kravickas: "Kravickas's NHL 19 build" };
+  const BUILD_TITLES = { native3: 'Overtime Native v3: Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default)',
+    native2: 'Overtime Native v2 with six speed changes (no Picture options)', kravickas: "Kravickas's NHL 19 build" };
   const builds = (b.builds || []).map((x) => ({ value: x.id, label: x.label, title: BUILD_TITLES[x.id] || x.label }));
   return html`<${Card} title="Boost performance" className="su-boost"
       aside=${html`<${Info} title="Boost performance" sections=${BOOST_INFO}/>`}>
