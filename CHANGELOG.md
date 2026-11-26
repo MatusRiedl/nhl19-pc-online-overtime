@@ -88,7 +88,8 @@ The first full release.
 - **Gear colours change on every jersey.** Changing a gear colour changed only the alternate's helmets and gloves:
   each jersey's gear wears its own near-copy of the colour, and the list showed every copy as a row of its own. One
   row now reaches every shade. The team colours you change go into the roster with the rest: NHL 19 shows the
-  Primary colour behind the team on the team select and game setup screens and in its pause screen bars.
+  Primary colour in its menus (behind the team on team select and game setup, the header of Edit Player and Edit
+  Lines, the pause screen bars).
 
 - **Player photos on the right players.** Macklin Celebrini, Gavin McKenna, Quinn Hughes and about 250 other new
   players wore someone else's face: the photo pack was numbered for an older default roster. Patch now gives each

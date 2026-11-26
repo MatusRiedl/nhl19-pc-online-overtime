@@ -14,7 +14,7 @@ const bg = (h) => ({ background: `#${h}` });
 const poss = (name) => (name.endsWith('s') ? `${name}'` : `${name}'s`);
 const recolour = (from, to) => call('gear_recolour', { [from]: to });
 const teamColour = (slot, to) => call('gear_team_colour', slot, to);
-const WHERE = 'In NHL 19 the Primary colour is the glow behind the team on the team select and game setup screens, and its bars on the pause screen.';
+const WHERE = "In NHL 19 the Primary colour is the team's colour in the menus: the glow behind it on team select and game setup, the header band of Edit Player and Edit Lines, and its bars on the pause screen.";
 const UNSEEN = 'Not seen in game: a place where NHL 19 shows the Secondary or Third colour, besides the gear that wears it. The scoreboard keeps its own look.';
 const OFF_TIP = "NHL 19 keeps more helmets, gloves and goalie gear than these jerseys wear: the retro jerseys' sets. "
   + 'This colour changes there too, but the preview cannot show it.';
