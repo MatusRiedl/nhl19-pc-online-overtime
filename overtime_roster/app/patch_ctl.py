@@ -494,6 +494,16 @@ REPATCH_LINES = (
 
 
 REPATCH_POLL = 1.0     # seconds between looks at the busy flag while a job runs (repatch_after_job)
+REPATCH_WAIT = 1800.0  # at most this long for the job and the first-look downloads (1.00.0: every pack switch on)
+
+
+def _waits(ctl):
+    """A job runs, or the first-look downloads are not done (SetupController.assets_pending: the packs come one
+    after the other, with a moment between them that is not busy)."""
+    if ctl.busy:
+        return True
+    pending = getattr(getattr(ctl, 'setup', None), 'assets_pending', None)
+    return bool(pending and pending())
 
 
 def offer_repatch(ctl, st, running=False, wait=True):
@@ -502,13 +512,14 @@ def offer_repatch(ctl, st, running=False, wait=True):
     "Patch NHL 19 again?": Patch now opens Game patch and runs the one click, Later closes (the tab's state line
     still says it). Never patches without the answer. Not while NHL 19 runs, a lobby match is set up or another
     question is open: the next look asks then. While a job runs (the last roster opening at the start, beside Setup's
-    first look) it asks once the job is done (`wait`: repatch_after_job). Returns whether it asked."""
+    first look) or the first-look pack downloads are not done, it asks once they are (`wait`: repatch_after_job), so
+    the one Patch puts the downloaded packs in too. Returns whether it asked."""
     shell, setup = getattr(ctl, 'shell', None), getattr(ctl, 'setup', None)
     if shell is None or setup is None or not (st or {}).get('applied') or not (st or {}).get('outdated'):
         return False
     if running or matchsetup.active() or shell.question() is not None:
         return False
-    if ctl.busy:
+    if _waits(ctl):
         if wait:
             repatch_after_job(ctl)
         return False
@@ -527,9 +538,9 @@ def offer_repatch(ctl, st, running=False, wait=True):
     return True
 
 
-def repatch_after_job(ctl, limit=600.0):
-    """offer_repatch again once the job running now is done (at most `limit` seconds of waiting), on a fresh look at
-    the patch (the job may have been a Patch). One waiter at a time."""
+def repatch_after_job(ctl, limit=REPATCH_WAIT):
+    """offer_repatch again once the job running now and the first-look downloads are done (_waits; at most `limit`
+    seconds of waiting), on a fresh look at the patch (the job may have been a Patch). One waiter at a time."""
     with ctl.lock:
         if getattr(ctl, 'repatch_waiting', False):
             return
@@ -538,7 +549,7 @@ def repatch_after_job(ctl, limit=600.0):
     def wait():
         try:
             end = time.monotonic() + limit
-            while ctl.busy:
+            while _waits(ctl):
                 if time.monotonic() > end:
                     return
                 time.sleep(REPATCH_POLL)

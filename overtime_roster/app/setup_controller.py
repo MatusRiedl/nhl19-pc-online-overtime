@@ -144,7 +144,8 @@ def _pack_text(row):
 
 FPS_MOVE = 'fps60:'      # defaults_done entry of 0.91.1 (its 120 / 9999 -> 60 move; 0.91.0's 9999 -> 120 wrote 'fps120:')
 FPS120_MOVE = 'fps120b:'    # defaults_done entry of 0.92.0's first build (its 60 -> 120 move); no longer written
-UNLOCK_MOVE = 'fps9999:'    # defaults_done entry: this data folder's 60 / 120 -> Unlocked move is done (owner 2026-11-13)
+UNLOCK_MOVE = 'fps9999b:'   # defaults_done entry: this data folder's frame rate -> Unlocked move of 1.00.0 is done
+UNLOCK_MOVE_0 = 'fps9999:'  # the first one (owner 2026-11-13, 60 / 120 only); 1.00.0 moves every folder again
 LOGSYNC_MOVE = 'logsync0:'  # defaults_done entry: this data folder's Log "Write at once" on -> off move is done
 REBUILD = '0.92.0'      # setup pref 'rebuild': the 0.92.0 defaults (boost.DEFAULT build, Apply everywhere on) were put in once
 DMEM_MOVE = 'dmem0:'     # defaults_done entry: this data folder's first-default DMem 3500 -> 0 at 1080p / 720p is done
@@ -570,12 +571,15 @@ class SetupController(Part):
         """Once per data folder (owner 2026-11-13: "make the app default into ... unlocked frame rate"): Frame rate 60
         (0.91.1's default) or 120 (0.91.0's, and 0.92.0's first build) becomes Unlocked. At 60 / 120 a frame that
         misses a tick waits a whole one (docs/notes/native-port.md); both builds carry Kravickas's fix of the Out of
-        order flip IRQ race that 0.91.0 left Unlocked for. A hand-set other value stays; 60 or 120 picked again
-        later stays too. Refused while the game runs or a match is set up: the next look does it."""
+        order flip IRQ race that 0.91.0 left Unlocked for. 1.00.0 (owner 2026-11-26: "make sure the unlimited FPS is
+        selected by default by everyone, it drastically reduces lag overall") does it once more for every folder, and
+        for any rate (a hand-set one too, and 60 or 120 picked since the first move). Picked again after this, a rate
+        stays. Refused while the game runs or a match is set up: the next look does it."""
         if UNLOCK_MOVE + key in self.defaults_done:
             return
         try:
-            moved = emusettings.frame_rate(user) in (60, 120)
+            was = emusettings.frame_rate(user)
+            moved = was != 9999
             if moved:
                 emusettings.save(user, {emusettings.FPS_ID: 9999}, self.resolution)
         except emusettings.SettingsError as err:
@@ -585,7 +589,7 @@ class SetupController(Part):
             self.defaults_done.append(UNLOCK_MOVE + key)
             self._remember()
         if moved:
-            self.ctl.host.log(f'Frame rate is now Unlocked, once ({user}). Setup, Boost changes it.')
+            self.ctl.host.log(f'Frame rate is now Unlocked (was {was} fps), once ({user}). Setup, Boost changes it.')
 
     def _logsync_move(self, user, key):
         """Once per data folder (owner 2026-11-13): Log "Write at once" (shadPS4's default, on) goes off: synchronous
@@ -610,7 +614,8 @@ class SetupController(Part):
         """A new install's first look that finds NHL 19 and the published packs (0.90.2, owner 2026-11-11): the team
         art, 3D jerseys and player photos it starts with switched on (controller: `first_assets`) download now, in turn,
         The mark goes only once nothing is left to fetch (all here, or switched off, or a failed pack's switch went off):
-        busy, offline or an app closed mid-download, the next look (or start) tries again."""
+        busy, offline or an app closed mid-download, the next look (or start) tries again. 1.00.0 sets the mark once
+        for every install too, with every Updated assets switch on (controller.full_migrate)."""
         c = self.ctl
         if not self.first_assets or self.packs is None or not (found.get('game') or {}).get('ok') \
                 or not self.known_emulator() or c.busy:
@@ -626,8 +631,19 @@ class SetupController(Part):
                 self.first_assets = False
                 c.remember(first_assets=False)
             return
-        c.host.log('New install: downloading the team art, 3D jerseys and player photos (Updated assets).')
+        c.host.log('Downloading the Updated assets switched on: ' + ', '.join(self._extras_wanted()) + '.')
         self._extras_next()
+
+    def assets_pending(self):
+        """The first-look downloads (_first_assets) are not done: a pack switched on is still to come. The question
+        "Patch NHL 19 again?" waits for them (patch_ctl.offer_repatch), so one Patch puts everything in. Offline, or
+        before the published packs are read, nothing is coming: not pending."""
+        if not self.first_assets or not self.known_emulator() or self.packs is None:
+            return False
+        if self.dl is not None:
+            return True
+        rows = {r['name']: r for r in self.packs}
+        return any(rows.get(n, {}).get('state') != 'offline' for n in self._extras_wanted())
 
     def find_at_start(self):
         """At the app's start (rosters_ctl.start): with no shadPS4 picked yet, look for one (no network, no

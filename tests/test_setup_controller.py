@@ -1539,11 +1539,11 @@ def test_frame_rate_choice_saves_the_vblank(sc, monkeypatch):
     assert 'error' in sc.setup_framerate(60)
 
 
-def test_60_and_120_move_to_unlocked_once_per_data_folder(sc, monkeypatch):
-    """owner 2026-11-13 ("make the app default into ... unlocked frame rate"): players on 60 fps (0.91.1's default) or
-    120 fps (0.91.0's, 0.92.0's first build) go to Unlocked once; 60 or 120 picked again later stays, and so does a
-    hand-set other value."""
-    assert SC.UNLOCK_MOVE not in (SC.FPS_MOVE, SC.FPS120_MOVE, 'fps120:')   # not an older mark: every folder moves once
+def test_every_rate_moves_to_unlocked_once_per_data_folder(sc, monkeypatch):
+    """owner 2026-11-13 ("make the app default into ... unlocked frame rate") moved 60 and 120 once; 1.00.0 (owner
+    2026-11-26: "make sure the unlimited FPS is selected by default by everyone") moves every folder once more, any
+    rate (a hand-set one too, and folders the first move marked). Picked again after that, a rate stays."""
+    assert SC.UNLOCK_MOVE not in (SC.FPS_MOVE, SC.FPS120_MOVE, 'fps120:', SC.UNLOCK_MOVE_0)   # a new mark: all move
     rate, saved = {'v': 60}, []
     monkeypatch.setattr(SC.emusettings, 'frame_rate', lambda user: rate['v'])
     monkeypatch.setattr(SC.emusettings, 'save', lambda user, ch, res: saved.append(ch) or rate.update(v=ch[SC.emusettings.FPS_ID]))
@@ -1561,14 +1561,16 @@ def test_60_and_120_move_to_unlocked_once_per_data_folder(sc, monkeypatch):
         rate['v'] = again
         sc._fps_move('U', 'k')
         assert len(saved) == 1
-    rate['v'] = 120                                                     # a folder 0.92.0's first build moved to 120
-    sc.defaults_done.append(SC.FPS120_MOVE + 'was120')
+    rate['v'] = 120                                                     # a folder the first move marked, on 120 since
+    sc.defaults_done.append(SC.UNLOCK_MOVE_0 + 'was120')
     sc._fps_move('U', 'was120')
     assert saved[1:] == [{'GPU.vblank_frequency': 9999}] and SC.UNLOCK_MOVE + 'was120' in sc.defaults_done
-    for value, folder in ((9999, 'unlocked'), (144, 'hand')):           # these stay
-        rate['v'] = value
-        sc._fps_move('U', folder)
-        assert len(saved) == 2 and SC.UNLOCK_MOVE + folder in sc.defaults_done
+    rate['v'] = 144                                                     # a hand-set rate moves too
+    sc._fps_move('U', 'hand')
+    assert saved[2:] == [{'GPU.vblank_frequency': 9999}] and SC.UNLOCK_MOVE + 'hand' in sc.defaults_done
+    rate['v'] = 9999                                                    # Unlocked already: nothing written
+    sc._fps_move('U', 'unlocked')
+    assert len(saved) == 3 and SC.UNLOCK_MOVE + 'unlocked' in sc.defaults_done
 
 
 def test_write_at_once_goes_off_once_per_data_folder(sc, monkeypatch):

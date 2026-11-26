@@ -81,6 +81,12 @@ The first full release.
   on Arch Linux with AMD's Mesa driver (what SteamOS is built on) and on macOS 26 with Apple and Intel chips.
 
 ### Changed
+- **Every Patch switch is on.** 1.00.0 turns on every switch of the Patch tab once, for new and older installs
+  alike: the jersey and ice packs, World of Chel's tile and the roster update's parts too, so everyone gets the
+  whole thing. The packs download when the app first finds NHL 19 (about 650 MB; the club jerseys take about 3 GB
+  on the disk once made), and "Patch NHL 19 again?" waits for them. Switch off what you do not want: it stays off.
+- **Frame rate Unlocked for everyone.** Every game folder goes to Unlocked once more: the game paces itself
+  without waiting for the next tick, which cuts the lag. Pick 60 or 120 in Setup afterwards and it stays.
 - **Overtime Native v1 is retired.** It left the Boost performance card. A player on it moves to Overtime
   Native v3 (Linux and macOS: v2) once, and the app removes its own copy of v1 to free the disk.
 

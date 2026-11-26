@@ -171,6 +171,9 @@ class UpdateCtl(Part):
         super().__init__(ctl)
         up = ctl.prefs.get('update') or {}
         self.opts = {k: bool(up.get(k, True)) for k in OPTIONS}
+        if getattr(ctl, 'full_once', False) and not all(self.opts.values()):   # 1.00.0's every switch on, once
+            self.opts = dict.fromkeys(OPTIONS, True)
+            ctl.remember(update={**up, **self.opts})
         self.mode = None        # the Save card's mode the player picked (None: the open roster's own)
         self.name = ''          # the new roster's name ('' : the default name)
         self.slot = None        # the save to write over when 15 of 15 are used
