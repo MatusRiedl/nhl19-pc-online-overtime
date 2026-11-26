@@ -45,6 +45,8 @@ STEPS = ('Looking at shadPS4...', 'Looking at NHL 19...', 'Asking ShadNet...', '
 PACKS = {name: (p['title'], p['core']) for name, p in packdownload.PACKS.items()}
 KITS = patch.KITS_PACK
 WANTED = ('missing', 'newer', 'offline')    # pack states Download all fetches
+RESUME_POLL = 1.0       # seconds between looks at the busy flag while the first-look downloads wait (_resume_later)
+RESUME_WAIT = 1800.0    # at most this long; then the next look or start
 # the packs with their own switch (patch.EXTRA_PACKS, the Game patch tab's More jerseys and ice card): never by
 # Download all or the Photos, logos card (several hundred MB each)
 OPTIONAL = frozenset(patch.EXTRA_PACKS)
@@ -266,6 +268,7 @@ class SetupController(Part):
         self.asked = set()      # the core asset switches (patch_ctl.PACK_KEYS) switched on here: their packs download
         self.first_assets = bool(ctl.prefs.get('first_assets'))  # a new install's asset packs still to download
         self.first_started = False      # _first_assets started its download chain in this run (resume_assets)
+        self.resume_waiting = False     # a _resume_later waiter runs
         # the shadPS4 builds (boost.py): the one chosen on the Boost performance card (Overtime Native from the first start
         # and, once, for every app before 0.92.0: owner 2026-11-13), and {emulator: the player's own shadPS4, sha: {build:
         # sha256 of the pack in place}}
@@ -615,18 +618,22 @@ class SetupController(Part):
         """A new install's first look that finds NHL 19 and the published packs (0.90.2, owner 2026-11-11): the team
         art, 3D jerseys and player photos it starts with switched on (controller: `first_assets`) download now, in turn,
         The mark goes only once nothing is left to fetch (all here, or switched off, or a failed pack's switch went off):
-        busy, offline or an app closed mid-download, the next look (or start) tries again. 1.00.0 sets the mark once
-        for every install too, with every Updated assets switch on (controller.full_migrate)."""
+        offline or an app closed mid-download, the next look (or start) tries again; busy, once the job is over
+        (_resume_later). 1.00.0 sets the mark once for every install too, with every Updated assets switch on
+        (controller.full_migrate)."""
         c = self.ctl
         if not self.first_assets or self.packs is None or not (found.get('game') or {}).get('ok') \
-                or not self.known_emulator() or c.busy:
+                or not self.known_emulator():
             return
         rows = {r['name']: r for r in self.packs}
         names = {n for k in patch_ctl.PACK_KEYS for n in patch_ctl.ASSET_PACKS[k]}
         if any(rows.get(n, {}).get('state') == 'offline' for n in names):
             return
         with c.lock:
-            self.asked.update(k for k in patch_ctl.PACK_KEYS if c.patch_want.get(k))
+            self.asked.update(k for k in patch_ctl.PACK_KEYS if c.patch_want.get(k))   # assets_pending counts them now
+        if c.busy:
+            self._resume_later()        # the last roster opening at the start: no look follows its end
+            return
         if not self._extras_wanted():
             with c.lock:
                 self.first_assets = False
@@ -647,11 +654,29 @@ class SetupController(Part):
         rows = {r['name']: r for r in self.packs}
         return any(rows.get(n, {}).get('state') != 'offline' for n in self._extras_wanted())
 
+    def _resume_later(self, limit=RESUME_WAIT):
+        """The look that found NHL 19 found a job running too (the last roster opening at the app's start: not
+        Setup's, so no look follows its end): resume_assets once nothing runs (at most `limit` seconds; then the next
+        look or start). One waiter at a time."""
+        c = self.ctl
+        with c.lock:
+            if self.resume_waiting:
+                return
+            self.resume_waiting = True
+
+        def wait():
+            try:
+                end = time.monotonic() + limit
+                while c.busy and time.monotonic() < end:
+                    time.sleep(RESUME_POLL)
+            finally:
+                self.resume_waiting = False     # before the resume: busy again there, it waits anew
+            self.resume_assets()
+        threading.Thread(target=wait, daemon=True, name='first-assets-wait').start()
+
     def resume_assets(self):
-        """The look that found NHL 19 found a job running too (the last roster opening at the app's start, which is
-        not Setup's and starts no look when it ends), so _first_assets started no download: start them once nothing
-        runs (patch_ctl.repatch_after_job calls this while it waits). Once a download chain started, its own end
-        starts the next pack: nothing here then."""
+        """_first_assets again for the look it skipped (_resume_later), unless a download chain started since (a Setup
+        job's look did it): that chain's own end starts the next pack."""
         c = self.ctl
         with c.lock:
             go = self.first_assets and not self.first_started and self.dl is None and not c.busy and self.found

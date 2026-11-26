@@ -130,42 +130,50 @@ def test_resume_assets_starts_the_first_look_downloads_once_nothing_runs():
         assert calls == [], kw
 
 
-def test_the_patch_again_waiter_starts_the_downloads_a_start_up_job_held_back(monkeypatch):
-    """The look's _first_assets found a job running and started nothing: the waiter starts the downloads once the job
-    is over, waits for them, then asks."""
-    from overtime_roster.app import matchsetup
-    monkeypatch.setattr(matchsetup, 'active', lambda: False)
-    monkeypatch.setattr(patch_ctl, 'REPATCH_POLL', 0.01)
-    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
-    old = {'applied': True, 'layers': {'database': {}}, 'outdated': ['database']}
-    monkeypatch.setattr(overlay, 'status', lambda game_dir: old)
-    asked, state = [], {'started': 0, 'left': 2}
+def test_a_busy_first_look_starts_its_downloads_once_the_job_is_over(game_dir, tmp_path, monkeypatch):
+    """The real controller: the look that finds NHL 19 meets the last roster opening (busy), so _first_assets waits
+    (_resume_later) and starts the download chain once it is over; the pack comes, nothing is pending, no second chain."""
+    from overtime_roster.app import jobs, packdownload
+    from tests.test_editors_app import Host
+    monkeypatch.setenv('OVERTIME_ROSTER_HOME', str(tmp_path / 'home'))
+    monkeypatch.setattr(SC, 'RESUME_POLL', 0.01)
 
-    class Shell:
-        def question(self):
-            return None
+    def inline(work, done=None, failed=None, expected=()):
+        try:
+            out = work()
+        except expected as err:
+            return failed and failed(str(err))
+        return done and done(out)
+    monkeypatch.setattr(jobs, 'run', inline)
+    art = patch_ctl.ASSET_PACKS['art'][0]
+    every = sorted({n for names in patch_ctl.ASSET_PACKS.values() for n in names})
+    got = []
 
-        def ask(self, title, lines, buttons, answers=None, tone=''):
-            asked.append(title)
-
-    def resume():
-        if not state['started']:
-            state['started'] += 1
-            state['left'] = 0           # the chain ran and every pack came
-
-    ctl = types.SimpleNamespace(prefs={}, lock=threading.RLock(), busy='Opening the roster...', shell=Shell(),
-                                game_dir='G', host=types.SimpleNamespace(log=lambda m: None, send=lambda e, p=None: None),
-                                setup=types.SimpleNamespace(setup_patch=lambda: None, resume_assets=resume,
-                                                            assets_pending=lambda: state['left'] > 0))
-    ctl.remember = lambda **kv: ctl.prefs.update(kv)
-    assert patch_ctl.offer_repatch(ctl, old) is False
+    def download(names, cache, progress=None, game_dir=None, cancelled=None, dropped=None, release=None):
+        got.append(list(names))
+        return [(n, True, 'downloaded') for n in names]
+    monkeypatch.setattr(packdownload, 'download', download)
+    monkeypatch.setattr(SC, 'pack_status', lambda cache, game_dir=None: [{'name': n, 'state': 'here'} for n in every])
+    assert settings.save(_older_prefs())
+    c = C.Controller(Host(), game_dir=game_dir, save_dir=str(tmp_path / 'saves'))
+    s = c.setup
+    emu = tmp_path / 'shadPS4.exe'
+    emu.write_bytes(b'MZ')
+    s.emulator = str(emu)
+    s.packs = [{'name': n, 'state': 'missing' if n == art else 'here'} for n in every]
+    s.found = found = {'game': {'ok': True}}
+    c.busy = 'Opening the roster...'
+    s._first_assets(found)
     time.sleep(0.05)
-    assert state['started'] == 0 and asked == []        # busy: nothing started
-    ctl.busy = None
+    assert got == [] and s.resume_waiting and not s.first_started and s.assets_pending()   # held back, waiting
+    c.busy = None
     end = time.monotonic() + 3
-    while time.monotonic() < end and (not asked or ctl.repatch_waiting):
+    while time.monotonic() < end and (s.resume_waiting or s.dl is not None or not got):
         time.sleep(0.01)
-    assert state['started'] == 1 and asked == ['Patch NHL 19 again?']
+    assert got == [[art]] and s.first_started and s.dl is None and c.busy is None
+    assert s.assets_pending() is False
+    s.resume_assets()
+    assert got == [[art]]                               # the chain started: no second one
 
 
 def test_the_patch_again_question_waits_for_the_downloads_and_asks_once(monkeypatch):
