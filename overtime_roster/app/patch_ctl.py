@@ -506,6 +506,14 @@ def _waits(ctl):
     return bool(pending and pending())
 
 
+def _resume(ctl):
+    """The first-look downloads that a job running at the look held back start once it is over
+    (SetupController.resume_assets)."""
+    resume = getattr(getattr(ctl, 'setup', None), 'resume_assets', None)
+    if resume is not None and not ctl.busy:
+        resume()
+
+
 def offer_repatch(ctl, st, running=False, wait=True):
     """Once per app version, at the first look at the game after an update (owner 2026-11-26: "when they update we
     need to also ask them to re-patch"): when the patch served was made by an older Overtime (overlay.outdated), ask
@@ -551,7 +559,8 @@ def repatch_after_job(ctl, limit=REPATCH_WAIT):
             end = time.monotonic() + limit
             while _waits(ctl):
                 if time.monotonic() > end:
-                    return
+                    return              # not asked: the next look asks (once per version)
+                _resume(ctl)
                 time.sleep(REPATCH_POLL)
             if ctl.game_dir:
                 offer_repatch(ctl, overlay.status(ctl.game_dir), overlay.emulator_running(), wait=False)

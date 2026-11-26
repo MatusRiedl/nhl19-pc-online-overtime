@@ -265,6 +265,7 @@ class SetupController(Part):
         self.dl_dropped = set()     # the packs of the run no switch wants any more (the others come down)
         self.asked = set()      # the core asset switches (patch_ctl.PACK_KEYS) switched on here: their packs download
         self.first_assets = bool(ctl.prefs.get('first_assets'))  # a new install's asset packs still to download
+        self.first_started = False      # _first_assets started its download chain in this run (resume_assets)
         # the shadPS4 builds (boost.py): the one chosen on the Boost performance card (Overtime Native from the first start
         # and, once, for every app before 0.92.0: owner 2026-11-13), and {emulator: the player's own shadPS4, sha: {build:
         # sha256 of the pack in place}}
@@ -632,6 +633,7 @@ class SetupController(Part):
                 c.remember(first_assets=False)
             return
         c.host.log('Downloading the Updated assets switched on: ' + ', '.join(self._extras_wanted()) + '.')
+        self.first_started = True
         self._extras_next()
 
     def assets_pending(self):
@@ -644,6 +646,17 @@ class SetupController(Part):
             return True
         rows = {r['name']: r for r in self.packs}
         return any(rows.get(n, {}).get('state') != 'offline' for n in self._extras_wanted())
+
+    def resume_assets(self):
+        """The look that found NHL 19 found a job running too (the last roster opening at the app's start, which is
+        not Setup's and starts no look when it ends), so _first_assets started no download: start them once nothing
+        runs (patch_ctl.repatch_after_job calls this while it waits). Once a download chain started, its own end
+        starts the next pack: nothing here then."""
+        c = self.ctl
+        with c.lock:
+            go = self.first_assets and not self.first_started and self.dl is None and not c.busy and self.found
+        if go:
+            self._first_assets(self.found)
 
     def find_at_start(self):
         """At the app's start (rosters_ctl.start): with no shadPS4 picked yet, look for one (no network, no
