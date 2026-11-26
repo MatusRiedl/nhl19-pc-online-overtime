@@ -35,6 +35,10 @@ from .session import BIOS, EditError
 TAB = 'Jerseys & gear'                  # session.Change.tab (shell.TAB_LABELS)
 LOAD_DELAY = 0.25                       # seconds after a pick before the team's gear is read
 PIECES = ((7, 'Helmet'), (4, 'Gloves'), (2, 'Goalie pads'), (1, 'Blocker'), (0, 'Trapper'), (3, 'Goalie stick'))
+# the figures' parts (the page's preview): a gear category -> its part name; skaters wear helmet and gloves, goalies the
+# goalie categories (pads 2, blocker 1, trapper 0, goalie stick 3) and the helmet
+PART_OF = {cat: part for (cat, _name), part in zip(PIECES, ('helmet', 'gloves', 'pads', 'blocker', 'trapper', 'gstick'))}
+PART_NAME = {PART_OF[cat]: name for cat, name in PIECES}
 TABLES = (EQ.CUSTOM, EQ.STOCK)          # a team's gear places, the custom teams' first (Seattle 499)
 HEX = re.compile(r'#?[0-9A-Fa-f]{6}')
 SLOTS = ('Primary', 'Secondary', 'Third')
@@ -89,6 +93,20 @@ def laid_over(colours, mapping):
         to = mapping.get(c, c)
         out[to] = out.get(to, 0) + n
     return sorted(out.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def sketch(cols, k):
+    """{body, trim, num} hex of the jersey sketch the preview draws (a sketch, not the jersey art): k is the jersey's
+    place (0 Home: dark body, primary trim, secondary number; 1 Away: white body; then the team colours in turn)."""
+    c = list(cols) + [0x303640] * 3
+    if k == 0:
+        body, trim, num = c[2], c[0], c[1]
+    elif k == 1:
+        body, trim, num = 0xF4F4F4, c[0], c[2]
+    else:
+        j = (k - 2) % 3
+        body, trim, num = c[j], c[(j + 2) % 3], 0xFFFFFF
+    return {'body': hx(body), 'trim': hx(trim), 'num': hx(num)}
 
 
 def drop(s, changes):
@@ -464,19 +482,28 @@ class JerseysCtl(Part):
                 where.setdefault(colour, []).append(cat)
         order = [cat for cat, _name in PIECES]
         follow = self.following(team)
+        now = self.team_now(team)
+        jerseys = self.jerseys(start, moved, team)
+        worn = {}       # gear colour (hex) -> {piece name: [jersey labels]}: the jerseys whose figure parts wear it
+        for j in jerseys:
+            for part, keys in j['parts'].items():
+                for key in set(keys):
+                    labels = worn.setdefault(key, {}).setdefault(PART_NAME[part], [])
+                    labels.append(j['label'])
         palette = []
         for a, members, n in EQ.shades(start['palette']):
             hit = [m for m in members if m in moved]
             to = moved.get(a, moved[hit[0]] if hit else a)
             cats = sorted({cat for m in members for cat in where.get(m, [])}, key=order.index)
+            slot = next((SLOTS[k] for k, x in enumerate(now) if x in members), '')
             palette.append({'from': hx(a), 'to': hx(to), 'zones': n, 'changed': bool(hit), 'name': EQ.colour_name(a),
                             'shades': [hx(m) for m in members], 'pieces': [names[cat] for cat in cats],
                             'follows': bool(hit) and all(m in follow and m not in d['map'] for m in hit),
-                            'proposed': next((hx(prop[m]) for m in members if m in prop), None)})
+                            'proposed': next((hx(prop[m]) for m in members if m in prop), None),
+                            'slot': slot, 'worn': worn.get(hx(a), {})})
         pieces = [{'name': name, 'colours': [{'hex': hx(x), 'n': n} for x, n in laid_over(start['pieces'][cat], moved)]}
                   for cat, name in PIECES if cat in start['pieces']]
         n_prop = len(prop)
-        now = self.team_now(team)
         tm = self.team_moved(team)
         n_follow = sum(1 for r in palette if r['follows'])      # colour rows, as the tab shows them
         if tm:
@@ -526,7 +553,7 @@ class JerseysCtl(Part):
                      'changed': [k in tm for k in range(len(now))], 'slots': list(SLOTS[:len(now)]),
                      'game': [hx(x) for x in old] if old else None, 'proposed': n_prop, 'can_propose': n_prop > 0,
                      'follows': n_follow, 'note': cnote},
-            jerseys=self.jerseys(start, moved),
+            jerseys=jerseys,
             copy={'from': d['copy'], 'from_name': self.name(d['copy']) if d['copy'] is not None else '',
                   'options': options, 'error': self.errors.get(team) or '', 'note': copy_note},
             sticks={'rows': [{'name': self.player(gid), 'old': EQ.NAMES['stick'].get(o, f'Stick {o}'),
@@ -535,19 +562,33 @@ class JerseysCtl(Part):
                     'nhl_teams': nhl_teams},
             touched=touched, can_apply=touched, mine=mine, can_undo=mine or touched)
 
-    def jerseys(self, start, moved):
-        """[{label, pieces: [{name, colours}]}]: the helmet and gloves worn with Home, Away and Alternate (the draft
-        laid over; equipment.jersey_gear), shades shown once."""
+    def jerseys(self, start, moved, team=None):
+        """[{label, pieces: [{name, colours}], parts: {part: [main, trim] gear colour keys}, sketch: {now, new}}]: the
+        helmet and gloves worn with each jersey (the draft laid over; equipment.jersey_gear), shades shown once. parts
+        name, for each figure part (helmet, gloves, pads, blocker, trapper, gstick; PART_OF), the palette rows it wears:
+        the most used colour of that gear row, the second and the third (a detail: Anaheim's goalie gear has one orange
+        zone of 15), as palette 'from' keys (hex of a colour row, so the page paints the roster's colour under Now and
+        the draft's under After Apply). sketch: the jersey's body, trim and number colours from the team colours (a
+        sketch, not the jersey art)."""
         db = self.ctl.session.db
         table, gid = start['table'], start['gid']
+        rep = {m: a for a, members, _n in EQ.shades(start['palette']) for m in members}
+        now, new = self.team_now(team), self.team_new(team) if team is not None else []
         out = []
         relabel = self.relabel(gid) if table == EQ.STOCK else {}
-        for label, style, variant in EQ.team_jerseys(db, gid, table, relabel):
+        for k, (label, style, variant) in enumerate(EQ.team_jerseys(db, gid, table, relabel)):
             rows = EQ.jersey_gear(db, gid, style, variant, table)
             pieces = [{'name': name, 'colours': [hx(a) for a, _m, _n in
                                                  EQ.shades(laid_over(counted(db, table, [rows[cat]]), moved))][:4]}
                       for cat, name in PIECES[:2] if cat in rows]
-            out.append({'label': label, 'pieces': pieces})
+            parts = {}
+            for cat, row in rows.items():
+                if cat in PART_OF:
+                    groups = EQ.shades(counted(db, table, [row]))[:3]
+                    if groups:
+                        parts[PART_OF[cat]] = [hx(rep.get(g[0], g[0])) for g in groups]
+            out.append({'label': label, 'pieces': pieces, 'parts': parts,
+                        'sketch': {'now': sketch(now, k), 'new': sketch(new, k)}})
         return out
 
     # --- the page's calls (on the rail's team's draft) ---------------------------------------------------------------

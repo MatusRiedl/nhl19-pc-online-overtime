@@ -56,6 +56,11 @@ STATE_NAME = 'overtime-patch.json'
 BACKUP_DIR = 'overtime-patch-backup'  # someone else's files the patch's own replace while it is applied
 LAYERS = ('text', 'names', 'database', 'league', 'menus', 'art')
 LEGACY_SUFFIX = textpack.STATE_SUFFIX  # the text pack's own overlay state (before this module)
+# What Patch writes, as a number in the state: a version that changes it so that a game patched before should be
+# patched again adds one, with the layers it changed (2, 1.00.0: each photo bound by person in the database layer).
+# A state without a level is 1. set_menus keeps the level: the menus layer alone is brought up to date silently.
+LEVEL = 2
+LEVEL_LAYERS = {2: ('database',)}
 
 UTAH_CITY, UTAH_NAME, UTAH_NICK, UTAH_ABBR = 'Utah', 'Utah Mammoth', 'Mammoth', 'UTA'
 # loc string id -> (stock text without the trademark sign, new text). Ids ending _ARZL are the Coyotes Alumni
@@ -1016,7 +1021,7 @@ def _apply(game_dir, layers, pack, database, lang, menus, art, progress=None, le
 
     def save(files, layers_info):
         """The state as it is on disk now: every file of ours listed, so undo always reaches stock."""
-        st = {'version': VERSION, 'applied': datetime.datetime.now().isoformat(timespec='seconds'),
+        st = {'version': VERSION, 'level': LEVEL, 'applied': datetime.datetime.now().isoformat(timespec='seconds'),
               'game_dir': os.path.abspath(game_dir), 'layers': layers_info, 'files': files}
         tmp = state_path(game_dir) + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
@@ -1102,7 +1107,7 @@ def _apply(game_dir, layers, pack, database, lang, menus, art, progress=None, le
         if fresh:
             state = save(written, info)
     else:
-        state = {'version': VERSION, 'applied': datetime.datetime.now().isoformat(timespec='seconds'),
+        state = {'version': VERSION, 'level': LEVEL, 'applied': datetime.datetime.now().isoformat(timespec='seconds'),
                  'game_dir': os.path.abspath(game_dir), 'layers': info, 'files': written}
         _forget(game_dir)
     return state
@@ -1296,6 +1301,15 @@ def _intact(path, rec, stamp):
     return not rec.get('sha256') or _untouched(path, rec, stamp) or _sha256(path) == rec['sha256']
 
 
+def outdated(state):
+    """The layers `state` serves that an older Overtime made and this version makes otherwise (LEVEL_LAYERS), in
+    LAYERS order; [] when the patch is this version's."""
+    level = (state or {}).get('level') or 1
+    served = (state or {}).get('layers') or {}
+    changed = {layer for n, layers in LEVEL_LAYERS.items() if n > level for layer in layers}
+    return [layer for layer in LAYERS if layer in changed and layer in served]
+
+
 def status(game_dir, lang='eng_us'):
     """What the patch serves now: layers, files (present, unchanged), and whether the game changed under it."""
     state = _load_state(game_dir)
@@ -1305,7 +1319,8 @@ def status(game_dir, lang='eng_us'):
         if out['legacy_text_pack']:  # the text pack's own overlay from before this module: still served
             out.update(applied=True, layers={'text': {'legacy': True}})
         return out
-    out.update(applied_at=state.get('applied'), layers=state.get('layers', {}))
+    out.update(applied_at=state.get('applied'), layers=state.get('layers', {}), level=state.get('level') or 1,
+               outdated=outdated(state))
     stamp = _stamp(game_dir)
     for rel, rec in state.get('files', {}).items():
         path = _target(game_dir, rel)

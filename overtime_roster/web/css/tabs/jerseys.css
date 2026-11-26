@@ -1,143 +1,204 @@
-/* Jerseys & gear tab (Builder D). Rules sit under .tab-jerseys and use the prefix .jg- (docs/ui/CONTRACT.md); tokens from
-   tokens.css, parts from app.css. Layout from Legacy's Jerseys & ice (tiles with the picture at the left), look from
-   NHL 19: flat tiles, slanted colour swatches, the red bar on what is picked. */
+/* Jerseys & gear tab. Rules sit under .tab-jerseys and use the prefix .jg- (docs/ui/CONTRACT.md); tokens from
+   tokens.css. One page scroll: the card body is the only scroller (no inner scroll boxes); the action bar is the card
+   foot, so it stays in view. Narrow panes stack the preview above the sections. */
 .tab-jerseys .jg-tab { flex: 1; min-width: 0; }
-
-.tab-jerseys .jg-body { display: flex; flex-direction: column; gap: 8px; }
-.tab-jerseys .jg-note { margin: 0; flex: none; }
+.tab-jerseys .jg-body { display: flex; flex-direction: column; gap: 10px; position: relative; }
+.tab-jerseys .jg-note { margin: 0; }
 .tab-jerseys .jg-note.good { color: var(--good); }
+.tab-jerseys .caps { text-transform: uppercase; letter-spacing: .04em; }
 
-/* the gear colours at the left, the three others stacked at the right; both fill the card and scroll on their own
-   (the gear colours when a team has many, the right side on short windows) */
-.tab-jerseys .jg-grid { flex: 1 1 0; min-height: 260px; display: flex; gap: 10px; }
-.tab-jerseys .jg-left { flex: 1.25 1 0; min-width: 0; display: flex; flex-direction: column; }
-.tab-jerseys .jg-left > .jg-gear { flex: 1; min-height: 0; }
-.tab-jerseys .jg-right { flex: 1 1 0; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.tab-jerseys .jg-right > .jg-tile { flex: none; }
-.tab-jerseys .jg-gear .jg-main { min-height: 0; }
-.tab-jerseys .jg-tile { display: flex; gap: 12px; padding: 10px; background: var(--panel-deep); box-shadow: inset 0 0 0 1px var(--line);
-  min-width: 0; }
-.tab-jerseys .jg-pic { flex: none; width: 92px; height: 92px; display: grid; place-items: center; background: var(--tile); }
-.tab-jerseys .jg-art { width: 76px; height: 62px; overflow: visible; }
-.tab-jerseys .jg-edge { stroke: rgba(255, 255, 255, .28); stroke-width: 1.2; }
-.tab-jerseys .jg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.tab-jerseys .jg-tile-head { display: flex; align-items: baseline; gap: 10px; min-height: 22px; }
-.tab-jerseys .jg-tile-title { white-space: nowrap; }
-.tab-jerseys .jg-aside { min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tab-jerseys .jg-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.tab-jerseys .jg-actions .small-note { flex: 1 1 200px; min-width: 0; margin: 0; }
-.tab-jerseys .jg-arrow { flex: none; width: 12px; height: 10px; color: var(--text-3); }
+/* how it works: three steps */
+.tab-jerseys .jg-how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tab-jerseys .jg-how > div { background: var(--panel-deep); padding: 8px 10px; box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px; color: var(--text-soft); }
+.tab-jerseys .jg-how b { color: var(--accent); margin-right: 6px; font-size: 16px; }
 
-/* a gear colour: now, new (the colour box), where it is, the team colours, Back; the hex codes show on hover */
-.tab-jerseys .jg-palette { flex: 0 1 auto; min-height: 0; overflow-y: auto;
-  scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 2px; }
-.tab-jerseys .jg-prow { display: grid; grid-template-columns: minmax(118px, 1fr) 12px 26px 64px minmax(0, 1.3fr) 52px;
-  align-items: center; gap: 8px; min-height: 30px; padding: 1px 8px; background: var(--tile); flex: none; }
-.tab-jerseys .jg-phead .jg-th-new { grid-column: span 2; }
-.tab-jerseys .jg-cname { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.tab-jerseys .jg-cn { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
-.tab-jerseys .jg-cn b { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; }
-.tab-jerseys .jg-cn small { font-size: 11px; color: var(--text-2); white-space: nowrap; }
-.tab-jerseys .jg-prow:not(.jg-phead):hover { background: var(--tile-hi); box-shadow: inset 0 calc(-1 * var(--focus-bar)) 0 var(--accent); }
-.tab-jerseys .jg-prow.changed { box-shadow: inset 3px 0 0 var(--caution); }
-.tab-jerseys .jg-prow.changed:hover { box-shadow: inset 3px 0 0 var(--caution), inset 0 calc(-1 * var(--focus-bar)) 0 var(--accent); }
-.tab-jerseys .jg-phead { min-height: 18px; background: none; margin-right: 8px; }
-.tab-jerseys .jg-phead .th { font-size: 12px; color: var(--text-2); white-space: nowrap; }
-.tab-jerseys .jg-sw { position: relative; display: block; width: 24px; height: 18px; transform: skewX(var(--slant));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+/* the two columns */
+.tab-jerseys .jg-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 12px; align-items: start; }
+.tab-jerseys .jg-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.tab-jerseys .jg-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.tab-jerseys .jg-more .jg-sec { margin-bottom: 0; }
+
+/* sections and their heads */
+.tab-jerseys .jg-sec { background: var(--panel-deep); box-shadow: inset 0 0 0 1px var(--line); padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tab-jerseys .jg-sec-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.tab-jerseys .jg-h { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.tab-jerseys .jg-aside { font-size: 12.5px; color: var(--text-2); min-width: 0; }
+.tab-jerseys .jg-lead { margin: 0; font-size: 13px; color: var(--text-2); }
+.tab-jerseys .jg-info { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; flex: none;
+  font: 700 11px var(--font); color: var(--page); background: var(--text-3); cursor: help; transform: translateY(-1px); }
+.tab-jerseys .jg-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab-jerseys .jg-lbl { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.tab-jerseys .faint { color: var(--text-3); }
+.tab-jerseys .small-note { margin: 0; font-size: 12.5px; color: var(--text-2); }
+
+/* slanted swatches, as in the app */
+.tab-jerseys .jg-sw { position: relative; display: inline-block; flex: none; width: 26px; height: 18px; transform: skewX(var(--slant));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); vertical-align: middle; }
+.tab-jerseys .jg-sw.big { width: 38px; height: 24px; }
+.tab-jerseys .jg-sw.small { width: 18px; height: 13px; }
 .tab-jerseys .jg-pick { cursor: pointer; }
 .tab-jerseys .jg-pick:hover { box-shadow: inset 0 0 0 1px #fff, 0 0 8px var(--glow); }
 .tab-jerseys .jg-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
-.tab-jerseys .jg-where { min-width: 0; font-size: 12.5px; color: var(--text-soft); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; }
-.tab-jerseys .jg-where em { font-style: normal; color: var(--caution); }
-.tab-jerseys .jg-quick { display: flex; gap: 5px; }
-.tab-jerseys .jg-qsw { width: 16px; height: 16px; padding: 0; border: 0; cursor: pointer; transform: skewX(var(--slant));
+.tab-jerseys .jg-arrow { flex: none; width: 12px; height: 10px; color: var(--text-3); }
+
+/* the hover box */
+.tab-jerseys .jg-tip { position: fixed; z-index: 50; max-width: 300px; background: var(--black); color: var(--text-soft);
+  font-size: 12.5px; line-height: 1.4; padding: 8px 10px; box-shadow: 0 4px 18px rgba(0, 0, 0, .6), inset 0 0 0 1px var(--line-hi);
+  pointer-events: none; }
+.tab-jerseys .jg-tip > * { display: block; }
+.tab-jerseys .jg-tip b { color: var(--text); }
+.tab-jerseys .jg-tip .u { margin-top: 4px; color: var(--caution); font-size: 11.5px; }
+
+/* tags, chips */
+.tab-jerseys .jg-tags { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.tab-jerseys .jg-tag { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.tab-jerseys .jg-tag.good { color: var(--good); }
+.tab-jerseys .jg-tag.blue { color: var(--blue-soft); font-weight: 400; }
+.tab-jerseys .jg-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--panel); color: var(--text-soft);
+  padding: 1px 7px; font-size: 12px; cursor: help; }
+.tab-jerseys .jg-chip i { display: inline-block; }
+
+/* the preview (sticky on wide panes) */
+.tab-jerseys .jg-preview { position: sticky; top: 0; align-self: start; background: var(--panel-deep);
+  box-shadow: inset 0 0 0 1px var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.tab-jerseys .jg-sec-head .jg-h { font-size: 15px; }
+.tab-jerseys .jg-jtabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab-jerseys .jg-jt { background: var(--tile); color: var(--text-2); border: 0; font: 600 12px var(--font); padding: 3px 8px;
+  cursor: pointer; border-bottom: 3px solid transparent; }
+.tab-jerseys .jg-jt:hover { background: var(--tile-hi); }
+.tab-jerseys .jg-jt.on { color: var(--text); background: var(--tile-hi); border-bottom-color: var(--accent); }
+.tab-jerseys .jg-figures { display: flex; justify-content: center; gap: 4px; padding: 6px 0 2px;
+  background: radial-gradient(ellipse at 50% 85%, #2c3540 0%, #181d23 70%); }
+.tab-jerseys .jg-figures > div { display: flex; flex-direction: column; align-items: center; }
+.tab-jerseys .jg-fig { width: 128px; height: 240px; overflow: visible; }
+.tab-jerseys .jg-fig-label { font-size: 11px; color: var(--text-3); margin-top: -2px; }
+.tab-jerseys .jg-edge { stroke: rgba(0, 0, 0, .55); stroke-width: 1.2; stroke-linejoin: round; transition: fill .25s, filter .2s; }
+.tab-jerseys .jg-edge.lit { filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 6px var(--accent)); }
+.tab-jerseys .jg-seg { display: flex; }
+.tab-jerseys .jg-seg button { flex: 1; background: var(--tile); color: var(--text-2); border: 0; font: 600 12px var(--font); padding: 5px;
+  cursor: pointer; }
+.tab-jerseys .jg-seg button:hover { background: var(--tile-hi); }
+.tab-jerseys .jg-seg button.on { background: var(--accent); color: #fff; }
+.tab-jerseys .jg-legend { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 3px 8px; align-items: center; font-size: 12.5px; }
+.tab-jerseys .jg-lk { color: var(--text-3); }
+.tab-jerseys .jg-lv { color: var(--text-soft); min-width: 0; }
+.tab-jerseys .jg-lsw { white-space: nowrap; }
+.tab-jerseys .jg-lsw i { margin-right: 5px; }
+.tab-jerseys .jg-sketch { margin: 0; font-size: 12px; color: var(--text-3); }
+
+/* team colours */
+.tab-jerseys .jg-tc-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tab-jerseys .jg-tc { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; background: var(--tile); padding: 8px 10px;
+  min-width: 0; }
+.tab-jerseys .jg-tc.changed { box-shadow: inset 3px 0 0 var(--caution); }
+.tab-jerseys .jg-tc-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.tab-jerseys .jg-tc-hex { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tab-jerseys .jg-tc .jg-sw.big { width: 56px; height: 34px; }
+.tab-jerseys .jg-crow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tab-jerseys .jg-chip i { width: 18px; height: 13px; }
+.tab-jerseys .jg-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tab-jerseys .jg-actions .small-note { flex: 1 1 200px; min-width: 0; }
+
+/* gear colour rows: full width, nothing cut off */
+.tab-jerseys .jg-rows { display: flex; flex-direction: column; gap: 4px; }
+/* a row: now -> new, its tag and Back on the first line; the picks under them; then where it is worn. Wide panes put the
+   picks on the first line (the mockup) */
+.tab-jerseys .jg-row { display: grid; grid-template-columns: minmax(0, 1fr) 14px 38px auto 56px;
+  align-items: center; gap: 6px 10px; background: var(--tile); padding: 7px 10px; border-left: 3px solid transparent; }
+.tab-jerseys .jg-row > .jg-name { grid-area: 1 / 1; }
+.tab-jerseys .jg-row > .jg-arrow { grid-area: 1 / 2; }
+.tab-jerseys .jg-row > .jg-newsw { grid-area: 1 / 3; }
+.tab-jerseys .jg-row > .jg-tags { grid-area: 1 / 4; justify-self: end; }
+.tab-jerseys .jg-row > .jg-back { grid-area: 1 / 5; }
+.tab-jerseys .jg-row > .jg-picks { grid-area: 2 / 1 / 3 / -1; }
+.tab-jerseys .jg-row > .jg-worn-line { grid-area: 3 / 1 / 4 / -1; }
+@container (min-width: 1150px) {
+  .tab-jerseys .jg-row { grid-template-columns: minmax(150px, 1.1fr) 14px 38px minmax(230px, 1.7fr) auto 56px; }
+  .tab-jerseys .jg-row > .jg-picks { grid-area: 1 / 4; }
+  .tab-jerseys .jg-row > .jg-tags { grid-area: 1 / 5; }
+  .tab-jerseys .jg-row > .jg-back { grid-area: 1 / 6; }
+  .tab-jerseys .jg-row > .jg-worn-line { grid-area: 2 / 1 / 3 / -1; }
+}
+.tab-jerseys .jg-row:hover, .tab-jerseys .jg-row.lit { background: var(--tile-hi); border-left-color: var(--accent); }
+.tab-jerseys .jg-row.changed { box-shadow: inset 3px 0 0 var(--caution); }
+.tab-jerseys .jg-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tab-jerseys .jg-cn { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.tab-jerseys .jg-cn b { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.tab-jerseys .jg-shades { font-size: 11.5px; color: var(--text-2); cursor: help; text-decoration: underline dotted; white-space: nowrap; }
+.tab-jerseys .jg-newsw { justify-self: start; }
+.tab-jerseys .jg-picks { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.tab-jerseys .jg-qsw { width: 18px; height: 18px; padding: 0; border: 0; cursor: pointer; transform: skewX(var(--slant));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
 .tab-jerseys .jg-qsw:hover, .tab-jerseys .jg-qsw:focus-visible { outline: none; box-shadow: inset 0 0 0 1px #fff, 0 0 8px var(--glow); }
 .tab-jerseys .jg-qsw.on { box-shadow: inset 0 0 0 2px #fff; }
-.tab-jerseys .jg-back { padding-left: 8px; padding-right: 8px; }
+.tab-jerseys .jg-any { position: relative; background: var(--input); color: var(--text-2); font: 600 12px var(--font); padding: 3px 8px;
+  cursor: pointer; border: 1px solid var(--line-hi); white-space: nowrap; }
+.tab-jerseys .jg-any:hover { color: var(--text); }
+.tab-jerseys .jg-any input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+.tab-jerseys .jg-row .btn.jg-back { min-width: 0; padding: 0 8px; }
+.tab-jerseys .jg-worn-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.tab-jerseys .jg-off { color: var(--text-3); font-size: 12px; font-style: italic; cursor: help;
+  border-bottom: 1px dotted var(--text-3); }
 
-/* each piece as a bar of its colours */
-.tab-jerseys .jg-pieces { flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 18px; padding-top: 4px; }
-.tab-jerseys .jg-piece { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; }
-.tab-jerseys .jg-pname { font-size: 12px; color: var(--text-2); white-space: nowrap; }
-.tab-jerseys .jg-bar { display: flex; height: 10px; gap: 1px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
-.tab-jerseys .jg-bar i { min-width: 2px; }
+/* worn with each jersey */
+.tab-jerseys .jg-wj { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.tab-jerseys .jg-wcard { display: flex; flex-direction: column; gap: 3px; background: var(--tile); padding: 7px 10px; cursor: pointer;
+  border: 0; border-bottom: 3px solid transparent; text-align: left; color: inherit; font: inherit; }
+.tab-jerseys .jg-wcard:hover { background: var(--tile-hi); }
+.tab-jerseys .jg-wcard.on { border-bottom-color: var(--accent); background: var(--tile-hi); }
+.tab-jerseys .jg-jname { font-size: 12.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text); }
+.tab-jerseys .jg-wline { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; }
+.tab-jerseys .jg-wsw { display: flex; gap: 4px; }
+.tab-jerseys .jg-wsw .jg-sw { width: 18px; height: 13px; }
 
-/* worn with each jersey: the helmet and gloves of Home, Away, Alternate */
-.tab-jerseys .jg-worn { flex: none; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
-.tab-jerseys .jg-sub { font-size: 12px; color: var(--text-2); }
-.tab-jerseys .jg-jrow { display: flex; flex-wrap: wrap; gap: 6px; }
-.tab-jerseys .jg-jcard { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 5px 8px;
-  background: var(--tile); }
-.tab-jerseys .jg-jname { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text); }
-.tab-jerseys .jg-jpiece { display: flex; align-items: center; gap: 4px; }
-.tab-jerseys .jg-jpiece .jg-pname { width: 50px; }
-.tab-jerseys .jg-jpiece i { width: 18px; height: 12px; transform: skewX(var(--slant)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
-
-/* team colours */
-.tab-jerseys .jg-tcols { display: flex; flex-direction: column; gap: 4px; }
-.tab-jerseys .jg-tcol { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 1px 8px; background: var(--tile); }
-.tab-jerseys .jg-tcol.changed { box-shadow: inset 3px 0 0 var(--caution); }
-.tab-jerseys .jg-tcol .jg-clabel { width: 76px; }
-.tab-jerseys .jg-hex { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; flex: 1; }
-.tab-jerseys .jg-tnote { margin: 0; }
-.tab-jerseys .jg-crows { display: flex; flex-direction: column; gap: 4px; }
-.tab-jerseys .jg-crow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.tab-jerseys .jg-clabel { width: 92px; flex: none; font-size: 13px; color: var(--text-soft); }
-.tab-jerseys .jg-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-soft);
-  font-variant-numeric: tabular-nums; }
-.tab-jerseys .jg-chip i { width: 20px; height: 14px; transform: skewX(var(--slant)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
-
-/* copy another team's gear */
-.tab-jerseys .jg-select { flex: 0 1 300px; height: 32px; }
+/* sticks and copy */
+.tab-jerseys .jg-select { flex: 0 1 260px; height: 30px; }
 .tab-jerseys .jg-cnote, .tab-jerseys .jg-error { flex: 1 1 200px; min-width: 0; margin: 0; }
-
-/* sticks */
-.tab-jerseys .jg-sticks { flex: none; gap: 2px; max-height: 120px; }
-.tab-jerseys .jg-actions .jg-snote { flex-basis: 140px; }
+.tab-jerseys .jg-sticks { display: flex; flex-direction: column; gap: 2px; }
 .tab-jerseys .jg-stick { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1fr) 12px minmax(0, 1.2fr); align-items: center;
-  gap: 8px; min-height: 28px; padding: 2px 8px; background: var(--tile); font-size: 12.5px; }
-.tab-jerseys .jg-stick b { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tab-jerseys .jg-old, .tab-jerseys .jg-new { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  gap: 8px; min-height: 26px; padding: 2px 8px; background: var(--tile); font-size: 12.5px; }
+.tab-jerseys .jg-stick b { font-weight: 600; font-size: 13px; color: var(--text); }
 .tab-jerseys .jg-old { color: var(--text-3); }
 .tab-jerseys .jg-new { color: var(--text-2); }
 .tab-jerseys .jg-stick.fitted { box-shadow: inset 3px 0 0 var(--caution); }
 .tab-jerseys .jg-stick.fitted .jg-old { text-decoration: line-through; }
-.tab-jerseys .jg-stick.fitted .jg-new { color: var(--text-soft); }
 .tab-jerseys .jg-none { margin: 0; padding: 8px 10px; background: var(--tile); font-size: 13px; color: var(--good); }
 
-.tab-jerseys .jg-foot-note { flex: 1 1 260px; min-width: 0; }
+/* the action bar: the card foot */
+.tab-jerseys .jg-foot { gap: 10px; }
+.tab-jerseys .jg-count { flex: 1 1 200px; min-width: 0; font-size: 13px; color: var(--text-2); }
+.tab-jerseys .jg-count b { color: var(--text); }
 
-/* narrower panes: no pictures; at the narrowest one column, and the body scrolls */
-@container (max-width: 1150px) {
-  .tab-jerseys .jg-pic { display: none; }
-  .tab-jerseys .jg-left { flex-grow: 1.35; }
+/* the app's default window (1080 x 780: a pane of about 830 px) keeps the preview at the left, narrower */
+@container (max-width: 1000px) {
+  .tab-jerseys .jg-grid { grid-template-columns: 236px minmax(0, 1fr); }
+  .tab-jerseys .jg-fig { width: 98px; height: 184px; }
+  .tab-jerseys .jg-more { grid-template-columns: minmax(0, 1fr); }
 }
-@container (max-width: 760px) {
-  .tab-jerseys .jg-grid { flex: none; min-height: 0; flex-direction: column; }
-  .tab-jerseys .jg-left, .tab-jerseys .jg-right, .tab-jerseys .jg-left > .jg-gear { flex: none; overflow: visible; }
-  .tab-jerseys .jg-palette { overflow: visible; }
-  .tab-jerseys .jg-phead { margin-right: 0; }
-  .tab-jerseys .jg-prow { grid-template-columns: minmax(104px, 1fr) 12px 26px 64px minmax(0, 1fr) 50px; gap: 6px; }
-  .tab-jerseys .jg-pieces { grid-template-columns: minmax(0, 1fr); }
-  .tab-jerseys .jg-foot-note { display: none; }
+/* short windows (the default 780 px: a card body of about 400 px): the sticky preview fits whole, its sketch note goes
+   to the Preview "i" (which says it too) */
+@media (max-height: 900px) {
+  .tab-jerseys .jg-preview { gap: 5px; }
+  .tab-jerseys .jg-fig { width: 86px; height: 160px; }
+  .tab-jerseys .jg-sketch { display: none; }
 }
-
-/* 768-line laptops and the smallest window */
-@media (max-height: 720px) {
-  .tab-jerseys .jg-body { gap: 6px; }
-  .tab-jerseys .jg-right { gap: 6px; }
-  .tab-jerseys .jg-tile { padding: 7px 8px; }
-  .tab-jerseys .jg-main { gap: 4px; }
-  .tab-jerseys .jg-pic { display: none; }
-  .tab-jerseys .jg-prow { min-height: 26px; }
-  /* one line per note; the Copy select and the stick buttons share a row with theirs */
-  .tab-jerseys .jg-actions { flex-wrap: nowrap; }
-  .tab-jerseys .jg-actions .small-note, .tab-jerseys .jg-cnote, .tab-jerseys .jg-error { flex: 1 1 0; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; }
-  .tab-jerseys .jg-actions .btn { flex: none; }
-  .tab-jerseys .jg-sticks { max-height: 90px; }
-  .tab-jerseys .jg-stick { min-height: 24px; }
+/* narrow panes: the preview above the sections */
+@container (max-width: 700px) {
+  .tab-jerseys .jg-grid { grid-template-columns: minmax(0, 1fr); }
+  .tab-jerseys .jg-preview { position: static; }
+  .tab-jerseys .jg-fig { width: 128px; height: 240px; }
+  .tab-jerseys .jg-how { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 560px) {
+  .tab-jerseys .jg-row { grid-template-columns: minmax(0, 1fr) 14px 38px 56px; }
+  .tab-jerseys .jg-row > .jg-back { grid-area: 1 / 4; }
+  .tab-jerseys .jg-row > .jg-tags { grid-area: 2 / 1 / 3 / -1; justify-self: start; }
+  .tab-jerseys .jg-row > .jg-picks { grid-area: 3 / 1 / 4 / -1; }
+  .tab-jerseys .jg-row > .jg-worn-line { grid-area: 4 / 1 / 5 / -1; }
+  .tab-jerseys .jg-foot .btn { flex: none; }
+}
+@container (max-width: 420px) {
+  .tab-jerseys .jg-tc-row { grid-template-columns: minmax(0, 1fr); }
 }

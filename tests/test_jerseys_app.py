@@ -524,3 +524,83 @@ def test_team_colours_round_trip_through_the_save(tab):
     for target in (install.TARGET_EXPORT, install.TARGET_SAVE):
         db = tdb.Database.parse(install.build_database(s, game, target).to_bytes(), game.schema())
         assert EQ.team_colours(db, TEAM)[0] == 0x123456, target
+
+
+@pytest.mark.game
+def test_jersey_parts_point_at_real_rows(tab):
+    """Each jersey's figure parts name palette rows of the tab, and the rows are the ones jersey_gear picks."""
+    c, part, run, _waiting = tab
+    s = c.session
+    v = view(c)
+    keys = {r['from'] for r in v['palette']}
+    assert v['jerseys'] and all(set(j['parts']) >= {'helmet', 'gloves'} for j in v['jerseys'])
+    for j, (label, style, variant) in zip(v['jerseys'], EQ.team_jerseys(s.db, TEAM, EQ.STOCK, part.relabel(TEAM))):
+        assert j['label'] == label
+        rows = EQ.jersey_gear(s.db, TEAM, style, variant, EQ.STOCK)
+        assert set(j['parts']) == {J.PART_OF[cat] for cat in rows if cat in J.PART_OF}
+        for name, ks in j['parts'].items():
+            assert 1 <= len(ks) <= 3 and set(ks) <= keys, (label, name, ks)     # main, trim, a detail
+        for cat, row in rows.items():
+            if cat in J.PART_OF:
+                main = J.hx(EQ.shades(J.counted(s.db, EQ.STOCK, [row]))[0][0])
+                row_of = next(r for r in v['palette'] if main in r['shades'])
+                assert j['parts'][J.PART_OF[cat]][0] == row_of['from']          # main colour: its row's colour
+
+
+@pytest.mark.game
+def test_goalie_parts_come_from_the_goalie_categories(tab):
+    c, part, _run, _waiting = tab
+    s = c.session
+    assert {J.PART_OF[cat] for cat, _n in J.PIECES} == {'helmet', 'gloves', 'pads', 'blocker', 'trapper', 'gstick'}
+    assert [J.PART_OF[cat] for cat in (2, 1, 0, 3)] == ['pads', 'blocker', 'trapper', 'gstick']
+    for label, style, variant in EQ.team_jerseys(s.db, TEAM, EQ.STOCK, part.relabel(TEAM)):
+        rows = EQ.jersey_gear(s.db, TEAM, style, variant, EQ.STOCK)
+        goalie = {cat for cat in rows if cat in (0, 1, 2, 3)}
+        parts = set(next(j for j in view(c)['jerseys'] if j['label'] == label)['parts'])
+        assert {J.PART_OF[cat] for cat in goalie} <= parts
+        assert not parts - {J.PART_OF[cat] for cat in rows if cat in J.PART_OF}
+
+
+@pytest.mark.game
+def test_a_draft_recolour_moves_after_apply_and_not_now(tab):
+    c, part, run, _waiting = tab
+    v0 = view(c)
+    first = v0['palette'][0]
+    assert part.recolour({first['from']: '123456'}) == {'ok': True}
+    v1 = view(c)
+    row = v1['palette'][0]
+    assert row['from'] == first['from'] and row['to'] == '123456'        # After Apply: the draft's colour
+    assert [r['from'] for r in v1['palette']] == [r['from'] for r in v0['palette']]
+    assert [j['parts'] for j in v1['jerseys']] == [j['parts'] for j in v0['jerseys']]   # Now: the roster's parts
+    assert part.recolour({first['from']: first['from']}) == {'ok': True}
+    assert view(c)['palette'][0]['to'] == first['from']
+
+
+@pytest.mark.game
+def test_sketch_and_worn_keys(tab):
+    c, part, run, _waiting = tab
+    v = view(c)
+    labels = [j['label'] for j in v['jerseys']]
+    for j in v['jerseys']:
+        for mode in ('now', 'new'):
+            sk = j['sketch'][mode]
+            assert set(sk) == {'body', 'trim', 'num'} and all(len(x) == 6 for x in sk.values())
+    assert v['jerseys'][1]['sketch']['now']['body'] == 'F4F4F4'          # Away is white, whatever the team wears
+    assert v['jerseys'][0]['sketch']['now'] == v['jerseys'][0]['sketch']['new']   # no draft yet
+    for r in v['palette']:
+        assert set(r['worn']) <= set(J.PART_NAME.values()) and all(set(ls) <= set(labels) for ls in r['worn'].values())
+        assert r['slot'] in ('',) + tuple(J.SLOTS)
+    worn = {(r['from'], n): ls for r in v['palette'] for n, ls in r['worn'].items()}
+    assert worn and all(ls for ls in worn.values())
+    for j in v['jerseys']:
+        for name, ks in j['parts'].items():
+            for k in set(ks):
+                assert j['label'] in worn[(k, J.PART_NAME[name])]              # "Worn on" names the jerseys
+    T = part.team_now(TEAM)
+    assert T and v['colours']['now'] == [J.hx(x) for x in T]
+    before = v['jerseys'][0]['sketch']['new']
+    assert part.team_colour(0, '123456') == {'ok': True}
+    assert view(c)['jerseys'][0]['sketch']['new'] != before                    # the sketch follows the draft
+    assert view(c)['jerseys'][0]['sketch']['now'] == before                     # Now stays
+    assert part.team_colour(0, J.hx(T[0])) == {'ok': True}                     # Back to the roster's colour
+    assert not view(c)['touched']

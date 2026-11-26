@@ -456,6 +456,7 @@ class SetupController(Part):
             self._follow(found, picked, auto)
             self._defaults(found)
             self._first_assets(found)
+            patch_ctl.offer_repatch(ctl, found.get('overlay'), found.get('running'))   # an older Overtime's patch
             if announce:
                 text, tone = self._outcome()
                 ctl.say(text, tone, 1)

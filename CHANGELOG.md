@@ -58,6 +58,10 @@ The first full release.
   shades of it the jerseys wear. The team colours are yours to change now: pick a new primary, secondary or third
   colour and the gear in that colour follows it; black, white and grey gear stays. "Worn with each jersey" shows the
   helmet and gloves of Home, Away and Alternate. Apply writes it all as one change.
+  The tab now shows what you change: a skater and a goalie in the picked jersey's gear, with a Now / After Apply
+  switch, repaint as you pick colours (the jersey itself is a sketch from the team colours). Each gear row says where
+  it is worn and which team colour it is, the team colour picks are one click away, and every swatch and button
+  explains itself on hover. The whole tab scrolls as one page, so the colour rows have room at any window size.
 - **Edit rosters with an AI.** AI apps that speak MCP (Claude Desktop, Claude Code and others) can now work on
   your rosters through Overtime: find players, read and change their cards (ratings, number, position, country,
   size, contract), make new players, move players between clubs, put in a league, check the roster, take an edit
@@ -83,13 +87,16 @@ The first full release.
   grow in Be A GM, so young stars now develop like stars. Run the roster update (Patch) to get it.
 - **Gear colours change on every jersey.** Changing a gear colour changed only the alternate's helmets and gloves:
   each jersey's gear wears its own near-copy of the colour, and the list showed every copy as a row of its own. One
-  row now reaches every shade. The team colours you change go into the roster with the rest (where NHL 19 shows
-  them is still being checked).
+  row now reaches every shade. The team colours you change go into the roster with the rest: NHL 19 shows the
+  Primary colour behind the team on the team select and game setup screens and in its pause screen bars.
 
 - **Player photos on the right players.** Macklin Celebrini, Gavin McKenna, Quinn Hughes and about 250 other new
   players wore someone else's face: the photo pack was numbered for an older default roster. Patch now gives each
   player his photo by name and birth date (the people pack, NHL Legacy's pictures), whatever number the roster gave
   him. Twins no longer take their brother's photo when only one of them has one. Press Patch to get it.
+- **The online roster is current.** The roster NHL 19 downloads for Online Versus is rebuilt (2026-11-26): this
+  season's clubs and lines, the player photos by name and the potential tiers above. Photos you gave players
+  yourself stay on your PC: they are not in the online roster.
 - **32 clubs in Classic Franchise and Season.** With Seattle in the league, a new Classic Franchise or NHL Season
   now has all 32 clubs, and Utah and Seattle each play their own schedule (before, Seattle took Utah's place). It
   comes with the patch: the next Play brings it in.
@@ -116,6 +123,9 @@ The first full release.
 
 - The app updates itself. Stats start with the first World of Chel game after the server update: earlier games kept
   only their score, so they show no line.
+- **Patch again once after the update.** The first time 1.00.0 opens on a game an older Overtime patched, it asks
+  "Patch NHL 19 again?" (Patch now or Later), and Game patch says so until you do. That patch brings the new player
+  photos into the game. Your saves and rosters are not touched.
 
 ### Known limits
 

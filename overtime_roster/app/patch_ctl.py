@@ -484,6 +484,73 @@ def offer_update(ctl):
     return True
 
 
+# a patch an older Overtime made (overlay.outdated): what this version's Patch puts in otherwise (overlay.LEVEL 2)
+OUTDATED = ("Patched by an older Overtime. Press Patch again for this version's player photos: each player gets his "
+            "own, also the ones who wore someone else's face before.")
+REPATCH_LINES = (
+    'NHL 19 was patched by an older Overtime. This version puts the right photo on each player: Macklin Celebrini, '
+    "Quinn Hughes and about 250 other players wore someone else's face before.",
+    'Patch again takes a minute or two, with the switches you have on. Your saves and rosters are not touched.')
+
+
+REPATCH_POLL = 1.0     # seconds between looks at the busy flag while a job runs (repatch_after_job)
+
+
+def offer_repatch(ctl, st, running=False, wait=True):
+    """Once per app version, at the first look at the game after an update (owner 2026-11-26: "when they update we
+    need to also ask them to re-patch"): when the patch served was made by an older Overtime (overlay.outdated), ask
+    "Patch NHL 19 again?": Patch now opens Game patch and runs the one click, Later closes (the tab's state line
+    still says it). Never patches without the answer. Not while NHL 19 runs, a lobby match is set up or another
+    question is open: the next look asks then. While a job runs (the last roster opening at the start, beside Setup's
+    first look) it asks once the job is done (`wait`: repatch_after_job). Returns whether it asked."""
+    shell, setup = getattr(ctl, 'shell', None), getattr(ctl, 'setup', None)
+    if shell is None or setup is None or not (st or {}).get('applied') or not (st or {}).get('outdated'):
+        return False
+    if running or matchsetup.active() or shell.question() is not None:
+        return False
+    if ctl.busy:
+        if wait:
+            repatch_after_job(ctl)
+        return False
+    with ctl.lock:
+        if ctl.prefs.get('repatch_asked') == VERSION:
+            return False
+        ctl.remember(repatch_asked=VERSION)     # asked once: a closed app does not ask again
+    ctl.host.log(f"The patch served was made by an older Overtime (layers {', '.join(st['outdated'])}): asked to "
+                 'patch again.')
+
+    def now():
+        ctl.host.send('goto', 'patch')
+        return setup.setup_patch()
+    shell.ask('Patch NHL 19 again?', list(REPATCH_LINES),
+              [('Patch now', 'patch', 'primary'), ('Later', 'later', 'plain')], {'patch': now})
+    return True
+
+
+def repatch_after_job(ctl, limit=600.0):
+    """offer_repatch again once the job running now is done (at most `limit` seconds of waiting), on a fresh look at
+    the patch (the job may have been a Patch). One waiter at a time."""
+    with ctl.lock:
+        if getattr(ctl, 'repatch_waiting', False):
+            return
+        ctl.repatch_waiting = True
+
+    def wait():
+        try:
+            end = time.monotonic() + limit
+            while ctl.busy:
+                if time.monotonic() > end:
+                    return
+                time.sleep(REPATCH_POLL)
+            if ctl.game_dir:
+                offer_repatch(ctl, overlay.status(ctl.game_dir), overlay.emulator_running(), wait=False)
+        except EXPECTED as err:
+            ctl.host.log(f'Patch again question: {err}')
+        finally:
+            ctl.repatch_waiting = False
+    threading.Thread(target=wait, daemon=True, name='repatch-wait').start()
+
+
 SHIPPED_LOGOS = ('Club logos: made for the default roster this version ships, which has the 2018 club names. The clubs '
                  'that moved keep their old logos until you run Update and then Patch.')
 
@@ -1190,6 +1257,8 @@ def state_line(f):
     if not f['online']:
         return {'text': 'The game data is patched, but NHL 19 cannot go online yet. Press Patch again.',
                 'tone': 'caution'}
+    if f.get('outdated'):
+        return {'text': OUTDATED, 'tone': 'caution'}
     if f['changed']:
         return {'text': 'Patched. You changed the switches: press Patch again to use them.', 'tone': 'caution'}
     if f.get('leagues_changed'):
@@ -1421,6 +1490,7 @@ class PatchCtl(Part):
                 'leagues_changed': patched and picked.get('names') and leagues_changed(c, st),
                 'want': want, 'kits': patch.KITS_PACK in found, 'teams32': self.teams32 if online else None,
                 'applied_at': friendly_date(when) if patched else '', 'st': st,
+                'outdated': list(st.get('outdated') or []) if st.get('applied') else [],
             }
 
     def view(self):
