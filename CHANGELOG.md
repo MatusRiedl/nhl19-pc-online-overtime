@@ -161,6 +161,10 @@ The first full release.
   game crashes when a new Season's team screen opens (a new Classic Franchise may too). The same goes for a custom
   roster you made in the game from its own roster before Overtime. Have a roster made from Overtime default or
   your updated roster active (Customize > Rosters) before you start one. This is older than 1.00.0.
+- **Be a Pro careers begun before 0.97.0:** every Start in the CHL or Memorial Cup career started on an Overtime
+  older than 0.97.0 (2026-11-19) has a broken league (Seattle's farm team is Anaheim), even if it has not crashed
+  yet. It can crash later, at the first NHL sim or at the NHL Entry Draft after the CHL season, and it cannot be
+  repaired: start a new career. Careers started on 0.97.0 or later get the fixed league. This is older than 1.00.0.
 - **Direct P2P** is new and not yet tested between two homes. Some home routers need UDP port 3659 forwarded to
   the PC (and NHL 19's emulator allowed in the firewall), or the games cannot reach each other; then the next game
   goes through the server. Both players need Overtime Roster 1.00.0: with an older app on either side the
