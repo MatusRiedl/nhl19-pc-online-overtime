@@ -177,8 +177,9 @@ RTX30 = {'name': 'NVIDIA GeForce RTX 3080', 'rtx': 30, 'dlss': True, 'dlss5': Tr
 
 
 def test_turning_dlss_on_downloads_the_servers_file_first(sc, monkeypatch, tmp_path):
-    from overtime_roster.app import packdownload
+    from overtime_roster.app import gpuinfo, packdownload
     monkeypatch.setattr(sc, '_gpu', dict(RTX30))
+    monkeypatch.setattr(gpuinfo, 'screen_height', lambda: 1440)     # CI's Windows runner has a 768 px screen
     sc.setup_refresh()
     sc.setup_build(boost.NATIVE3)
     sc.boost_table = packdownload.published(serve(tmp_path / 'release', {'nvngx_dlss.dll': DLL,
