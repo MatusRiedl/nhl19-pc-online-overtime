@@ -2,7 +2,7 @@
 
 What changed in each version, for players.
 
-## 1.00.0 (not released yet)
+## 1.00.0 (2026-11-27)
 
 The first full release.
 
