@@ -2,7 +2,7 @@
 
 # 🏒 OVERTIME: NHL 19 Online on PC
 
-### Play **NHL 19** on your Windows PC, online again, with today's rosters.
+### Play **NHL 19** on your PC (Windows, Linux, Steam Deck or Mac), online again, with today's rosters.
 *One standalone app sets up the game, runs it and gets you into online matches. Brought to you by [Puck Peak](https://www.puckpeak.com).*
 
 [**⬇ Download the latest version**](../../releases/latest)
@@ -18,7 +18,8 @@ Questions, news and help: **[gg.puckpeak.com](https://gg.puckpeak.com)**
 
 ## ✨ What you get
 
-- 🖥 **A standalone PC app.** Download one exe, point it at your NHL 19 (its folder or the PKG) and press
+- 🖥 **A standalone PC app.** Download one file (an exe on Windows, an AppImage on Linux and Steam Deck, a dmg on
+  a Mac), point it at your NHL 19 (its folder or the PKG) and press
   **Play NHL 19**. The app installs the game from a PKG if needed, downloads the emulator it plays on and keeps it
   up to date. Nothing else to install or configure by hand.
 - ⚡ **Native performance.** NHL 19 runs on **Overtime Native**, our build of the shadPS4 emulator tuned for this game:
@@ -34,8 +35,8 @@ Questions, news and help: **[gg.puckpeak.com](https://gg.puckpeak.com)**
 - 🏟 **32 teams and the 2026-27 season.** The Seattle Kraken and Utah in Play Now, Be a Pro and a 32 Team Expansion
   Draft Franchise; up-to-date rosters for the NHL, AHL and the European leagues; the real NHL, AHL and Liiga calendars.
   Online games download the current online roster by themselves.
-- 👕 **Today's look.** NHL 27 kits and equipment, NHL.com photos and logos, club logos and kits: optional packs, one
-  Download button each.
+- 👕 **Today's look.** NHL 27 kits and equipment, NHL.com photos and logos, club logos and kits: all on from the
+  start, downloaded by the app the first time it finds NHL 19 (about 650 MB). Switch off what you do not want.
 - ✏️ **A full roster editor.** Players, numbers, ratings, lines, strategies, jerseys and gear, contracts and the
   salary cap, free agents. Save stops only what would corrupt the roster or crash the game.
 - 🎛 **Controllers and keyboard.** Map any pad, or play on keyboard and mouse, from inside the app.
@@ -53,6 +54,7 @@ Questions, news and help: **[gg.puckpeak.com](https://gg.puckpeak.com)**
 
 1. Download `OvertimeNHL19.exe` (Windows 10 or 11) from the [release page](../../releases/latest) and start it.
    Windows SmartScreen warns because the exe is not signed: choose **More info**, then **Run anyway**.
+   Linux, Steam Deck or a Mac: see [Linux, Steam Deck and Mac](QUICKSTART.md#linux-steam-deck-and-mac).
 2. **Setup → Find game**: pick your NHL 19 folder (its `eboot.bin`) or the game PKG. The app installs a PKG for you.
 3. **Game patch → Patch**, then the green **Play NHL 19** button. The first press downloads the emulator.
 4. For online play, sign in or sign up for ShadNet on the **Multiplayer** tab, then press PLAY in any online mode or
@@ -62,7 +64,10 @@ Step by step: [QUICKSTART.md](QUICKSTART.md).
 
 ## What you need
 
-- A Windows 10 or 11 PC with a graphics card that runs NHL 19 in shadPS4, and about 10 GB of free memory while playing.
+- A PC with Windows 10 or 11, Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, SteamOS 3.6 or newer), or a
+  Mac with macOS 26 or newer; a graphics card that runs NHL 19 in shadPS4, and about 10 GB of free memory while
+  playing. The CPU: a 64-bit Intel (4th generation, 2013, or newer) or AMD Ryzen; a Mac with an Apple chip runs
+  the game through Apple's Rosetta.
 - Your own NHL 19: **CUSA11126 with update 1.60** (a game folder or the PKGs). The app refuses other versions.
 - A free **ShadNet** account for online play (made inside the app).
 
@@ -77,8 +82,10 @@ Step by step: [QUICKSTART.md](QUICKSTART.md).
 
 The game patch and data changes go into overlay folders next to the game; the game folder itself is only ever read.
 The roster app reads the game's own data from your copy at runtime. The emulator builds the app downloads are
-GPL-2.0: Overtime Native's source is at [MatusRiedl/shadPS4](https://github.com/MatusRiedl/shadPS4/tree/overtime-nightly)
-(branch `overtime-nightly`), Kravickas's at [Kravickas/shadPS4](https://github.com/Kravickas/shadPS4).
+GPL-2.0: Overtime Native's source is at [MatusRiedl/shadPS4](https://github.com/MatusRiedl/shadPS4) (v3 for Windows:
+branch [`overtime-native-v3-fg`](https://github.com/MatusRiedl/shadPS4/tree/overtime-native-v3-fg); v2 for Linux and
+Mac: branch [`overtime-native-v2`](https://github.com/MatusRiedl/shadPS4/tree/overtime-native-v2)), Kravickas's at
+[Kravickas/shadPS4](https://github.com/Kravickas/shadPS4).
 
 For developers: [AGENTS.md](AGENTS.md).
 

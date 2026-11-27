@@ -79,9 +79,13 @@ The first full release.
   Mode) the app shows the steps to add it to Steam as a Non-Steam game instead of making a menu entry, its message
   boxes are KDE's, and the window fits the Deck's 1280x800 screen. Each build is checked on Ubuntu 22.04 and 24.04,
   on Arch Linux with AMD's Mesa driver (what SteamOS is built on) and on macOS 26 with Apple and Intel chips.
+  To play, Linux needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, SteamOS 3.6 or newer: Ubuntu 22.04 opens
+  the app but cannot run the game) and a Mac needs macOS 26 or newer (an Apple chip runs the game through
+  Rosetta, which the app offers to install). The app checks this on Setup. First steps: QUICKSTART.md.
 
 ### Changed
-- **Every Patch switch is on.** 1.00.0 turns on every switch of the Patch tab once, for new and older installs
+- **Every Patch switch is on.** 1.00.0 turns on every switch of the Patch tab once (all but "Skip the first-run
+  setup"), for new and older installs
   alike: the jersey and ice packs, World of Chel's tile and the roster update's parts too, so everyone gets the
   whole thing. The packs download when the app first finds NHL 19 (about 650 MB; the club jerseys take about 3 GB
   on the disk once made), and "Patch NHL 19 again?" waits for them. Switch off what you do not want: it stays off.
