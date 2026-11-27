@@ -871,6 +871,21 @@ def test_pack_switches_need_the_pack():
     assert served['photos'] and served['art'] and not served['kits']
 
 
+def test_an_all_on_patch_with_the_people_pack_is_not_changed():
+    """1.00.0 real-exe check (2026-11-27): with people.zip here Patch serves it instead of photos.zip, and the tab said
+    "You changed the switches: press Patch again" for ever. The art packs as that Patch recorded them."""
+    from overtime_roster.app import patch_ctl
+    names = ['looks', 'ice-all', 'rink', 'kits', 'kits-pants', 'alts-nhl', 'alts-intl', 'alts-clubs', 'people', 'looks',
+             'alts-hometown', 'people_local', 'clubart_local']
+    st = {'layers': {'names': {}, 'text': {}, 'database': {}, 'league': {}, 'menus': {'options': {'chel': True}},
+                     'art': {'packs': [{'name': n} for n in names]}}}
+    served = patch_ctl.served(st)
+    assert all(served.values()), [k for k, on in served.items() if not on]
+    assert not patch_ctl.served({'layers': {'art': {'packs': [{'name': 'looks'}, {'name': 'clubart_local'}]}}})['photos']
+    chips = {c['key']: c['text'] for c in patch_ctl.chips(st, True)}
+    assert chips['photos'] == 'NHL.com player photos' and chips['art'] == '4 art packs'   # looks x2, rink, clubart_local
+
+
 def _card(sc):
     return sc.pack_card(sc.known_emulator())
 

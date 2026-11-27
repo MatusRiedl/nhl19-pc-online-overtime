@@ -170,13 +170,20 @@ def left_out_text(lang, left):
 
 
 def served(st):
-    """{switch key: bool} of what overlay.status() says the game is served now."""
+    """{switch key: bool} of what overlay.status() says the game is served now. The photos: photos.zip, or since
+    1.00.0 the people packs (`people`, `people_local`, ...), which Patch serves instead of photos.zip when the people
+    pack is here (patch.art_packs); the real-exe check of 2026-11-27 saw "press Patch again" for ever without them."""
     ly = (st or {}).get('layers') or {}
     packs = [str(p.get('name', '') if isinstance(p, dict) else p).lower() for p in (ly.get('art') or {}).get('packs') or []]
     return {'names': 'names' in ly, 'roster': 'database' in ly, 'league': 'league' in ly, 'text': 'text' in ly,
             'menus': 'menus' in ly, 'chel': bool(((ly.get('menus') or {}).get('options') or {}).get('chel')),
-            'art': 'art' in ly, 'photos': any('photos' in p for p in packs), 'kits': any('kits' in p for p in packs),
+            'art': 'art' in ly, 'photos': any(_photos_pack(p) for p in packs), 'kits': any('kits' in p for p in packs),
             **{key: key.replace('_', '-') in packs for key in EXTRA_KEYS}}
+
+
+def _photos_pack(name):
+    """A served art pack's own name (lowercase) is one of the player photos: photos.zip's or a people pack's."""
+    return 'photos' in name or name.split('_')[0] == 'people'
 
 
 def why(want, key, found, missing_ok=False):
@@ -1192,7 +1199,8 @@ def chips(st, teams32):
     if now['art']:
         packs = [p for p in (ly.get('art') or {}).get('packs') or []
                  if not any(w in str(p.get('name', '') if isinstance(p, dict) else p).lower()
-                            for w in ('kits', 'photos', 'alts-', 'ice-all'))]
+                            for w in ('kits', 'alts-', 'ice-all'))
+                 and not _photos_pack(str(p.get('name', '') if isinstance(p, dict) else p).lower())]
         add('art', f"{len(packs)} art pack{'s' if len(packs) != 1 else ''}" if packs else 'Team art')
     if now['photos']:
         add('photos', 'NHL.com player photos')
