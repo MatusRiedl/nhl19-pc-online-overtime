@@ -104,11 +104,17 @@ def team_row(m, you, now):
     names = {p['pid']: p['name'] for p in m['players']}
     tone, text = _status(r, names, you)
     sides = []
+    claims = m.get('claims') or {}
     for s in order:
         on = [p for p in m['players'] if side_of[p['pid']] == s]
         score = next((x['score'] for x in r.get('sides') or [] if x['side'] == s), None)
+        # each player's own line from his report (v1.00.0 server), a goalie's first
+        lines = [{'name': p['name'], 'you': p['pid'] == you, **_woc_of({'line': H.woc_line(st)})}
+                 for p in on for st in [(claims.get(p['pid']) or {}).get('stats')] if st and H.is_woc(m.get('mode'))]
+        lines.sort(key=lambda x: x['pos'] != 'G')
         sides.append({'names': [p['name'] + (' (left)' if p.get('left') else '') for p in on], 'score': score,
-                      'won': any(x['side'] == s and x['won'] for x in r.get('sides') or []), 'you': s == mine})
+                      'won': any(x['side'] == s and x['won'] for x in r.get('sides') or []), 'you': s == mine,
+                      'lines': lines})
     players = [p for s in order for p in m['players'] if side_of[p['pid']] == s]
     return {'id': m['id'], 'ago': ago(now - m['started']), 'mode': m.get('mode') or 'chel_dropin',
             'rules': short_rules(m.get('rules')), 'status': r['status'], 'tone': tone, 'text': text, 'mine': mine is not None,
@@ -220,10 +226,11 @@ def detail_view(d, you, now):
         return None
     recent = [{'id': m['id'], 'ago': ago(now - m['started']), 'status': m['status'], 'result': m['result'],
                'opponent': m['opponent']['name'], 'team': m['team'], 'opp_team': m['opp_team'], 'for': m['for'],
-               'against': m['against'], 'rules': short_rules(m.get('rules'))} for m in d['recent']]
+               'against': m['against'], 'rules': short_rules(m.get('rules')), 'mode': m.get('mode') or 'versus',
+               **_woc_of(m)} for m in d['recent']]
     return {'pid': d['pid'], 'name': d['name'], 'you': d['pid'] == you, 'w': d['w'], 'l': d['l'], 'played': d['played'],
             'gf': d['gf'], 'ga': d['ga'], 'opponents': d['opponents'], 'teams': d['teams'], 'against': d['against'],
-            'recent': recent}
+            'recent': recent, 'woc': woc_view(d.get('woc'))}
 
 
 def toa_text(seconds):
@@ -302,10 +309,10 @@ def games_view(d, now):
               'opponent': m['opponent']['name'], 'team': m['team'], 'opp_team': m['opp_team'], 'for': m['for'],
               'against': m['against'], 'rules': short_rules(m.get('rules')), 'mode': m.get('mode') or 'versus',
               'box': [{'label': r['label'], 'me': _shown(r['key'], r['me']), 'them': _shown(r['key'], r['them'])}
-                      for r in m.get('box') or []]} for m in d['recent']]
+                      for r in m.get('box') or []], **_woc_of(m)} for m in d['recent']]
     return {'w': d['w'], 'l': d['l'], 'played': d['played'], 'gf': d['gf'], 'ga': d['ga'], 'overall': overall,
-            'shootout': shootout_view(d.get('shootout')), 'games': games, 'with_stats': sum(1 for g in games if g['box']),
-            'chart': goals_chart(d['recent'])}
+            'shootout': shootout_view(d.get('shootout')), 'woc': woc_view(d.get('woc')), 'games': games,
+            'with_stats': sum(1 for g in games if g['box']), 'chart': goals_chart(d['recent'])}
 
 
 def shootout_view(so):
@@ -319,6 +326,71 @@ def shootout_view(so):
             'rates': [{'label': label, 'value': f"{so['rates'][k]:g}%"} for k, label in (('shooting', 'Scoring'),
                                                                                       ('saving', 'Saves'))
                       if so['rates'].get(k) is not None]}
+
+
+# World of Chel (v1.00.0): each player's own line from the game's report, skater and goalie numbers apart (owner
+# 2026-11-24: goalies get their own metrics). PIM waits for the first live report with penalties (skpim's unit).
+
+def _plusmin(n):
+    return f'{n:+d}' if n else '±0'
+
+
+svpct_text = H.svpct_text
+
+
+def woc_line_text(line):
+    """One WoC game's line in a few words, None without one: 'SV 18/20 .900, GA 2' (goalie), 'G 1 A 2 +1' (skater)."""
+    if not isinstance(line, dict):
+        return None
+    if line.get('role') == H.GOALIE:
+        if not line.get('shots'):
+            return f"GA {line.get('ga', 0)}"
+        return f"SV {line['saves']}/{line['shots']} {svpct_text(line.get('svpct'))}, GA {line.get('ga', 0)}"
+    return f"G {line.get('g', 0)} A {line.get('a', 0)} {_plusmin(line.get('plusmin', 0))}"
+
+
+def _of(saves, shots, pct):
+    return f'{saves}/{shots} ({svpct_text(pct)})'
+
+
+def woc_view(woc):
+    """My World of Chel numbers, `skater` and `goalie` apart, each shown only with games: {games, record, cells, extra}
+    ([{label, value}]). None before a WoC game that carries my line (or from a server without them)."""
+    if not isinstance(woc, dict):
+        return None
+    sk, gl = woc.get(H.SKATER), woc.get(H.GOALIE)
+    out = {'skater': None, 'goalie': None}
+    if sk:
+        cells = (('GP', sk['gp']), ('G', sk['g']), ('A', sk['a']), ('PTS', sk['pts']), ('+/-', _plusmin(sk['plusmin'])),
+                 ('Shots', sk['shots']), ('Hits', sk['hits']), ('PPG', sk['ppg']), ('SHG', sk['shg']), ('GWG', sk['gwg']))
+        extra = (('Shooting', f"{sk['shooting']:g}%" if sk.get('shooting') is not None else None),
+                 ('Takeaways', sk['tk']), ('Giveaways', sk['gv']), ('Blocked shots', sk['bs']))
+        out['skater'] = {'games': sk['gp'], 'record': f"{sk['w']}–{sk['l']}",
+                         'cells': [{'label': k, 'value': str(v)} for k, v in cells],
+                         'extra': [{'label': k, 'value': str(v)} for k, v in extra if v is not None]}
+    if gl:
+        cells = (('GP', gl['gp']), ('Shots against', gl['shots']), ('Saves', gl['saves']), ('GA', gl['ga']),
+                 ('SV%', svpct_text(gl['svpct'])), ('GAA', f"{gl['gaa']:.2f}" if gl.get('gaa') is not None else '-'),
+                 ('Shutouts', gl['so']))
+        extra = []
+        for label, shots, saves, pct in (('Breakaways', gl['brk_shots'], gl['brk_saves'], gl['brk_svpct']),
+                                         ('Penalty shots', gl['pen_shots'], gl['pen_saves'], gl['pen_svpct']),
+                                         ('Shootout', gl['so_shots'], gl['so_saves'], gl['so_svpct'])):
+            if shots:
+                extra.append({'label': label, 'value': _of(saves, shots, pct)})
+        extra += [{'label': 'Desperation saves', 'value': str(gl['dsaves'])},
+                  {'label': 'Poke checks', 'value': str(gl['pokes'])}]
+        out['goalie'] = {'games': gl['gp'], 'record': f"{gl['w']}–{gl['l']}",
+                         'cells': [{'label': k, 'value': str(v)} for k, v in cells], 'extra': extra}
+    return out if out['skater'] or out['goalie'] else None
+
+
+def _woc_of(m):
+    """A recent row's WoC part: {line, pos} (the text and G or the skater's position), {} for any other game."""
+    line = m.get('line')
+    if not isinstance(line, dict):
+        return {}
+    return {'line': woc_line_text(line), 'pos': line.get('pos')}
 
 
 def review_view(rv):

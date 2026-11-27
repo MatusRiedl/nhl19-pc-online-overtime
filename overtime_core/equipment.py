@@ -828,6 +828,118 @@ def rgb(c):
     return (c >> 16) & 255, (c >> 8) & 255, c & 255
 
 
+# --- shades: the gear's colours as a player sees them (Jerseys & gear, owner 2026-11-25) ------------------------------
+# NHL 19's gear rows wear near copies of one colour (black as 000000, 0F0F0F, 1B1B1B and 202020; white as E7E7E7,
+# EAE8E0 and the cream E3DECA), and each jersey's rows wear their own copy: changing one copy changed one jersey's gear
+# only (the "only the alternates change" report). Shades of one colour are changed together.
+NEUTRALS = ((0.30, 'Black'), (0.50, 'Dark grey'), (0.72, 'Grey'), (0.84, 'Silver'), (1.01, 'White'))
+SHADE_HUE, SHADE_VALUE, SHADE_SATURATION = 15, 0.22, 0.35
+
+
+def _hsv(c):
+    return colorsys.rgb_to_hsv(*(x / 255 for x in rgb(c)))
+
+
+def neutral(c):
+    """'Black', 'Dark grey', 'Grey', 'Silver' or 'White' for a colour without a hue of its own (cream is white), else
+    None."""
+    _h, s, v = _hsv(c)
+    if v < 0.16 or s < 0.22:
+        return next(name for top, name in NEUTRALS if v < top)
+    return None
+
+
+def colour_name(c):
+    """A plain name of a colour 0xRRGGBB: 'Black', 'Navy', 'Red', 'Gold'..."""
+    name = neutral(c)
+    if name:
+        return name
+    h, s, v = _hsv(c)
+    h *= 360
+    if h < 12 or h >= 340:
+        return 'Maroon' if v < 0.55 else 'Red'
+    if h < 40:
+        return 'Brown' if v < 0.6 else 'Orange'
+    if h < 68:
+        return 'Gold' if h < 50 or v < 0.85 else 'Yellow'     # Vegas gold B4975A and Boston's FFB81C; FFFF00
+    if h < 165:
+        return 'Green'
+    if h < 200:
+        return 'Teal'
+    if h < 255:
+        return 'Navy' if v < 0.5 else 'Blue'
+    if h < 290:
+        return 'Purple'
+    return 'Pink' if v > 0.7 and s < 0.7 else 'Magenta'
+
+
+def _same_shade(a, b):
+    na, nb = neutral(a), neutral(b)
+    if na or nb:
+        return na == nb
+    (ha, sa, va), (hb, sb, vb) = _hsv(a), _hsv(b)
+    return (_apart(round(ha * 360), round(hb * 360)) <= SHADE_HUE and abs(va - vb) <= SHADE_VALUE
+            and abs(sa - sb) <= SHADE_SATURATION)
+
+
+def shades(colours):
+    """[(colour, [its shades], zones)] of [(0xRRGGBB, zones)] (most used first): each colour joins the first group whose
+    colour (its most used shade) it is a shade of; the most used group first."""
+    groups = []
+    for c, n in colours:
+        g = next((g for g in groups if _same_shade(g[0], c)), None)
+        if g is None:
+            groups.append([c, [c], n])
+        else:
+            g[1].append(c)
+            g[2] += n
+    return [tuple(g) for g in sorted(groups, key=lambda g: -g[2])]
+
+
+# --- jerseys and the gear worn with them ------------------------------------------------------------------------------
+JERSEY_TABLES = {STOCK: 'stockteamjerseys', CUSTOM: 'customteamjerseys'}
+JERSEY_LABELS = {0: 'Home', 1: 'Away', 2: 'Alternate'}  # stockteamjerseys.locstring 0 HOME, 1 AWAY, 2 ALTERNATE
+
+
+def team_jerseys(db, team, table=STOCK, relabel=None):
+    """[(label, style, variant)] of a team's jerseys the game names Home, Away and Alternate (locstring 0-2), in that
+    order; `relabel` {(style, variant): locstring}: the kit packs' alternates (art.alternate_rows), which name a
+    throwback row ALTERNATE after Patch."""
+    name = JERSEY_TABLES.get(table)
+    if name not in db:
+        return []
+    t, out = db[name], []
+    for i in range(t.count):
+        if t.get(i, 'teamid') != team:
+            continue
+        key = (t.get(i, 'style'), t.get(i, 'variant'))
+        loc = (relabel or {}).get(key, t.get(i, 'locstring'))
+        if loc in JERSEY_LABELS and key not in [(s, v) for _l, s, v, _k in out]:
+            out.append((loc, key[0], key[1], (key in (relabel or {}), len(out))))     # the game's own first
+    out.sort(key=lambda x: (x[0], x[3]))
+    seen, named = {}, []
+    for loc, style, variant, _k in out:
+        seen[loc] = seen.get(loc, 0) + 1
+        label = JERSEY_LABELS[loc] + (f' {seen[loc]}' if seen[loc] > 1 else '')
+        named.append((label, style, variant))
+    return named
+
+
+def jersey_gear(db, team, style, variant, table=STOCK, categories=GEAR):
+    """{category: row} of the gear worn with a jersey (style, variant). Inferred from the rows (docs/notes/jerseys-gear.md,
+    not seen in game yet): a gear row's variant is the jersey's variant and its era the jersey's style, -1 for any;
+    the most specific row wins, the variant first."""
+    t, out = db[table], {}
+    for i in gear_rows(db, team, table, categories):
+        v, e = t.get(i, 'variant'), t.get(i, 'era')
+        if v not in (variant, -1) or e not in (style, -1):
+            continue
+        cat, rank = t.get(i, 'equipment'), (v == variant, e == style)
+        if cat not in out or rank > out[cat][0]:
+            out[cat] = (rank, i)
+    return {cat: i for cat, (_rank, i) in out.items()}
+
+
 def hue_of(c):
     """The hue (degrees) of a colour 0xRRGGBB, or None for black, white, grey and silver."""
     h, s, v = colorsys.rgb_to_hsv(*(x / 255 for x in rgb(c)))
@@ -838,13 +950,13 @@ def _apart(a, b):
     return min((a - b) % 360, (b - a) % 360)
 
 
-def proposal(db, team, new, old, table=STOCK, categories=GEAR):
+def proposal(db, team, new, old, table=STOCK, categories=GEAR, others=True):
     """{gear colour: new colour} that moves a team's gear from its old colours to `new` (both [primary, secondary,
     tertiary] 0xRRGGBB; `old` usually the game's default roster's, `new` the team's now: Utah in Arizona's slot).
     The gear's colours other than black, white and grey are grouped by hue, the most used group first: a group with
     the hue of an old colour that changed takes the new colour of the same rank; a group no old colour has takes a new
-    colour not used yet (black, white and grey ones last); black, white and grey gear stays. Empty when nothing
-    changed."""
+    colour not used yet (black, white and grey ones last; with others=False it stays: the gear following a team colour
+    change); black, white and grey gear stays. Empty when nothing changed."""
     new, old = list(new), list(old)
     if new == old or not new:
         return {}
@@ -871,7 +983,7 @@ def proposal(db, team, new, old, table=STOCK, categories=GEAR):
         if new[k] != old[k]:
             out.update({c: new[k] for c in cs})
     free = sorted((c for c in new if c not in used), key=lambda c: hue_of(c) is None)
-    for cs, c in zip(later, free):
+    for cs, c in zip(later if others else (), free):
         out.update({x: c for x in cs})
     return out
 

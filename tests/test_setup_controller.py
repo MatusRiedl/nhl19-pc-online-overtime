@@ -871,6 +871,21 @@ def test_pack_switches_need_the_pack():
     assert served['photos'] and served['art'] and not served['kits']
 
 
+def test_an_all_on_patch_with_the_people_pack_is_not_changed():
+    """1.00.0 real-exe check (2026-11-27): with people.zip here Patch serves it instead of photos.zip, and the tab said
+    "You changed the switches: press Patch again" for ever. The art packs as that Patch recorded them."""
+    from overtime_roster.app import patch_ctl
+    names = ['looks', 'ice-all', 'rink', 'kits', 'kits-pants', 'alts-nhl', 'alts-intl', 'alts-clubs', 'people', 'looks',
+             'alts-hometown', 'people_local', 'clubart_local']
+    st = {'layers': {'names': {}, 'text': {}, 'database': {}, 'league': {}, 'menus': {'options': {'chel': True}},
+                     'art': {'packs': [{'name': n} for n in names]}}}
+    served = patch_ctl.served(st)
+    assert all(served.values()), [k for k, on in served.items() if not on]
+    assert not patch_ctl.served({'layers': {'art': {'packs': [{'name': 'looks'}, {'name': 'clubart_local'}]}}})['photos']
+    chips = {c['key']: c['text'] for c in patch_ctl.chips(st, True)}
+    assert chips['photos'] == 'NHL.com player photos' and chips['art'] == '4 art packs'   # looks x2, rink, clubart_local
+
+
 def _card(sc):
     return sc.pack_card(sc.known_emulator())
 
@@ -1278,6 +1293,115 @@ def test_patch_writes_wait_while_a_lobby_match_setup_is_in_place(sc, monkeypatch
     assert patch_ctl.look(sc)['match_setup'] is True
 
 
+def test_a_look_rewrites_a_menus_layer_an_older_overtime_wrote(monkeypatch):
+    """Owner 2026-11-25: 1.00.0 opened on a game 0.99.2 patched said Patched while its PLAY menu had no Ones."""
+    from overtime_roster.app import matchsetup, patch_ctl
+    calls, logs, stale = [], [], {'v': True}
+    ctl = types.SimpleNamespace(host=types.SimpleNamespace(log=logs.append))
+    monkeypatch.setattr(overlay, 'menus_stale', lambda game_dir: stale['v'])
+    monkeypatch.setattr(overlay, 'set_menus', lambda game_dir, launch: calls.append((game_dir, launch)))
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+    assert patch_ctl.refresh_menus(ctl, 'G') is True and calls == [('G', None)] and 'older Overtime' in logs[-1]
+    stale['v'] = False
+    assert patch_ctl.refresh_menus(ctl, 'G') is False and len(calls) == 1
+    stale['v'] = True
+    for running, match in ((True, False), (False, True)):          # NHL 19 running, a lobby match set up: later
+        monkeypatch.setattr(overlay, 'emulator_running', lambda r=running: r)
+        monkeypatch.setattr(matchsetup, 'active', lambda m=match: m)
+        assert patch_ctl.refresh_menus(ctl, 'G') is False and len(calls) == 1
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+
+    def changed(game_dir, launch):
+        raise overlay.PatchError('boot.big changed since the patch wrote it')
+    monkeypatch.setattr(overlay, 'set_menus', changed)
+    assert patch_ctl.refresh_menus(ctl, 'G') is False and 'changed since' in logs[-1]   # only the log: the patch stays
+
+
+def _repatch_ctl(question=None):
+    """A controller for offer_repatch: prefs, a shell that records its question, a Setup whose Patch is counted."""
+    asked, patched, sent = [], [], []
+
+    class Shell:
+        def question(self):
+            return question
+
+        def ask(self, title, lines, buttons, answers=None, tone=''):
+            asked.append({'title': title, 'lines': lines, 'buttons': buttons, 'answers': answers or {}})
+
+    ctl = types.SimpleNamespace(prefs={}, lock=threading.RLock(), busy=None, shell=Shell(),
+                                setup=types.SimpleNamespace(setup_patch=lambda: patched.append(1)),
+                                host=types.SimpleNamespace(log=lambda m: None, send=lambda e, p=None: sent.append(e)))
+    ctl.remember = lambda **kv: ctl.prefs.update(kv)
+    return ctl, asked, patched, sent
+
+
+def test_an_older_overtimes_patch_is_asked_about_once_and_never_patched_without_the_answer(monkeypatch):
+    """Owner 2026-11-26: when players update the app, ask them to re-patch (overlay.outdated: an older level)."""
+    from overtime_roster import VERSION
+    from overtime_roster.app import matchsetup, patch_ctl
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+    old = {'applied': True, 'layers': {'database': {}, 'menus': {}}, 'outdated': ['database']}
+    for st in (None, {'applied': False}, dict(old, outdated=[])):      # no patch, or this version's: nothing to ask
+        ctl, asked, patched, _sent = _repatch_ctl()
+        assert patch_ctl.offer_repatch(ctl, st) is False and asked == [] and 'repatch_asked' not in ctl.prefs
+    ctl, asked, patched, sent = _repatch_ctl()
+    assert patch_ctl.offer_repatch(ctl, old, running=True) is False and asked == []      # NHL 19 runs: a later look
+    ctl.busy = 'Patching...'
+    assert patch_ctl.offer_repatch(ctl, old, wait=False) is False and asked == []
+    ctl.busy = None
+    monkeypatch.setattr(matchsetup, 'active', lambda: True)
+    assert patch_ctl.offer_repatch(ctl, old) is False and asked == []
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+    busy_ctl, busy_asked, _p, _s = _repatch_ctl(question={'id': 1})         # another question is open
+    assert patch_ctl.offer_repatch(busy_ctl, old) is False and busy_asked == []
+    assert patch_ctl.offer_repatch(ctl, old) is True and patched == []          # asked, nothing patched yet
+    q = asked[0]
+    assert q['title'] == 'Patch NHL 19 again?' and [b[1] for b in q['buttons']] == ['patch', 'later']
+    assert 'older Overtime' in q['lines'][0] and ctl.prefs['repatch_asked'] == VERSION
+    assert patch_ctl.offer_repatch(ctl, old) is False and len(asked) == 1     # once per version
+    q['answers']['patch']()                                                    # Patch now: Game patch, the one click
+    assert sent == ['goto'] and patched == [1]
+    ctl.prefs['repatch_asked'] = '0.99.3'                                      # the next update asks again
+    assert patch_ctl.offer_repatch(ctl, old) is True and len(asked) == 2
+
+
+def test_the_question_waits_for_the_roster_opening_at_the_start(monkeypatch):
+    """Setup's first look can end while the last roster opens (busy): the question comes once that job is done, on a
+    fresh look at the patch (a Patch that ran meanwhile made it this version's: nothing to ask then)."""
+    import time
+    from overtime_roster.app import matchsetup, patch_ctl
+    monkeypatch.setattr(matchsetup, 'active', lambda: False)
+    monkeypatch.setattr(patch_ctl, 'REPATCH_POLL', 0.01)
+    monkeypatch.setattr(overlay, 'emulator_running', lambda: False)
+    served = {'st': {'applied': True, 'layers': {'database': {}}, 'outdated': ['database']}}
+    monkeypatch.setattr(overlay, 'status', lambda game_dir: served['st'])
+    for st, want in ((served['st'], 1), ({'applied': True, 'layers': {'database': {}}, 'outdated': []}, 0)):
+        ctl, asked, patched, _sent = _repatch_ctl()
+        ctl.game_dir, ctl.busy = 'G', 'Opening Old roster...'
+        old = {'applied': True, 'layers': {'database': {}}, 'outdated': ['database']}
+        served['st'] = st
+        assert patch_ctl.offer_repatch(ctl, old) is False and asked == []
+        assert patch_ctl.offer_repatch(ctl, old) is False          # one waiter
+        time.sleep(0.05)
+        assert asked == []                                          # still busy
+        ctl.busy = None
+        end = time.monotonic() + 3
+        while time.monotonic() < end and (len(asked) < want or ctl.repatch_waiting):
+            time.sleep(0.01)
+        assert len(asked) == want and patched == [] and not ctl.repatch_waiting
+
+
+def test_the_game_patch_card_says_an_older_overtime_made_the_patch():
+    from overtime_roster.app import patch_ctl
+    f = {'busy': '', 'checked': True, 'running': False, 'match_setup': False, 'error': '', 'patched': True,
+         'problems': [], 'online': True, 'outdated': ['database'], 'changed': True}
+    assert patch_ctl.state_line(f) == {'text': patch_ctl.OUTDATED, 'tone': 'caution'}
+    f['outdated'] = []
+    assert 'switches' in patch_ctl.state_line(f)['text']
+
+
 def test_the_game_patch_card_says_a_match_setup_is_in_place():
     from overtime_roster.app import patch_ctl
     f = {'busy': '', 'checked': True, 'running': False, 'match_setup': True, 'error': '', 'patched': False,
@@ -1430,11 +1554,11 @@ def test_frame_rate_choice_saves_the_vblank(sc, monkeypatch):
     assert 'error' in sc.setup_framerate(60)
 
 
-def test_60_and_120_move_to_unlocked_once_per_data_folder(sc, monkeypatch):
-    """owner 2026-11-13 ("make the app default into ... unlocked frame rate"): players on 60 fps (0.91.1's default) or
-    120 fps (0.91.0's, 0.92.0's first build) go to Unlocked once; 60 or 120 picked again later stays, and so does a
-    hand-set other value."""
-    assert SC.UNLOCK_MOVE not in (SC.FPS_MOVE, SC.FPS120_MOVE, 'fps120:')   # not an older mark: every folder moves once
+def test_every_rate_moves_to_unlocked_once_per_data_folder(sc, monkeypatch):
+    """owner 2026-11-13 ("make the app default into ... unlocked frame rate") moved 60 and 120 once; 1.00.0 (owner
+    2026-11-26: "make sure the unlimited FPS is selected by default by everyone") moves every folder once more, any
+    rate (a hand-set one too, and folders the first move marked). Picked again after that, a rate stays."""
+    assert SC.UNLOCK_MOVE not in (SC.FPS_MOVE, SC.FPS120_MOVE, 'fps120:', SC.UNLOCK_MOVE_0)   # a new mark: all move
     rate, saved = {'v': 60}, []
     monkeypatch.setattr(SC.emusettings, 'frame_rate', lambda user: rate['v'])
     monkeypatch.setattr(SC.emusettings, 'save', lambda user, ch, res: saved.append(ch) or rate.update(v=ch[SC.emusettings.FPS_ID]))
@@ -1452,14 +1576,16 @@ def test_60_and_120_move_to_unlocked_once_per_data_folder(sc, monkeypatch):
         rate['v'] = again
         sc._fps_move('U', 'k')
         assert len(saved) == 1
-    rate['v'] = 120                                                     # a folder 0.92.0's first build moved to 120
-    sc.defaults_done.append(SC.FPS120_MOVE + 'was120')
+    rate['v'] = 120                                                     # a folder the first move marked, on 120 since
+    sc.defaults_done.append(SC.UNLOCK_MOVE_0 + 'was120')
     sc._fps_move('U', 'was120')
     assert saved[1:] == [{'GPU.vblank_frequency': 9999}] and SC.UNLOCK_MOVE + 'was120' in sc.defaults_done
-    for value, folder in ((9999, 'unlocked'), (144, 'hand')):           # these stay
-        rate['v'] = value
-        sc._fps_move('U', folder)
-        assert len(saved) == 2 and SC.UNLOCK_MOVE + folder in sc.defaults_done
+    rate['v'] = 144                                                     # a hand-set rate moves too
+    sc._fps_move('U', 'hand')
+    assert saved[2:] == [{'GPU.vblank_frequency': 9999}] and SC.UNLOCK_MOVE + 'hand' in sc.defaults_done
+    rate['v'] = 9999                                                    # Unlocked already: nothing written
+    sc._fps_move('U', 'unlocked')
+    assert len(saved) == 3 and SC.UNLOCK_MOVE + 'unlocked' in sc.defaults_done
 
 
 def test_write_at_once_goes_off_once_per_data_folder(sc, monkeypatch):
@@ -1770,3 +1896,13 @@ def test_compute_off_switch_writes_the_patch_file_and_is_kept(sc):
     said = len(sc.ctl.said)
     assert sc.setup_compute(False) == {'ok': True} and len(sc.ctl.said) == said       # no change: nothing said
     assert sc._boost_card(emu)['compute_off'] is False and sc._boost_card(emu)['resolution'] == 4320
+
+
+def test_patch_serves_the_leagues_my_edits_keeps(sc, monkeypatch):
+    from overtime_roster.app import patch_ctl
+    khl, got = {'name': 'KHL', 'slot': 'del', 'clubs': []}, []
+    monkeypatch.setattr(patch_ctl, 'kept_leagues', lambda ctl: [khl])
+    monkeypatch.setattr(overlay, 'apply', lambda game_dir, layers, leagues=None, **kw: got.append(leagues) or {'layers': layers})
+    sc.setup_refresh()
+    sc.setup_patch()
+    assert got == [[khl]]

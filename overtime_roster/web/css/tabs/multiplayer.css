@@ -352,6 +352,26 @@
 .mp-box-row > :first-child { text-align: left; }
 .mp-box-row.head { opacity: .7; }
 .mp-box-none { padding: 4px 10px 8px 34px; }
+
+/* World of Chel lines (v1.00.0): each player's own line under a team match, my numbers as skater and as goalie */
+.tab-multiplayer .mp-match-lines { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; padding-top: 2px;
+  border-top: 1px solid var(--line-hi); }
+.mp-lines { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12.5px; color: var(--text-3); }
+.mp-lines.you { color: var(--text-2); }
+.mp-line { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.mp-line b { color: var(--text-2); font-weight: 600; }
+.mp-pos { flex: none; min-width: 22px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center;
+  margin-right: 6px; background: var(--tile-hi); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); }
+.mp-line .mp-pos { margin-right: 0; }
+.mp-pos.goalie { background: color-mix(in srgb, var(--accent) 35%, var(--tile-hi)); color: var(--text); }
+.mp-woc { display: flex; flex-direction: column; gap: 8px; }
+.mp-woc-part { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--tile); }
+.mp-woc-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--text-3); }
+.mp-woc-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.mp-woc-cell { display: flex; flex-direction: column; gap: 1px; padding: 4px 6px; background: var(--panel-deep); }
+.mp-woc-cell b { font-size: 17px; color: var(--text); font-variant-numeric: tabular-nums; }
+.mp-woc-cell span { font-size: 11px; color: var(--text-3); }
+.mp-woc .mp-rates { margin-top: 2px; }
 .tab-multiplayer .mp-signin { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .tab-multiplayer .mp-signin .field { flex: 1; min-width: 0; }
 .tab-multiplayer .mp-signin a { color: var(--accent); }

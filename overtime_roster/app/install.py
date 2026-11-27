@@ -18,7 +18,7 @@ import os
 import time
 from dataclasses import dataclass, field
 
-from overtime_core import overlay, rostercrc, rosterupdate, tdb
+from overtime_core import art, gamefiles, overlay, rostercrc, rosterupdate, tdb
 
 from . import howto, jobs, report, savegame
 
@@ -91,11 +91,13 @@ def _title(save_dir):
 
 
 def run(session, game, target, name, save_dir, out_root, step=lambda key, state, text='': None, log=print,
-        now=None, overwrite=None, folder_slot=None, running=None):
+        now=None, overwrite=None, folder_slot=None, running=None, portraits=None):
     """Run the pipeline. `step(key, state, text)` reports progress ('run', 'ok', 'fail', 'skip'). `overwrite`: a
     custom roster slot (savegame.slot_names) to replace instead of a new folder (after the backup). `folder_slot`: the slot
     a folder for another PC is made for (None: the next free one beside this PC's saves). The slot is baked into the
-    folder (NAME, INDEX, param.sfo): a renamed copy lists in the game but does not load (checked in game 2026-10-27)."""
+    folder (NAME, INDEX, param.sfo): a renamed copy lists in the game but does not load (checked in game 2026-10-27).
+    `portraits` (patch.served_portraits): the photos the patch serves; each player of a person they have gets that
+    photo's art id in the file written (as Update does), the open roster keeps its own."""
     now = now or datetime.datetime.now()
     stamp = now.strftime('%Y%m%d-%H%M%S')
     name = (name or 'Overtime roster').strip()[:64]
@@ -153,9 +155,20 @@ def run(session, game, target, name, save_dir, out_root, step=lambda key, state,
             except ValueError as err:
                 raise Failed(f'The game cannot load this roster: {err}. Nothing was written.') from None
             log(f'Roster keys put in the order the game reads: {fixed} key(s).')
-        blob = db.to_bytes()
-        order = group_order(schema, 'rosterupdate')
-        crc = rostercrc.roster_crc(tdb.Database([db[t] for t in order], db._header))  # of what is written
+        bios = db[art.BIOS] if art.BIOS in db else None
+        kept = bios.state() if bios is not None and portraits and portraits[0] else None
+        try:
+            if kept is not None:    # the photos by person, in the file only (the tables are the open roster's)
+                found = art.player_portraits(db, portraits[1], art.year_shift_of(db, portraits[1]))
+                art.portrait_flags(db, tdb.Database.parse(gamefiles.default_database(game.game_dir)[0], schema),
+                                   portraits[0])
+                log(f'Player photos: {found} players by name and birth date.')
+            blob = db.to_bytes()
+            order = group_order(schema, 'rosterupdate')
+            crc = rostercrc.roster_crc(tdb.Database([db[t] for t in order], db._header))  # of what is written
+        finally:
+            if kept is not None:
+                bios.restore(kept)
         log(f'Built {len(db.tables)} tables, {len(blob):,} bytes. Roster CRC {crc}.')
         step('build', 'ok', f'{len(db.tables)} tables, {len(blob) // 1024} KB')
 

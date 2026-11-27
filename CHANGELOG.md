@@ -2,6 +2,181 @@
 
 What changed in each version, for players.
 
+## 1.00.0 (2026-11-27)
+
+The first full release.
+
+### New
+
+- **World of Chel player stats, skaters and goalies apart.** Multiplayer > Online > My games gets a World of Chel
+  part with two sections, each shown once you have a game in that role:
+  - **As skater**: games, record, goals, assists, points, +/-, shots, hits, power-play, short-handed and
+    game-winning goals, then shooting %, takeaways, giveaways and blocked shots.
+  - **As goalie**: games, record, shots against, saves, goals against, save %, goals-against average and shutouts,
+    then breakaways, penalty shots and shootout (saves out of shots), desperation saves and poke checks.
+
+  A game counts for the role you played in it, never for both. The numbers come from the game's own report at the
+  end of each game.
+- **Your line in each game.** My games tags each World of Chel game with your position (G for goalie) and shows
+  your line, such as "SV 18/20 .900, GA 2" or "G 1 A 2 +1".
+- **Every player's line in each match.** Under Matches, a World of Chel match lists each player's line under their
+  side, goalies first. The player window shows the same two sections for any player.
+- **The web leaderboard's player card** gets a Chel skater line and a Chel goalie line.
+- **Ones (1v1v1) is back in World of Chel.** Pick Ones in the game's PLAY menu (Ones, Threes, Drop-in 3s,
+  Drop-in 6s), or make a 1v1v1 lobby under Multiplayer > Lobby > CHEL. 2 to 4 players, every skater on the ice,
+  places by goals. Two players can now start a game: the patch lets the game begin without a third.
+- **Frame generation (Windows, NVIDIA RTX 40 and 50).** Setup > Boost gets a "Frame generation" row for the
+  Overtime Native v3 emulator: NVIDIA DLSS frame generation draws extra frames between the game's own. RTX 40 cards:
+  Off or 2x. RTX 50 cards: up to 4x. The first time you pick a level, the app downloads the NVIDIA files (about
+  5 MB). On our RTX 5080, 2x showed about 217 frames a second for about 7% fewer game frames, with no added
+  hitches. 2x is the setting we recommend.
+- **Overtime Native v3 updated.** The emulator build adds frame generation. With frame generation off it runs as
+  before and plays online with players still on the earlier v3.
+- **New player: put yourself on any team.** Roster > New player... makes a player for any club of the NHL, AHL,
+  ECHL, the European leagues, the Champions League and the CHL junior leagues, or the free agents: name, position, shoots, birth date and club. He signs with
+  a number, a contract and a place in the lines, and his card opens for the rest (number, country, size, ratings,
+  face, equipment). One Undo takes him back. Save keeps him in My edits: every roster update leaves him on his club
+  (no NHL.com namesake takes him over), puts him back if a league update moved him, and makes him again in a new
+  roster. A host roster lobby takes him online with the host's roster.
+- **League maker: your own leagues, such as a KHL.** Roster > New league... puts a league of your clubs into one of
+  NHL 19's club leagues (SHL, Liiga, DEL, Extraliga, National League, ICE Hockey League, HockeyAllsvenskan, OHL,
+  QMJHL, WHL or ECHL). Name it, then type or paste its clubs, one a line ("name | city | nickname | ABBR"), or
+  import a league file someone shared; Export... writes one. The clubs take the league's places one by one and keep
+  their players and calendar: move players in with Move / trade and New player. One Undo takes it back. Save keeps
+  the league in My edits, so every roster update keeps it; press Patch in Setup and NHL 19 shows its name in Play
+  Now and Season's league list, and the clubs' names everywhere. Play Now and Season play it (make it on Overtime
+  default or your updated roster: see Known limits).
+- **Contract... on the player card works.** It opens his contract in Front office (cap hit, years left, one-way or
+  two-way), with his club picked. A free agent still signs in Front office's Free agents group.
+- **The tab line moved.** It now sits before Roster: Setup and Patch get NHL 19 ready, Roster onwards edit it.
+- **Player photos on the Roster card, and your own.** The player card shows the photo NHL 19 shows after Patch:
+  the player photos pack's, else the game's own. Click it to give any player a picture of yours (PNG, JPG or WebP),
+  your own created player too; the head is found and fitted like the pack's photos. Press Patch and NHL 19 shows
+  it (player photos on). The x on the photo takes yours away again. A roster you save carries the photos too, so a
+  new player keeps his face in that roster.
+- **Jerseys & gear, made plain.** Each gear colour is one row with a name (Black, Orange, Navy...), however many
+  shades of it the jerseys wear. The team colours are yours to change now: pick a new primary, secondary or third
+  colour and the gear in that colour follows it; black, white and grey gear stays. "Worn with each jersey" shows the
+  helmet and gloves of Home, Away and Alternate. Apply writes it all as one change.
+  The tab now shows what you change: a skater and a goalie in the picked jersey's gear, with a Now / After Apply
+  switch, repaint as you pick colours (the jersey itself is a sketch from the team colours). Each gear row says where
+  it is worn and which team colour it is, the team colour picks are one click away, and every swatch and button
+  explains itself on hover. The whole tab scrolls as one page, so the colour rows have room at any window size.
+- **Edit rosters with an AI.** AI apps that speak MCP (Claude Desktop, Claude Code and others) can now work on
+  your rosters through Overtime: find players, read and change their cards (ratings, number, position, country,
+  size, contract), make new players, move players between clubs, put in a league, check the roster, take an edit
+  back, then save it as a new roster. Setup > This program > Connect an AI... shows what to paste into the AI app
+  for this copy of Overtime, with Copy buttons. The AI goes through the same checks as the Roster card, nothing
+  reaches NHL 19 until it saves, and it never overwrites or deletes a roster. Advanced: `OvertimeNHL19.exe --mcp`
+  starts the server on its own.
+- **Direct P2P in lobbies (experimental).** For players far from our server: the host of a Versus, Shootout or
+  Threes lobby can set Match rules > Connection to "Direct P2P (test)". The two games then connect straight to each
+  other instead of through the Overtime server, which can lower the ping. Each game gets the other player's internet
+  address, so the other player's Ready is their OK, and the lobby chat says so. The default stays "Server". If the
+  two games cannot reach each other, the lobby goes back to the server by itself and the next game goes through it.
+  World of Chel always plays through the server.
+- **Linux, Steam Deck and Mac.** The Linux AppImage and the Mac dmg come with 1.00.0 too. On a Steam Deck (Desktop
+  Mode) the app shows the steps to add it to Steam as a Non-Steam game instead of making a menu entry, its message
+  boxes are KDE's, and the window fits the Deck's 1280x800 screen. Each build is checked on Ubuntu 22.04 and 24.04,
+  on Arch Linux with AMD's Mesa driver (what SteamOS is built on) and on macOS 26 with Apple and Intel chips.
+  To play, Linux needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, SteamOS 3.6 or newer: Ubuntu 22.04 opens
+  the app but cannot run the game) and a Mac needs macOS 26 or newer (an Apple chip runs the game through
+  Rosetta, which the app offers to install). The app checks this on Setup. First steps: QUICKSTART.md.
+
+### Changed
+- **Every Patch switch is on.** 1.00.0 turns on every switch of the Patch tab once (all but "Skip the first-run
+  setup"), for new and older installs
+  alike: the jersey and ice packs, World of Chel's tile and the roster update's parts too, so everyone gets the
+  whole thing. The packs download when the app first finds NHL 19 (about 650 MB; the club jerseys take about 3 GB
+  on the disk once made), and "Patch NHL 19 again?" waits for them. Switch off what you do not want: it stays off.
+- **Frame rate Unlocked for everyone.** Every game folder goes to Unlocked once more: the game paces itself
+  without waiting for the next tick, which cuts the lag. Pick 60 or 120 in Setup afterwards and it stays.
+- **Overtime Native v1 is retired.** It left the Boost performance card. A player on it moves to Overtime
+  Native v3 (Linux and macOS: v2) once, and the app removes its own copy of v1 to free the disk.
+
+### Fixed
+- **Potential labels.** Stars showed AHL potential in NHL 19's player cards ("AHL Bottom 6 F" on a 93 overall): new
+  and moved players kept the potential of the 2018 player whose slot they took. The roster update now sets each NHL
+  player's potential tier from his overall, position and age (a tier only goes up). The tier also steers how players
+  grow in Be A GM, so young stars now develop like stars. Run the roster update (Patch) to get it.
+- **Gear colours change on every jersey.** Changing a gear colour changed only the alternate's helmets and gloves:
+  each jersey's gear wears its own near-copy of the colour, and the list showed every copy as a row of its own. One
+  row now reaches every shade. The team colours you change go into the roster with the rest: NHL 19 shows the
+  Primary colour in its menus (behind the team on team select and game setup, the header of Edit Player and Edit
+  Lines, the pause screen bars).
+
+- **Player photos on the right players.** Macklin Celebrini, Gavin McKenna, Quinn Hughes and about 250 other new
+  players wore someone else's face: the photo pack was numbered for an older default roster. Patch now gives each
+  player his photo by name and birth date (the people pack, NHL Legacy's pictures), whatever number the roster gave
+  him. Twins no longer take their brother's photo when only one of them has one. Press Patch to get it.
+- **The online roster is current.** The roster NHL 19 downloads for Online Versus is rebuilt (2026-11-26): this
+  season's clubs and lines, the player photos by name and the potential tiers above. Photos you gave players
+  yourself stay on your PC: they are not in the online roster.
+- **32 clubs in Classic Franchise and Season.** With Seattle in the league, a new Classic Franchise or NHL Season
+  now has all 32 clubs, and Utah and Seattle each play their own schedule (before, Seattle took Utah's place). It
+  comes with the patch: the next Play brings it in.
+- **Drop-in Threes room.** It offers G, LD, LW and C only, as Drop-in 3s does: a Threes side has no RW or RD, and
+  those picks were seen in games where two players shared one skater (a server change, live since 2026-11-24).
+- **The game's menus follow the app.** When the app opens (with NHL 19 closed) on a game an older Overtime patched,
+  it brings the game's menus up to date by itself, so Ones shows in World of Chel's PLAY menu without pressing
+  Patch. Before, the app said "Patched" while the game kept the older menus.
+- **Patch page: an open section shows whole.** Roster update and the other sections open to their full size and the
+  page scrolls as one, instead of a small box inside it that scrolled on its own.
+- **Patch page: no more "32 teams in every mode: Coming".** 32 clubs in Classic Franchise and Season come with
+  this version.
+- **Frame generation says when its files are missing.** While the Overtime server does not offer NVIDIA's files,
+  the row says so beside the greyed 2x to 4x.
+- **DLSS says when it cannot run.** DLSS scales a smaller picture up to your screen, so at a Resolution above your
+  screen's height (2160p on a 1440p screen, say) it has nothing to do and the game uses FSR 1. The app now says so
+  when you pick DLSS or that Resolution, and the Picture block keeps a note until you pick a DLSS quality.
+- **DLSS 5 and frame generation warn that they can crash.** On some PCs they can crash the game or reset the
+  graphics driver. Both stay off unless you turn them on. Turning one on now says so, the Picture block keeps a
+  note while one is on, and Multiplayer's checks show an amber "Picture" line with a Setup button: turn them off
+  before online games, since a crash ends the match.
+
+### How to get it
+
+- The app updates itself. Stats start with the first World of Chel game after the server update: earlier games kept
+  only their score, so they show no line.
+- **Patch again once after the update.** The first time 1.00.0 opens on a game an older Overtime patched, it asks
+  "Patch NHL 19 again?" (Patch now or Later), and Game patch says so until you do. That patch brings the new player
+  photos into the game. Your saves and rosters are not touched.
+
+### Known limits
+
+- Penalty minutes are not shown yet.
+- A player whose own end-of-game report never arrives (the game closed, a crash) gets no line for that game.
+- **Ones:** a 1v1v1 lobby needs Overtime Roster 1.00.0 on every player's PC; older apps are told to update.
+  Update and patch before you search Ones from the game's own menus too: an older patch can fail a two-player game.
+  Our tests played full two-player games; three-player games and games started from a 1v1v1 lobby are new.
+- **Ones idle rule:** the game itself drops a player who leaves the stick alone for about 16 seconds.
+- **New player:** he starts with a stand-in face and a fringe player's ratings until you set them. Seattle and
+  Coachella Valley (custom teams), the All-Star and national teams are not on the club list (it is the Move / trade
+  window's). A
+  server roster lobby plays the server's roster, which does not have him; a host roster lobby carries him.
+- **League maker:** a league takes over one of the game's club leagues (NHL 19 has no room for more): its clubs
+  keep that league's crests, logo, rink boards and schedule size, and the NHL and AHL cannot be taken. The name shows after Patch, and a server roster lobby plays the server's roster, without your league. Make it on
+  Overtime default or your updated roster, not the Game roster (the window says so when the Game roster is open).
+- **Seasons and the Game roster:** with a custom roster saved from the Game roster (2018-19) active in NHL 19, the
+  game crashes when a new Season's team screen opens (a new Classic Franchise may too). The same goes for a custom
+  roster you made in the game from its own roster before Overtime. Have a roster made from Overtime default or
+  your updated roster active (Customize > Rosters) before you start one. This is older than 1.00.0.
+- **Be a Pro careers begun before 0.97.0:** every Start in the CHL or Memorial Cup career started on an Overtime
+  older than 0.97.0 (2026-11-19) has a broken league (Seattle's farm team is Anaheim), even if it has not crashed
+  yet. It can crash later, at the first NHL sim or at the NHL Entry Draft after the CHL season, and it cannot be
+  repaired: start a new career. Careers started on 0.97.0 or later get the fixed league. This is older than 1.00.0.
+- **Direct P2P** is new and not yet tested between two homes. Some home routers need UDP port 3659 forwarded to
+  the PC (and NHL 19's emulator allowed in the firewall), or the games cannot reach each other; then the next game
+  goes through the server. Both players need Overtime Roster 1.00.0: with an older app on either side the
+  game goes through the server, and the lobby chat says so.
+- **Steam Deck:** no Deck has run it yet (Gaming Mode through Steam, the controller as a mouse). The Linux emulator
+  needs glibc 2.39 or newer, which SteamOS 3.6 and later should have.
+- **Frame generation** is new and still in testing. It works only while the game window is in front: click another
+  window and it pauses until you click the game again. 3x and 4x cost more game frames (4x about a fifth). With
+  DLSS 5 on as well it is heavy: about 80 game frames a second and some hitches on our RTX 5080, so use DLSS 5 or
+  frame generation, not both, unless your card has room. Online: a 30-minute match against the earlier v3 had no
+  desync, but frame generation was paused in it, so online play with it drawing frames is not tested yet.
+
 ## 0.99.2 (2026-11-23)
 
 ### New

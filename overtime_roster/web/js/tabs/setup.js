@@ -128,27 +128,27 @@ function WhereCard({ s }) {
   <//>`;
 }
 
-// --- Boost performance: the shadPS4 build the green Play NHL 19 button starts, Overtime Native v2 / v1 or Kravickas ----------
+// --- Boost performance: the shadPS4 build the green Play NHL 19 button starts, Overtime Native v3 / v2 or Kravickas ----------
 const BOOST_INFO = [
   { head: 'What it does', items: ['Picks the shadPS4 build that the green Play NHL 19 button starts.',
     'Overtime Native v3 (the default on Windows): v2 plus the Picture options below the build choice, all off until you turn one on. With them off the game runs as on v2.',
-    "Overtime Native v2: v1 plus six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread.",
-    "Overtime Native v1: Overtime's own build of shadPS4 for NHL 19, with less RAM reserved, lighter controller polling, steadier frames and the fix for the \"Out of order flip IRQ\" crash.",
+    "Overtime Native v2: Overtime's own build of shadPS4 for NHL 19, with less RAM reserved, lighter controller polling, steadier frames, the fix for the \"Out of order flip IRQ\" crash and six speed changes: GPU readbacks without stalls, faster texture lookups, game threads at higher priority, a quieter log, shaders built in the background and draws recorded on a second thread.",
     'The Overtime Native builds come with Overtime releases.',
     "Kravickas: Kravickas's NHL 19 build, with his fix for the same crash: the newest one his GitHub publishes (branch NHL19-Build). Get newest gets it now.",
     'Play downloads the chosen build the first time, and again when a newer one is published.',
     'Saves, patch and ShadNet login stay the same with either build.'] },
   { head: 'Picture (Overtime Native v3)', items: ['Upscaler: what scales the picture up to your window. FSR 1 runs on any card. DLSS needs an NVIDIA RTX card and nvngx_dlss.dll. Without them the game uses FSR 1.',
-    "DLSS quality (with DLSS): the size the game renders at before DLSS scales it up. Each choice is a Resolution that fits your screen, named by NVIDIA's mode: DLAA, Quality, Balanced, Performance or Ultra Performance. It sets the Resolution row too.",
-    "DLSS 5: NVIDIA's DLSS 5 over the picture. Needs an NVIDIA RTX card and nvngx_dlssnr.dll.",
+    "DLSS quality (with DLSS): the size the game renders at before DLSS scales it up. Each choice is a Resolution that fits your screen, named by NVIDIA's mode: DLAA, Quality, Balanced, Performance or Ultra Performance. It sets the Resolution row too. DLSS only scales a smaller picture up: at a Resolution above your screen's height there is nothing to scale, so the game uses FSR 1 there.",
+    "DLSS 5: NVIDIA's DLSS 5 over the picture. Needs an NVIDIA RTX card and nvngx_dlssnr.dll. Off unless you turn it on: it can crash the game or reset your graphics driver on some PCs, so turn it off before online games.",
     "The first time you turn DLSS or DLSS 5 on, the app downloads NVIDIA's file from the Overtime server (Download beside it gets it again). If the server has none, add your own: Add DLSS file, Add DLSS 5 file (RTX 20, 30 and 40 cards need the compat build of nvngx_dlssnr.dll). Overtime keeps its own copy.",
+    "Frame generation (new, still in testing): NVIDIA's DLSS frame generation adds frames between the ones the game draws: 2x on an RTX 40 card, up to 4x on an RTX 50 card. More frames on screen, but a bit more input lag, VSync is off while it is on, and the HUD may smear in fast moves. The first time you turn it on, the app downloads NVIDIA's files from the Overtime server. Other cards: it needs an NVIDIA RTX 40 or 50 card. Off unless you turn it on: it can crash the game or reset your graphics driver on some PCs, so turn it off before online games.",
     'They change only the picture, not the game. DLSS and DLSS 5 cost frames: on an RTX 5080 at 1440p a match ran at about 92 fps with DLSS and 70 with DLSS 5, against 134 with them off.',
     "Kravickas's DLSS work (the motion inputs and the DLSS 5 pass) is in Overtime Native v3, with his credit."] },
   { head: 'Online', items: ['Multiplayer lobbies and open matchmaking play on the build chosen here. Every build in this list plays with every other, on Windows, Linux and macOS.',
     'Your own shadPS4 plays online too. On an Intel PC it needs the cross-CPU fix (every build in this list has it); without it a lobby pairs you only with players with the same setup.'] },
   { head: 'Source code (GPL-2.0)', items: ['Overtime Native v3: github.com/MatusRiedl/shadPS4, branch overtime-native-v3.',
     'Overtime Native v2: github.com/MatusRiedl/shadPS4, branch overtime-native-v2.',
-    'Overtime Native v1: github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
+    'Overtime Native v1 (retired in 1.00.0, its code stays here): github.com/MatusRiedl/shadPS4, branch overtime-nightly.',
     'Kravickas: Source code, beside the build choice on the card while his build is chosen.'] },
   { head: 'Your own shadPS4', items: ['It stays where it is, untouched.',
     'A portable shadPS4 with its own "user" folder keeps playing itself: the builds would not find its saves.'] },
@@ -194,6 +194,20 @@ function DlssFile({ kind, here, offered, busy }) {
       <${Button} small kind="link" disabled=${busy} title=${`Choose your own ${name}`} onClick=${() => addDlssFile(kind)}>Add ${label}<//>`}
   </span>`;
 }
+// v1.00.0: NVIDIA's DLSS frame generation, Off then 2x (RTX 40) up to 4x (RTX 50); its files come from the Overtime server
+function FrameGenRow({ f, off }) {
+  return html`<div class="su-state su-res su-pic" title=${f.can ? "NVIDIA's DLSS frame generation, still in testing" : f.why}>
+      <span class="su-st">Frame generation</span>
+      <${Segmented} options=${f.choices} value=${f.level} disabled=${off || !f.can} onChange=${(v) => call('setup_frame_gen', v)}/>
+      ${!f.can ? html`<span class="su-bacts"><span class="su-bal">${f.why}</span></span>`
+        : html`<span class="su-bacts">
+          ${f.here ? html`<span class="su-bal" title="NVIDIA's frame generation files, kept in Overtime's folder">Files here</span>
+            <${Button} small kind="link" disabled=${off} title="Remove Overtime's copy of the frame generation files" onClick=${() => call('setup_frame_gen_remove')}>Remove<//>`
+          : f.offered ? html`<${Button} small kind="link" disabled=${off} title="Download NVIDIA's frame generation files from the Overtime server" onClick=${() => call('setup_frame_gen_get')}>Download<//>`
+          : html`<span class="su-bal" title="2x to 4x open once the Overtime server offers NVIDIA's frame generation files">Files not on the Overtime server now</span>`}
+        </span>`}
+    </div>`;
+}
 function PictureRows({ p, off }) {
   const card = p.gpu ? `Graphics card: ${p.gpu}` : 'Graphics card not found';
   const offered = p.offered || {};
@@ -220,6 +234,7 @@ function PictureRows({ p, off }) {
         onChange=${(on) => call('setup_dlss5', on)}>Over the picture<//>
       ${p.can_dlss5 && html`<${DlssFile} kind="dlss5" here=${p.files.dlss5} offered=${offered.dlss5} busy=${off}/>`}
     </div>
+    ${p.framegen && html`<${FrameGenRow} f=${p.framegen} off=${off || !p.ready}/>`}
     ${p.getting && html`<div class="su-news">Downloading the ${p.getting_label} from the Overtime server... ${Math.round((p.progress || 0) * 100)} %</div>`}
     ${(p.notes || []).length > 0 && html`<div class="su-news">${p.notes.join(' ')}</div>`}`;
 }
@@ -230,9 +245,8 @@ function BoostCard({ s }) {
   const noEmu = !(s.emulator && s.emulator.path);
   const why = noEmu ? 'Find NHL 19 first' : undefined;
   const shut = () => setView(null);
-  const BUILD_TITLES = { native3: 'Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default)',
-    native2: 'Overtime Native v1 plus six speed changes (no Picture options)',
-    nightly: "Overtime's own build of shadPS4 for NHL 19 (the default until v2)", kravickas: "Kravickas's NHL 19 build" };
+  const BUILD_TITLES = { native3: 'Overtime Native v3: Overtime Native v2 plus the Picture options: DLSS, DLSS 5 (the default)',
+    native2: 'Overtime Native v2 with six speed changes (no Picture options)', kravickas: "Kravickas's NHL 19 build" };
   const builds = (b.builds || []).map((x) => ({ value: x.id, label: x.label, title: BUILD_TITLES[x.id] || x.label }));
   return html`<${Card} title="Boost performance" className="su-boost"
       aside=${html`<${Info} title="Boost performance" sections=${BOOST_INFO}/>`}>
@@ -349,8 +363,49 @@ function CpuLine({ c }) {
 }
 
 // --- This program ---------------------------------------------------------------------------------------------------------
+// Connect an AI (overtime_roster/mcp): the settings an MCP client needs to start this copy as its roster server.
+function Snippet({ label, text }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1600); };
+    const old = () => {     // where the page may not use the clipboard API: a hidden text box and the copy command
+      const box = document.createElement('textarea');
+      box.value = text;
+      box.style.position = 'fixed';
+      box.style.opacity = '0';
+      document.body.appendChild(box);
+      box.select();
+      const ok = document.execCommand('copy');
+      box.remove();
+      if (ok) done();
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, old);
+    else old();
+  };
+  return html`<div class="su-snip">
+    <div class="row"><span class="su-snip-l">${label}</span><span class="sp"></span>
+      <${Button} small onClick=${copy}>${copied ? 'Copied' : 'Copy'}<//></div>
+    <pre class="su-code">${text}</pre>
+  </div>`;
+}
+
+function AiWindow({ ai, onClose }) {
+  return html`<${Modal} title="Connect an AI" wide onClose=${onClose} className="su-ai"
+      buttons=${html`<${Button} kind="primary" onClick=${onClose}>Done<//>`}>
+    <p class="mp-note">AI apps that speak MCP (Claude Desktop, Claude Code and others) can work on your rosters through
+      Overtime: find players, change ratings and contracts, make players, move them, put a league in, check the roster,
+      then save it as a new roster. Nothing reaches NHL 19 until it saves, and it never overwrites a roster.</p>
+    <${Snippet} label=${html`<b>Claude Desktop</b>: put this in ${ai.config_file} (Settings, Developer, Edit Config). If the file
+      has an mcpServers list already, add the overtime entry to it. Then restart Claude Desktop.`} text=${ai.desktop}/>
+    <${Snippet} label=${html`<b>Claude Code</b>: run this once in a terminal.`} text=${ai.code}/>
+    <p class="mp-note">Then ask it, for example: "Open the Overtime default and give Juraj Slafkovsky 90 shooting
+      accuracy, then save it as a new roster." Load the new roster in NHL 19 as any other.</p>
+  <//>`;
+}
+
 function ProgramCard({ s }) {
   const p = s.program;
+  const [ai, setAi] = useState(false);
   return html`<${Card} title="This program" aside=${`version ${p.version}`} className="su-program">
     <div class="card-body">
       <div class="row">
@@ -359,7 +414,13 @@ function ProgramCard({ s }) {
         <span class=${cls('su-newest', p.state.tone)}>${p.state.tone === 'good' ? 'Up to date' : p.state.text}</span>
         <${Button} small disabled=${s.busy} onClick=${() => call('setup_check_updates_now')}>Check now<//>
       </div>
+      ${p.ai && html`<div class="row su-ai-row">
+        <span class="su-ai-l">Let an AI app edit your rosters through Overtime.</span>
+        <span class="sp"></span>
+        <${Button} small onClick=${() => setAi(true)}>Connect an AI...<//>
+      </div>`}
     </div>
+    ${ai && p.ai && html`<${AiWindow} ai=${p.ai} onClose=${() => setAi(false)}/>`}
   <//>`;
 }
 

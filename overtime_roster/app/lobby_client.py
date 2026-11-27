@@ -43,6 +43,10 @@ def lab_url(url):
     return p.scheme == 'http' and p.hostname in ('127.0.0.1', 'localhost', '::1')
 
 
+# the lobby kinds this app knows: World of Chel lobbies (0.90.0) and Ones in them (1.00.0, the ones_two block)
+KINDS = ('chel', 'ones')
+
+
 def _code(code):
     code = str(code or '').strip().upper()
     if not CODE.match(code):
@@ -87,17 +91,19 @@ class LobbyClient:
     # --- the API ----------------------------------------------------------------------------------------------------
     def create(self, name, ext, public=False, roster_crc=None, mode=None, kind=None, split=False):
         # quick: the lobby starts at the table's defaults (3-minute periods, 0.81.0), not the game's stock rules.
-        # kind 'chel' (0.90.0): a World of Chel party, `mode` a chel_* mode, `split` into Home and Away
+        # kind 'chel' (0.90.0): a World of Chel party, `mode` a chel_* mode, `split` into Home and Away; `kinds`
+        # (1.00.0): this app plays Ones (its patch has ones_two), which a server asks of a Ones lobby's every member
         return self._call('POST', '/api/lobby', {'name': name, 'ext': ext, 'public': bool(public), 'quick': True,
                                                   **({'roster_crc': roster_crc} if roster_crc else {}),
                                                   **({'mode': mode} if mode else {}),
-                                                  **({'kind': kind, 'split': bool(split)} if kind == 'chel' else {})})
+                                                  **({'kind': kind, 'split': bool(split), 'kinds': list(KINDS)}
+                                                     if kind == 'chel' else {})})
 
     def join(self, code, name, ext, roster_crc=None, chel=True):
-        # kinds: this app joins CHEL lobbies too (a server refuses them to apps that do not say so); chel=False leaves
-        # them out (0.90.1: CHEL lobbies hidden in the app)
+        # kinds: this app joins CHEL lobbies too (a server refuses them to apps that do not say so), Ones ones too
+        # (1.00.0); chel=False leaves them out (0.90.1: CHEL lobbies hidden in the app)
         return self._call('POST', f'/api/lobby/{_code(code)}/join',
-                          {'name': name, 'ext': ext, **({'kinds': ['chel']} if chel else {}),
+                          {'name': name, 'ext': ext, **({'kinds': list(KINDS)} if chel else {}),
                            **({'roster_crc': roster_crc} if roster_crc else {})})
 
     def side(self, code, token, side):
@@ -126,6 +132,10 @@ class LobbyClient:
 
     def roster_mode(self, code, token, mode):
         return self._call('POST', f'/api/lobby/{_code(code)}/roster_mode', {'token': token, 'mode': mode})
+
+    def net(self, code, token, mode):
+        """1.00.0 servers: how the match connects, 'server' or 'p2p' (Direct P2P, experimental)."""
+        return self._call('POST', f'/api/lobby/{_code(code)}/net', {'token': token, 'mode': mode})
 
     def upload_roster(self, code, token, blob):
         """The host's own roster_h2h bytes for a lobby on 'host' (overtime_server/http/appupdate.py _host_roster)."""

@@ -106,6 +106,8 @@ def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd()
                                                       'Overtime Native v2 d1d3168a, macOS x86_64',
                                                       # 2026-11-21: Overtime Native v3 (v2 + picture, cache fixes)
                                                       'Overtime Native v3 5768473ca (v2 d1d3168a)',
+                                                      # 2026-11-25: 1.00.0's v3, the speed build + frame generation
+                                                      'Overtime Native v3 speed + frame generation a2ed4804 (v3 bf8d94851)',
                                                       # 2026-11-23: the v3 that shipped (speed build, no CPU math change)
                                                       'Overtime Native v3 speed bf8d94851 (v3 5768473ca)',
                                                       'Overtime nightly dab14f34 (4788f0b)',
@@ -115,11 +117,12 @@ def test_both_kravickas_builds_are_trusted_and_an_intel_pc_on_either_meets_amd()
         assert len(sha) == 64 and sha == sha.lower()
         assert onlinetag.math_class(sha, 'intel', True) == 'amd'
         assert onlinetag.math_class(sha, 'intel', False, 'win32') != 'amd'
-    new, old, krav_test, ours_gc, v2, v2_linux, v2_mac, v3, v3s, ours, smooth, nightly = sorted(
+    new, old, krav_test, ours_gc, v2, v2_linux, v2_mac, v3, v3fg, v3s, ours, smooth, nightly = sorted(
         onlinetag.TRUSTED_EXES, key=onlinetag.TRUSTED_EXES.get)
-    # owner 2026-11-21: Overtime Native v3 is the Windows online build, its speed build v3s the one that shipped (v2 from
-    # 2026-11-16, still Linux's and macOS's and older Windows apps'; v1, ours_gc, from 2026-11-13)
-    assert list(onlinetag.ONLINE_EXES) == [v3s, v3, v2, v2_linux, v2_mac]
+    # owner 2026-11-21: Overtime Native v3 is the Windows online build, its speed build v3s the one that shipped, v3fg
+    # (v3s + frame generation) 1.00.0's (v2 from 2026-11-16, still Linux's and macOS's and older Windows apps'; v1,
+    # ours_gc, from 2026-11-13)
+    assert list(onlinetag.ONLINE_EXES) == [v3fg, v3s, v3, v2, v2_linux, v2_mac]
     assert all(onlinetag.ONLINE_EXES[sha] == onlinetag.TRUSTED_EXES[sha] for sha in onlinetag.ONLINE_EXES)
     # each of them on Intel with the key: the AMD class, so one tag for all
     assert {onlinetag.compute('NHL19_1.60', 'f' * 20, onlinetag.math_class(sha, 'intel', True))

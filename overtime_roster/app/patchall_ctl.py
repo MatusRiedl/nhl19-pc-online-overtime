@@ -46,6 +46,9 @@ class PatchAllCtl(Part):
         pref = ctl.prefs.get(PREF) or {}
         self.update_on = bool(pref.get('update', True))
         self.starter_on = bool(pref.get('starter', False))    # off until the owner's boot test of the profile passes
+        if getattr(ctl, 'full_once', False) and not self.update_on:   # 1.00.0's every switch on, once (not the starter)
+            self.update_on = True
+            self._remember()
         self.phase = None       # 'update' | 'patch' while the one press runs (from Update's start to Patch's start)
         self.skip = None        # (session, history length): Update saved, Patch did not go in; that roster skips Update
 

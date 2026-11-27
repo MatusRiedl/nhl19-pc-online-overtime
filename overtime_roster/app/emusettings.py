@@ -120,6 +120,14 @@ FIELDS = [
        '(Setup, Boost performance).'),
     _f('Graphics', 'Upscaling', 'GPU', 'dlss_nr_dll', 'DLSS 5 file', 'text', '',
        "Where your nvngx_dlssnr.dll is. Setup's Add DLSS 5 file sets it.", show_if={'GPU.dlss_nr': True}),
+    _f('Graphics', 'Upscaling', 'GPU', 'frame_gen', 'Frame generation (Native v3)', 'select', 'off',
+       "NVIDIA's DLSS frame generation on Overtime Native v3, still in testing: more frames on screen, a bit more input "
+       'lag, VSync off while it is on. Needs an NVIDIA RTX 40 or 50 card and its files (Setup, Boost performance).',
+       options=_opts(('off', 'Off'), ('dlss', 'DLSS'))),
+    _f('Graphics', 'Upscaling', 'GPU', 'frame_gen_frames', 'Generated frames', 'select', 1,
+       'Frames NVIDIA adds after each one the game draws: 1 is 2x, 2 is 3x, 3 is 4x (3x and 4x need an RTX 50 card; '
+       'the card caps it).',
+       options=_opts((1, '1 (2x)'), (2, '2 (3x)'), (3, '3 (4x)')), show_if={'GPU.frame_gen': 'dlss'}),
     _f('Graphics', 'Upscaling', 'GPU', 'motion_debug', 'Motion view (Native v3)', 'check', False,
        'A test view: the motion DLSS reads, in colour over a grey picture. Leave it off to play.'),
     # --- User ---

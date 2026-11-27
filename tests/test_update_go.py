@@ -122,7 +122,7 @@ class Fakes:
         return update.Gathered(season, [{'team': 'ANA'}], [('2026-10-07', 'ANA', 'BOS')], [], [],
                                {'rosters': 'data pack 2026-10-18' if offline else 'NHL.com', 'calendar': 'NHL.com'})
 
-    def plan(self, db, gathered, aliases=None):
+    def plan(self, db, gathered, aliases=None, keep=()):
         assert not lock_free(self.c.lock), 'the plan is made under ctl.lock'
         self.planned.append(gathered)
         return Plan()
@@ -136,7 +136,7 @@ class Fakes:
         return report(self.problems)
 
     def install(self, session, game, target, name, save_dir, out_root, step=None, log=None, now=None,
-                overwrite=None, folder_slot=None):
+                overwrite=None, folder_slot=None, portraits=None):
         assert not lock_free(self.c.lock), 'the roster is written under ctl.lock'
         self.saved.append({'target': target, 'name': name, 'overwrite': overwrite})
         self.folder_slot = folder_slot
@@ -794,8 +794,8 @@ def test_go_plans_again_when_the_roster_was_edited_after_its_plan(app, monkeypat
     open_roster(c, fakes, 'RosterCustom0')
     plan = fakes.plan
 
-    def plan_then_edit(db, gathered, aliases=None):
-        out = plan(db, gathered, aliases)
+    def plan_then_edit(db, gathered, aliases=None, keep=()):
+        out = plan(db, gathered, aliases, keep)
         if len(fakes.planned) == 1:
             def edit():                     # the page's edit call, on its own thread, once the lock is free
                 with c.lock:

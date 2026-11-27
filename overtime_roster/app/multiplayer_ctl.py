@@ -103,9 +103,16 @@ CHEL_PATHS = {RU.CHEL_DROPIN: ('World of Chel', 'Play', 'EASHL', 'Drop-in 6s'),
               RU.CHEL_GM3ON3: ('World of Chel', 'Play', 'Drop-in Threes'),
               RU.CHEL_ONES: ('World of Chel', 'Play', 'Ones', 'Play Now')}
 NO_CHEL_JOIN = 'That is a World of Chel lobby. CHEL lobbies are not available yet: join or host a Quick lobby.'
-# no Pro-Am: the game keeps it locked (menus.PROAM_LOCK). No Ones in 0.97.0 (owner 2026-11-16): it fails on the hub
-# (game-server-hub.md game 69) and the PLAY menu hides its tile; the Drop-ins only
-CHEL_PICK = (RU.CHEL_DROPIN, RU.CHEL_DROPIN3, RU.CHEL_GM3ON3)
+# no Pro-Am: the game keeps it locked (menus.PROAM_LOCK). Ones was out from 0.97.0 (game-server-hub.md game 69) and is
+# back (owner 2026-11-24): the Ones walk reaches its room with the PLAY tile still hidden, and the server takes a Ones
+# lobby only while its switch state/ones is on (lobby.ONES_OFF otherwise, shown as the server says it)
+CHEL_PICK = (RU.CHEL_DROPIN, RU.CHEL_DROPIN3, RU.CHEL_GM3ON3, RU.CHEL_ONES)
+# Ones only while the server says it is open (/api/lobbies/all `ones`, v1.00.0 servers): an older server would take a
+# Ones lobby and the game would fail as in game 69
+ONES_CLOSED = 'Ones is switched off on this server: it does not play online yet. Pick another World of Chel mode.'
+# ... and only while this app's game patch has the Ones two-player block (xmlpatch.has_ones_two): a lobby match takes it
+# from each player's own patch (LOCAL_ONLY), and a game without it fails a two-player Ones match with 21028
+ONES_UNPATCHED = 'This app\'s game patch cannot start a two-player Ones match. Update Overtime Roster.'
 CHEL_SPLIT = (RU.CHEL_DROPIN, RU.CHEL_DROPIN3, RU.CHEL_GM3ON3)      # the modes with Home and Away
 CHEL_WALK = CHEL_SPLIT + (RU.CHEL_ONES,)   # 0.96.0: the modes NHL 19 walks to by itself (menus.CHEL_WALKS), up to the dressing room
 OLD_SERVER_CHEL = ('This server has no CHEL lobbies yet: it needs the 0.90.0 server update. '
@@ -126,7 +133,7 @@ class MultiplayerCtl(Part):
     SLICES = {'multiplayer': 'view'}
     CALLS = {'mp_set_name': 'set_name', 'mp_set_ext': 'set_ext', 'mp_set_press': 'set_press', 'mp_refresh': 'refresh',
              'mp_create': 'create', 'mp_join': 'join', 'mp_ready': 'ready', 'mp_leave': 'leave',
-             'mp_launch_now': 'launch_now', 'mp_set_rule': 'set_rule', 'mp_roster_mode': 'set_roster_mode',
+             'mp_launch_now': 'launch_now', 'mp_set_rule': 'set_rule', 'mp_roster_mode': 'set_roster_mode', 'mp_net': 'set_net',
              'mp_reset_rules': 'reset_rules', 'mp_set_chel_rule': 'set_chel_rule',
              'mp_reset_chel_rules': 'reset_chel_rules', 'mp_set_chel_stats': 'set_chel_stats', 'mp_set_mode': 'set_mode', 'mp_history_refresh': 'history_refresh',
              'mp_history_player': 'history_player', 'mp_history_close': 'history_close',
@@ -164,6 +171,8 @@ class MultiplayerCtl(Part):
         self.logged = {'npid': '', 'account': None, 'why': ''}   # what shadPS4's log said at the last look
         self.checks = None          # [{key, label, text, tone, go}] of the last look
         self.lobbies = []           # the public list
+        self.ones_open = False      # the server takes Ones lobbies now (its lobby list says `ones`)
+        self.ones_patched = False   # this app's game patch has the Ones two-player block (looked at with the list)
         self.error = ''             # the last thing that went wrong, in words
         self.closed = ''            # why my lobby closed by itself (after its game), until I dismiss it or enter another
         self.played_in = None       # (code, token) of the lobby whose match I reached (it closes when NHL 19 closes)
@@ -450,9 +459,27 @@ class MultiplayerCtl(Part):
             self._set_error(err.text)
             return
         self._server_down(False)
+        ones = isinstance(rows, dict) and rows.get('ones') is True
+        patched = ones and self._ones_patched()
         rows = rows.get('lobbies') if isinstance(rows, dict) else rows
         with self.mlock:
             self.lobbies = [r for r in rows or [] if isinstance(r, dict) and r.get('code')]
+            self.ones_open = ones
+            self.ones_patched = patched
+
+    def _ones_patched(self):
+        """Whether the patch this app's lobby matches take their local blocks from (Setup's, _own_text) has the Ones
+        two-player block (ONES_UNPATCHED)."""
+        try:
+            return xmlpatch.has_ones_two(self.ctl.setup._xml())
+        except (xmlpatch.PatchError, gamesetup.SetupError, AttributeError, KeyError, TypeError, ValueError):
+            return False
+
+    def _ones_refused(self):
+        """Why this app cannot pick Ones now (ONES_CLOSED, ONES_UNPATCHED), or None."""
+        if not self.ones_open:
+            return ONES_CLOSED
+        return None if self.ones_patched else ONES_UNPATCHED
 
     def _list_job(self):
         self._lobbies()
@@ -491,6 +518,8 @@ class MultiplayerCtl(Part):
             return self._fail('CHEL lobbies are not available yet. Host a Quick lobby.')
         if mode not in CHEL_PICK:
             return self._fail('Pick a World of Chel mode.')
+        if mode == RU.CHEL_ONES and self._ones_refused():
+            return self._fail(self._ones_refused())
         def make(ext, name):
             try:
                 return self.client().create(name, ext, bool(public), mode=mode, kind='chel',
@@ -561,6 +590,10 @@ class MultiplayerCtl(Part):
             code = LC._code(code)
         except LC.LobbyRefused as err:
             return self._fail(err.text)
+        with self.mlock:
+            ones = any(r.get('code') == code and r.get('mode') == RU.CHEL_ONES for r in self.lobbies)
+        if ones and self.ones_open and not self.ones_patched:     # a listed Ones lobby; ONES_CLOSED is the server's call
+            return self._fail(ONES_UNPATCHED)
         def enter(ext, name):
             try:
                 return self.client().join(code, name, ext, chel=CHEL_LOBBIES)
@@ -915,6 +948,27 @@ class MultiplayerCtl(Part):
         self._apply(lobby)
         return {'ok': True}
 
+    def set_net(self, mode):
+        """The host picks how the match connects (1.00.0 servers): 'server' (through the Overtime server, the default)
+        or 'p2p' (Direct P2P, experimental: each game is told the other's internet address). The guest's Ready agrees."""
+        if mode not in ('server', 'p2p'):
+            return self._fail('Pick the server or Direct P2P.')
+        with self.mlock:
+            code, token, me = self.code, self.token, self.me
+            state = (self.lobby or {}).get('state')
+        if not code:
+            return {'ok': False}
+        if me != 0:
+            return self._fail('Only the host picks the connection.')
+        if state in LAUNCHING:
+            return self._fail('The game is starting: the connection is fixed now.')
+        try:
+            lobby = self.client().net(code, token, mode)
+        except LC.LobbyError as err:
+            return self._lobby_error(err)
+        self._apply(lobby)
+        return {'ok': True}
+
     def _mode(self):
         """The game the lobby plays: 'versus' (also for a server before 0.71, which has no choice) 'shootout' or 'threes'."""
         with self.mlock:
@@ -926,6 +980,8 @@ class MultiplayerCtl(Part):
         in a CHEL lobby one of CHEL_PICK."""
         if mode not in (CHEL_PICK if self._chel() else RU.MODES):
             return self._fail('Pick a World of Chel mode.' if self._chel() else 'Pick Versus, Shootout or Threes.')
+        if mode == RU.CHEL_ONES and self._ones_refused():
+            return self._fail(self._ones_refused())
         with self.mlock:
             code, token, me = self.code, self.token, self.me
             state = (self.lobby or {}).get('state')
@@ -1941,8 +1997,8 @@ class MultiplayerCtl(Part):
                              'cap': r.get('cap') if isinstance(r.get('cap'), int) else 2,
                              'split': bool(r.get('split'))} for r in self.lobbies
                             if CHEL_LOBBIES or r.get('kind') != 'chel'],
-                'chel_modes': [{'mode': m, 'name': CHEL_NAMES[m], 'split': m in CHEL_SPLIT} for m in CHEL_PICK]
-                if CHEL_LOBBIES else [],
+                'chel_modes': [{'mode': m, 'name': CHEL_NAMES[m], 'split': m in CHEL_SPLIT} for m in CHEL_PICK
+                               if m != RU.CHEL_ONES or not self._ones_refused()] if CHEL_LOBBIES else [],
                 'game': self._game_view(lobby),
                 'history': self._history_view(),
                 'reports': {'on': self.reports, 'asked': self.reports_asked, 'busy': self.report['busy'],
@@ -1966,6 +2022,17 @@ class MultiplayerCtl(Part):
                 r.update(tone='good', text=ONLINE_READY)
         rows.append({'key': 'server', 'label': 'Server', 'tone': 'bad' if self.service_down else 'good',
                      'text': ('not reachable' if self.service_down else self.ctl.setup.server['host']), 'go': None})
+        # v1.00.0 (owner 2026-11-25): DLSS 5 and frame generation can crash the game; turn them off before online play
+        risky = getattr(self.ctl.setup, 'risky_picture', None)
+        try:
+            on = risky() if risky else []
+        except Exception as err:    # noqa: BLE001 (a check, never a reason the tab fails)
+            jobs.log_block(err, 'The Picture check')
+            on = []
+        if on:
+            rows.append({'key': 'picture', 'label': 'Picture', 'tone': 'caution', 'go': 'setup',
+                         'text': f"{' and '.join(on)} on: can crash the game. Turn "
+                                 f"{'them' if len(on) > 1 else 'it'} off before online play"})
         return rows
 
     def _roster_sent_view(self, lobby, host):
@@ -2023,6 +2090,11 @@ class MultiplayerCtl(Part):
                                 {'mode': lobby.get('roster_mode'), 'uploaded': bool(lobby.get('host_roster')),
                                  'edit': host and lobby.get('state') not in LAUNCHING,
                                  **self._roster_sent_view(lobby, host)}),
+                # 1.00.0: how the match connects (None: a CHEL lobby, or a server without the choice); Direct P2P is
+                # offered while the server's switch is on, and shown while the lobby is still on it
+                'net': (None if chel or 'net' not in lobby or not (lobby.get('p2p_open') or lobby.get('net') == 'p2p')
+                        else {'mode': 'p2p' if lobby.get('net') == 'p2p' else 'server',
+                              'edit': host and lobby.get('state') not in LAUNCHING, 'open': bool(lobby.get('p2p_open'))}),
                 'chat': [{'n': c['n'], 'name': str(c.get('name') or ''), 'text': str(c.get('text') or ''),
                           'mine': c.get('who') == self.me}
                          for c in (lobby.get('chat') or [])[-CHAT_SHOWN:] if isinstance(c, dict) and isinstance(c.get('n'), int)],

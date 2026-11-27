@@ -60,7 +60,8 @@ class Release:
 
     @property
     def text(self):
-        return str(Version._of(self.version))
+        # as latest.json spells it ('1.00.0', the header's own spelling), not the normalised '1.0.0'
+        return getattr(self.version, 'shown', None) or str(Version._of(self.version))
 
     def can_install(self):
         return bool(self.exe_url and self.digest)
@@ -73,6 +74,7 @@ class Version(tuple):
     """(major, minor, patch); a pre-release ('0.1.0-beta1') keeps its tag in `pre` and sorts before its release, so
     the release self-updates over it."""
     pre = None          # (stage, number, tag) of a pre-release
+    shown = None        # the text it was read from, without the 'v' ('1.00.0' stays '1.00.0' on screen)
 
     def _key(self):
         return tuple(self), ((0,) + self.pre[:2] if self.pre else (1, 0))
@@ -114,6 +116,7 @@ def parse_version(text):
     if not m:
         return None
     version = Version((int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)))
+    version.shown = text.strip().lstrip('vV')
     if m.group(4):
         stage, number = m.group(4).lower(), int(m.group(5) or 0)
         version.pre = (_STAGES[stage], number, f'{stage}{m.group(5)}')

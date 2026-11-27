@@ -138,15 +138,16 @@ a:hover { color: var(--accent-hi); text-decoration: underline; }
   letter-spacing: .1em; color: var(--text-3); cursor: pointer; white-space: nowrap; transition: color .18s var(--ease); }
 .tabset button:hover { color: var(--text-soft); }
 .tabset button.on { color: var(--accent); }
-.tabset button:nth-of-type(4) { margin-left: 15px; }
-.tabset button:nth-of-type(4)::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 1px;
+/* the line before ROSTER: Setup and Patch get the game ready, Roster onwards edit it (owner 2026-11-25) */
+.tabset button:nth-of-type(3) { margin-left: 15px; }
+.tabset button:nth-of-type(3)::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 1px;
   background: var(--text-off); transform: skewX(var(--slant)); }
 .tabset .thumb { position: absolute; z-index: 0; bottom: 0; left: 0; height: var(--focus-bar); background: var(--accent);
   box-shadow: 0 0 12px var(--glow); transition: transform .26s var(--ease), width .26s var(--ease); }
 @media (max-width: 1100px) {
   .tabset button { padding: 4px 8px 3px; font-size: 14px; letter-spacing: .06em; }
-  .tabset button:nth-of-type(4) { margin-left: 11px; }
-  .tabset button:nth-of-type(4)::before { left: -6px; }
+  .tabset button:nth-of-type(3) { margin-left: 11px; }
+  .tabset button:nth-of-type(3)::before { left: -6px; }
 }
 @media (max-width: 1000px) {
   .tabs .keycap { display: none; }

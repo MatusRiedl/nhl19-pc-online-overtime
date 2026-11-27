@@ -413,7 +413,7 @@ def supplement(pack_links, people, folder, template, get=fetch, today=None, limi
     index, failed = _read_index(folder)
     want = missing(pack_links, people)
     taken = {r[4] for r in people or ()} | {a for a, _k in index.values()}
-    free = (n for n in reversed(art.PEOPLE_ARTIDS) if n not in taken)
+    free = (n for n in reversed(art.PEOPLE_ARTIDS) if n not in taken and n not in art.YOURS_ARTIDS)
 
     def drawn_path(key):
         return os.path.join(folder, file_name(key) + '.webp')
@@ -482,3 +482,128 @@ def write_local(path, files, rows, built=None):
         return None
     return art.write_pack(path, LOCAL_NAME, files, SOURCE, built or datetime.date.today().isoformat(),
                           extra={'people': rows})
+
+# --- the player's own photos --------------------------------------------------------------------------------------
+# Roster > Photo...: a picture the player picks for one of his players (his own created one too), drawn as the people
+# pack's are when a head is found, else fitted whole. Kept by person (name key, birth date) in the cache's YOURS_DIR
+# with its own index; YOURS_PACK holds them as the game's portraits, served after the people packs (it wins).
+YOURS_PACK = 'people_yours.zip'
+YOURS_NAME = 'people_yours'
+YOURS_DIR = 'photos_yours'
+YOURS_SOURCE = 'Photos the player picked in Overtime Roster'
+PICK_MAX = 30 * 1024 * 1024     # bytes of a picked picture at most
+
+
+class PhotoError(ValueError):
+    """A picked picture that cannot be used, said for the player."""
+
+
+def fit_photo(data):
+    """The portrait of a picked picture as WebP bytes (512 x 256): drawn like the people pack's when a head is found
+    (draw), else the whole picture fitted to the height, centred. PhotoError when it is no picture."""
+    from PIL import Image, UnidentifiedImageError
+    if not data:
+        raise PhotoError('The file is empty.')
+    if len(data) > PICK_MAX:
+        raise PhotoError('The picture is over 30 MB. Pick a smaller one.')
+    try:
+        photo = Image.open(io.BytesIO(data))
+        photo.load()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        raise PhotoError('That file is not a picture Overtime can read (PNG, JPG, WebP, BMP or GIF).') from None
+    try:
+        drawn = draw(data)
+    except Exception:  # noqa: BLE001 - the head finder's trouble: fitted whole instead
+        drawn = None
+    if drawn:
+        return drawn
+    img = photo.convert('RGBA')
+    w, h = SIZE[0], KEEP
+    img = img.resize((max(1, round(img.width * h / img.height)), h), Image.LANCZOS)
+    if img.width > w:
+        left = (img.width - w) // 2
+        img = img.crop((left, 0, left + w, h))
+    canvas = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    canvas.alpha_composite(img, ((w - img.width) // 2, 0))
+    out = io.BytesIO()
+    canvas.save(out, 'WEBP', quality=90, method=4)
+    return out.getvalue()
+
+
+def yours(folder):
+    """{person (name key, y, m, d): (artid, key)} of the player's own photos kept in `folder`."""
+    return _read_index(folder)[0]
+
+
+def _write_yours(folder, index):
+    os.makedirs(folder, exist_ok=True)
+    _write(os.path.join(folder, INDEX), json.dumps(
+        {'people': [[*p, a, k] for p, (a, k) in sorted(index.items())]}, indent=0).encode('utf-8'))
+
+
+def keep_yours(folder, person, picture):
+    """Keep `picture` (fit_photo's WebP) as `person`'s photo: his art id stays when he had one, else the lowest free
+    one of art.YOURS_ARTIDS. Returns the art id."""
+    index = yours(folder)
+    person = tuple(person)
+    if person in index:
+        artid = index[person][0]
+    else:
+        taken = {a for a, _k in index.values()}
+        artid = next((n for n in art.YOURS_ARTIDS if n not in taken), None)
+        if artid is None:
+            raise PhotoError(f'You have {len(art.YOURS_ARTIDS)} photos of your own already. Remove one first.')
+    key = 'yours:{}:{}-{}-{}'.format(*person)
+    os.makedirs(folder, exist_ok=True)
+    _write(os.path.join(folder, file_name(key) + '.webp'), picture)
+    index[person] = (artid, key)
+    _write_yours(folder, index)
+    return artid
+
+
+def drop_yours(folder, person):
+    """Forget `person`'s own photo; True when there was one."""
+    index = yours(folder)
+    person = tuple(person)
+    if person not in index:
+        return False
+    _artid, key = index.pop(person)
+    stem = file_name(key) + '.'
+    for name in os.listdir(folder):
+        if name.startswith(stem):
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+    _write_yours(folder, index)
+    return True
+
+
+def yours_picture(folder, person):
+    """The WebP bytes of `person`'s own photo, None without one."""
+    hit = yours(folder).get(tuple(person))
+    if hit is None:
+        return None
+    try:
+        with open(os.path.join(folder, file_name(hit[1]) + '.webp'), 'rb') as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def write_yours(folder, path, template, built=None):
+    """YOURS_PACK at `path` from the photos kept in `folder` (each made into the game's portrait once, made_gnf), or
+    none when there is none. Returns how many."""
+    files, rows = {}, []
+    for person, (artid, key) in sorted(yours(folder).items()):
+        if not os.path.isfile(os.path.join(folder, file_name(key) + '.webp')):
+            continue
+        files[art.PORTRAIT.format(artid)] = made_gnf(folder, key, template)
+        rows.append([*person, artid])
+    if not files:
+        if os.path.isfile(path):
+            os.remove(path)
+        return 0
+    art.write_pack(path, YOURS_NAME, files, YOURS_SOURCE, built or datetime.date.today().isoformat(),
+                   extra={'people': rows})
+    return len(files)

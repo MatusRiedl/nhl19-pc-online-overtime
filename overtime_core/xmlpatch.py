@@ -11,6 +11,10 @@ loaded eboot only. `build` makes the file from the FEATURES table below; `build(
   expansion32 the 32-team switch on in Season, Play Now and Classic Franchise (team 499 = Seattle).
               Needs a roster whose Seattle 499 has players and is active (customteams), as the default roster has
               since 2026-10-20; an empty, inactive 499 crashes New Season (docs/notes/32teams-everywhere.md, E32, s1)
+  classic32   32 clubs in Classic Franchise and NHL Season while the 32-team switch is live: the comp builder's count of
+              31 for list type 0/1 in a mode of league type NHL becomes 32 (its NHL and AHL comps), so Seattle and Utah
+              get their own calendars there; a Season of another league type keeps its count (C32,
+              docs/notes/32teams-everywhere.md: lab runs c32c, c32d, c32e). Local only (offline mode creation)
   bap32       Seattle in Be a Pro: Choose Team keeps the expansion team (399) and a Be a Pro league is built with 32
               teams (NHL and AHL) while the 32-team switch is live; with the overlay league layer's Be a Pro Lua
               (overlay.BAP_PATHS). Goes off with the switch (expansion32_off) (docs/notes/nhl19-32teams-re.md, run c2)
@@ -43,6 +47,10 @@ loaded eboot only. `build` makes the file from the FEATURES table below; `build(
               XP on our server, so nobody can upgrade): the player class kernel's base is 99 with no height/weight
               penalty, in the menus and in the match setup. Netplay: in the fingerprint and the lobby recipe (the ratings played)
               (docs/notes/chel-max-stats.md)
+  ones_two    Ones (1v1v1) starts with two players: the tweak gForceThreePlayerGauntlet (default on) makes the gauntlet's
+              configure step refuse fewer than three users (error 21028); its default store becomes 0. Its one reader
+              only adds that refusal, so no game that starts today changes. Local only (a setup check, not the
+              simulation) (docs/notes/ones.md)
 
 A string slot holds as many characters as the stock string it replaces (its NUL follows), so the address must fit:
 `https://ot.puckpeak.com/` (24) fits only the accounts slot, `https://91.98.195.150/` (22) fits all three
@@ -81,6 +89,8 @@ THREES_REWARDS_TITLE = 'T1: not-found check on the Threes unlock lookup'
 CROSSVENDOR_TITLE = crossvendor.TITLE
 WOC_UNLOCK_TITLE = 'WoC: every customization item unlocked'
 CHEL_MAX_TITLE = 'WoC: every attribute of a created player at 99'
+ONES_TWO_TITLE = 'Ones: two players can start a match'
+CLASSIC32_TITLE = 'C32: 32 clubs in Classic Franchise and Season'
 # the player class kernel's two attribute store loops (0x43597f0): goalie 0x435a400, skater 0x435a7c0
 CHEL_MAX_LOOPS = ('0x475A400', '0x475A7C0')
 # 0.99.1 (owner 2026-11-23: "give option to players in lobby to choose the stats for players"): the host of a World of
@@ -229,6 +239,14 @@ FEATURES = {
        99; traits and specialties still add on top, and the in-game rating 0x569ac0 clamps to 36..99. -->""",
         [(CHEL_MAX_LOOPS[0], 'BE6300000083FB01751831F6EB14'),
          (CHEL_MAX_LOOPS[1], 'BE6300000083FB01751831F6EB14')]),
+    'ones_two': Feature(
+        ONES_TWO_TITLE,
+        """  <!-- Tweak gForceThreePlayerGauntlet ("Force minimum of three players in Ones", bool, object 0x6191d48): its static
+       initialiser stores the default 1 (mov byte [rip+0x41a410b], 1 at 0x1fedc6e -> +0x38), the E32 pattern. Its only
+       reader, 0x1f5552d in the gauntlet's configure step (ResortGameSetup), fails the match with 21028 "The session
+       does not meet the minimum user requirements" when it is on and the step counts at most 2 users; off, that test
+       goes the way it goes for 3 or more. Default 0 = two players can start a Ones match (docs/notes/ones.md). -->""",
+        [('0x23EDC6E', 'C6050B411A0400')]),
     'ledger_cap': Feature(
         'R1: cap check on the Franchise per-team list append',
         """  <!-- 0x423ad80 appends a 0x38 entry to a team's fixed list (32 slots of 366 inline entries, header begin/end/cap)
@@ -248,6 +266,22 @@ FEATURES = {
          ('0x5AEB0A0', '488B5408104839D67315488D440808488D5638C5F857C0488910E90012B4FE488D76C8E92A12B4FE'),
          ('0x462487F', 'E94C684C019090909090909090'),
          ('0x5AEB0D0', '488B5408104939D47312488D440808498D542438488910E9A097B3FE4D8D6424C8E9CD97B3FE')]),
+    'classic32': Feature(
+        CLASSIC32_TITLE,
+        """  <!-- The comp builder 0x4047440 sets a competition's team count at 0x40474bb (esi, or the comp's setting 7
+       at [r14+r15*0x158+0x294] when esi is 0; list type != 2). Classic Franchise (list 0) and NHL Season (list 1)
+       build their NHL / AHL comps there with the stock 31 while the 32-team switch is live: Seattle took Utah's place.
+       Hook 0x40474bb (19 bytes) -> call cave 0x56eb1e0 (the hooked test / imul / mov, then count 31?) -> 0x56eb020
+       (list type 0/1, the mode's league type NHL [r14+0xe40] == 0, switch live [[0x5f4a790]+0x29]) -> 0x56ebfe4:
+       the count becomes 32 and is written back to setting 7. Only the NHL (31) and AHL (31) comps have that count.
+       A Season of League Type AHL builds its AHL comp at list 1 too and keeps the stock 31 (lab c32e-a: a check on
+       the comp's league alone gave it Seattle 499). Expansion passes 32 itself; Playoff (list 2), Be a Pro (list 4),
+       the mode-5 init (list 3) and the CHL comps are untouched. With the switch off it does nothing (lab runs c32c,
+       c32d, c32e). -->""",
+        [('0x44474BB', 'E8203D6A019090909090909090909090909090'),
+         ('0x5AEB1E0', '85C0750F4969C758010000418B84069402000083F81F7505E923FEFFFFC3'),
+         ('0x5AEB020', '83F901771A4183BE400E0000007510488B155AF785004885D20F85A50F0000C3'),
+         ('0x5AEBFE4', '807A29007411B0204969D7580100004189841694020000C3')]),
     'bap32': Feature(
         BAP32_TITLE,
         """  <!-- Be a Pro's Choose Team job (0x14827b0) sends Context "Exhibition"; its lea at 0x1482899 points at the job's
@@ -286,15 +320,16 @@ FEATURES = {
 }
 # bap32 and expansion32 stay last: DEFAULT[:-2] is the patch without the 32-team switch (xmlpatch.expansion32_off)
 DEFAULT = ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
-           'res4320', 'compute_off', 'threes_rewards', 'crossvendor', 'woc_unlock', 'chel_max', 'ledger_cap', 'bap32',
-           'expansion32')
+           'res4320', 'compute_off', 'threes_rewards', 'crossvendor', 'woc_unlock', 'chel_max', 'ones_two', 'ledger_cap',
+           'classic32', 'bap32', 'expansion32')
 # DEFAULT for an eboot the cross-vendor block does not name (for_eboot): the same file without it
 NO_CROSSVENDOR = tuple(f for f in DEFAULT if f != 'crossvendor')
 # what earlier versions wrote: repoint takes such a file as its own and writes today's DEFAULT (a player's next Play
 # brings new blocks in without Patch). The third is 0.80.0's DEFAULT (also 0.81.0's NO_CROSSVENDOR), the last 0.81.0's
 # DEFAULT (a candidate testers ran; neither has res720), the fifth 0.90.0's (no woc_unlock), the sixth and seventh
-# 0.98.0's DEFAULT and NO_CROSSVENDOR (no chel_max), the last two 0.99.1's (no res2160 / res2880 / res4320 / compute_off:
-# 0.99.2, Kravickas's PR #4).
+# 0.98.0's DEFAULT and NO_CROSSVENDOR (no chel_max), the eighth and ninth 0.99.1's (no res2160 / res2880 / res4320 / compute_off:
+# 0.99.2, Kravickas's PR #4), the next two 0.99.2's (no ones_two), and the last two 1.00.0's first candidates
+# (no classic32).
 EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'threes_rewards', 'ledger_cap',
@@ -310,7 +345,18 @@ EARLIER = (('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'ledger_cap', 'bap32'
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
             'crossvendor', 'woc_unlock', 'chel_max', 'ledger_cap', 'bap32', 'expansion32'),
            ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'threes_rewards',
-            'woc_unlock', 'chel_max', 'ledger_cap', 'bap32', 'expansion32'))
+            'woc_unlock', 'chel_max', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
+            'res4320', 'compute_off', 'threes_rewards', 'crossvendor', 'woc_unlock', 'chel_max', 'ledger_cap', 'bap32',
+            'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
+            'res4320', 'compute_off', 'threes_rewards', 'woc_unlock', 'chel_max', 'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
+            'res4320', 'compute_off', 'threes_rewards', 'crossvendor', 'woc_unlock', 'chel_max', 'ones_two',
+            'ledger_cap', 'bap32', 'expansion32'),
+           ('eagain', 'redirector', 'qos_ncrt', 'nucleus', 'replays60', 'res1440', 'res720', 'res2160', 'res2880',
+            'res4320', 'compute_off', 'threes_rewards', 'woc_unlock', 'chel_max', 'ones_two', 'ledger_cap', 'bap32',
+            'expansion32'))
 # the Resolution choice: 1080 is the game's own (no block on), the others one block each
 RESOLUTION_BLOCKS = {720: RES720_TITLE, 1440: RES1440_TITLE, 2160: RES2160_TITLE, 2880: RES2880_TITLE,
                      4320: RES4320_TITLE}
@@ -562,14 +608,25 @@ def has_crossvendor(text):
                for b in parse(text))
 
 
+def has_ones_two(text):
+    """Whether a patch file carries the Ones two-player block (ones_two) enabled and whole. A game without it fails a
+    two-player Ones match with 21028; it is LOCAL_ONLY, so each player's match patch takes it from their own file."""
+    want = sorted((a.upper(), v.upper()) for a, v in FEATURES['ones_two'].lines)
+    return any(b['enabled'] and b['name'] == ONES_TWO_TITLE and sorted((a.upper(), v) for a, v in b['lines']) == want
+               for b in parse(text))
+
+
 # Blocks and lines that never reach the other game: the picture size (Setup's Resolution), the compute-shader mesh
 # features (Setup's Compute off: how this game draws its own players), the 60 FPS replays flip rate
 # (Setup's Apply everywhere, 0.91.1: how often a frame is shown, like shadPS4's vblank, which players already mix
 # online), Be a Pro (offline only, off with the league switch), the Threes unlock guard (only a lookup that would crash
-# changes), the WoC item unlock (menus only) and the server's name (one lobby is one server, whatever name or address
+# changes), the WoC item unlock (menus only), Ones with two players (only a setup check that would refuse the match
+# changes; each game makes that check itself), 32 clubs in Classic Franchise and Season (offline mode creation only)
+# and the server's name (one lobby is one server, whatever name or address
 # the app was given).
 LOCAL_ONLY_TITLES = (RES1440_TITLE, RES720_TITLE, RES2160_TITLE, RES2880_TITLE, RES4320_TITLE, COMPUTE_OFF_TITLE,
-                     REPLAYS60_TITLE, BAP32_TITLE, THREES_REWARDS_TITLE, WOC_UNLOCK_TITLE)
+                     REPLAYS60_TITLE, BAP32_TITLE, THREES_REWARDS_TITLE, WOC_UNLOCK_TITLE, ONES_TWO_TITLE,
+                     CLASSIC32_TITLE)
 # Local blocks a lobby match leaves out (matchsetup.local_blocks), so every app-lobby match plays without them: Compute
 # off is offline only until a pair run shows two games with and without it stay in step (owner 2026-11-23). Open
 # matchmaking from the game's own menus pairs on the base version only, so there a game Played with it keeps it.

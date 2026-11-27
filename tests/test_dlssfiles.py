@@ -193,7 +193,10 @@ def test_turning_dlss_on_downloads_the_servers_file_first(sc, monkeypatch, tmp_p
     gpu = config(sc)
     assert gpu['dlss_nr'] is True and gpu['dlss_nr_dll'] == dlssfiles.path('dlss5')
     pic = sc._boost_card(str(sc.world['emu']))['picture']
-    assert pic['files'] == {'dlss': True, 'dlss5': True} and pic['notes'] == []    # the server's file: no compat note
+    assert pic['files'] == {'dlss': True, 'dlss5': True}       # the server's file: no compat note, the crash warning
+    assert pic['notes'] == ['DLSS 5 can crash the game or reset your graphics driver on some PCs. Turn it off before '
+                            'online games: a crash ends the match.']
+    assert sc.ctl.said[-1] == ('DLSS 5: on. NHL 19 uses it from its next start. It can crash the game or reset your graphics driver on some PCs: turn it off before online games.', 'caution')
     assert sc.setup_upscaler('dlss') == {'ok': True}           # here now: no second download
 
 
@@ -257,6 +260,30 @@ def test_the_dlss_quality_row_shows_with_dlss_and_sets_the_resolution(sc, monkey
     assert sc._boost_card(str(sc.world['emu']))['picture']['resolution'] == 1440
 
 
+def test_a_resolution_above_the_screen_says_dlss_does_not_run_there(sc, monkeypatch):
+    """Owner 2026-11-25: "why i cant use DLSS when i change resolution?": at 2160p on a 1440 screen Native v3 skips DLSS
+    (the picture is bigger than the window) and the DLSS quality row had nothing picked and no word why."""
+    from overtime_roster.app import gpuinfo
+    monkeypatch.setattr(sc, '_gpu', dict(RTX30))
+    monkeypatch.setattr(gpuinfo, 'screen_height', lambda: 1440)
+    said = []
+    monkeypatch.setattr(sc.ctl, 'say', lambda text, tone='info', *rest, **kw: said.append((text, tone)))
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    sc.setup_resolution(2160)                                  # DLSS off: no word about it
+    assert 'DLSS' not in said[-1][0] and said[-1][1] == 'good'
+    assert not any('DLSS only' in n for n in sc._boost_card(str(sc.world['emu']))['picture']['notes'])
+    sc.setup_upscaler('dlss')                                  # DLSS picked while above the screen: said at once
+    assert 'At 2160p the game draws a bigger picture' in said[-1][0] and said[-1][1] == 'caution'
+    notes = sc._boost_card(str(sc.world['emu']))['picture']['notes']
+    assert any(n.startswith('At 2160p the game draws a bigger picture than your screen (1440 px high)') for n in notes)
+    sc.setup_resolution(2880)
+    assert 'DLSS does not run at this size' in said[-1][0] and said[-1][1] == 'caution'
+    sc.setup_resolution(1440)                                  # DLAA: fits the screen
+    assert 'DLSS' not in said[-1][0] and said[-1][1] == 'good'
+    assert not any('DLSS only' in n for n in sc._boost_card(str(sc.world['emu']))['picture']['notes'])
+
+
 def test_screen_height_is_a_number_on_windows_and_none_elsewhere(monkeypatch):
     import sys
     from overtime_roster.app import gpuinfo
@@ -264,3 +291,181 @@ def test_screen_height_is_a_number_on_windows_and_none_elsewhere(monkeypatch):
     assert h is None or (isinstance(h, int) and h > 0)
     monkeypatch.setattr(sys, 'platform', 'linux')
     assert gpuinfo.screen_height() is None
+
+
+# --- frame generation (v1.00.0): NVIDIA's Streamline files, one pack from the Overtime server -------------------------
+FG_DLL = b'MZ' + b'\0' * 64
+
+
+def fg_pack(path, skip=(), licences=True, extra=None):
+    """A frame generation zip at `path`: FG_DLLS at its top (but `skip`), the licence texts, `extra` members."""
+    with zipfile.ZipFile(path, 'w') as z:
+        for name in dlssfiles.FG_DLLS:
+            if name not in skip:
+                z.writestr(name, FG_DLL + name.encode())
+        if licences:
+            z.writestr('licenses/streamline/license.txt', b'MIT')
+            z.writestr('licenses/nvngx_dlss.license.txt', b'NVIDIA')
+        for name, data in (extra or {}).items():
+            z.writestr(name, data)
+    return str(path)
+
+
+RTX40 = {'name': 'NVIDIA GeForce RTX 4070', 'rtx': 40, 'dlss': True, 'dlss5': True, 'dlss5_compat': True,
+         'framegen': True, 'framegen_max': 1}
+RTX50 = {'name': 'NVIDIA GeForce RTX 5080', 'rtx': 50, 'dlss': True, 'dlss5': True, 'dlss5_compat': False,
+         'framegen': True, 'framegen_max': 3}
+
+
+def test_the_frame_generation_pack_is_checked_and_unpacked(home):
+    good = fg_pack(home / 'fg.zip', extra={'README.txt': b'not taken', '../sl.pcl.dll': b'MZ climb',
+                                           'sub/sl.common.dll': b'MZ deeper'})
+    assert dlssfiles.fg_pack_problem(good) == ''
+    assert dlssfiles.fg_pack_problem(fg_pack(home / 'a.zip', skip=('sl.pcl.dll',))) == \
+        'sl.pcl.dll is not in the frame generation pack.'
+    assert 'licence texts' in dlssfiles.fg_pack_problem(fg_pack(home / 'b.zip', licences=False))
+    with zipfile.ZipFile(home / 'c.zip', 'w') as z:
+        for name in dlssfiles.FG_DLLS:
+            z.writestr(name.upper(), (b'PK' if name == 'nvngx_dlssg.dll' else b'MZ') + b'\0' * 8)
+        z.writestr('licenses/license.txt', b'MIT')
+    assert dlssfiles.fg_pack_problem(str(home / 'c.zip')) == \
+        'nvngx_dlssg.dll in the frame generation pack is not a Windows DLL.'      # names in any case are found
+    (home / 'd.zip').write_bytes(b'not a zip')
+    assert 'does not read' in dlssfiles.fg_pack_problem(str(home / 'd.zip'))
+    with pytest.raises(dlssfiles.DlssFileError, match='licence texts'):
+        dlssfiles.fg_unpack(str(home / 'b.zip'))
+    assert not dlssfiles.fg_here()
+    assert dlssfiles.fg_unpack(good) == dlssfiles.fg_dir() and dlssfiles.fg_here()
+    kept = dlssfiles.fg_dir()
+    assert sorted(os.listdir(kept)) == sorted([*dlssfiles.FG_DLLS, 'licenses'])         # nothing else taken
+    assert open(os.path.join(kept, 'sl.common.dll'), 'rb').read() == FG_DLL + b'sl.common.dll'
+    assert os.path.isfile(os.path.join(kept, 'licenses', 'streamline', 'license.txt'))
+    assert not os.path.exists(kept + '.part') and not os.path.exists(os.path.join(home, 'sl.pcl.dll'))
+
+
+def test_frame_generation_files_beside_the_v3_build_and_removed(home):
+    dlssfiles.fg_unpack(fg_pack(home / 'fg.zip'))
+    v3 = boost.exe_path(boost.NATIVE3)
+    os.makedirs(os.path.dirname(v3), exist_ok=True)
+    open(v3, 'wb').write(b'MZ v3')
+    own = dll(home / 'PS4 Emulator', 'shadPS4.exe', b'MZ own')
+    dlssfiles.ready_for(own)        # the player's own shadPS4's folder is never written to
+    assert sorted(os.listdir(os.path.dirname(own))) == ['shadPS4.exe']
+    dlssfiles.ready_for(v3)
+    folder = os.path.dirname(v3)
+    for name in dlssfiles.FG_DLLS:
+        assert open(os.path.join(folder, name), 'rb').read() == FG_DLL + name.encode()
+    assert open(os.path.join(folder, 'licenses', 'NVIDIA', 'streamline', 'license.txt'), 'rb').read() == b'MIT'
+    open(os.path.join(folder, 'sl.common.dll'), 'wb').write(b'MZ old')       # an older copy is replaced
+    dlssfiles.ready_for(v3)
+    assert open(os.path.join(folder, 'sl.common.dll'), 'rb').read() == FG_DLL + b'sl.common.dll'
+    dlssfiles.fg_remove((v3,))
+    assert not dlssfiles.fg_here() and not os.path.exists(dlssfiles.fg_dir())
+    assert sorted(os.listdir(folder)) == ['licenses', 'shadPS4.exe']
+    assert not os.listdir(os.path.join(folder, 'licenses'))
+    open(os.path.join(folder, 'sl.interposer.dll'), 'wb').write(FG_DLL)    # a copy left beside it goes at the next start
+    dlssfiles.ready_for(v3)
+    assert not os.path.exists(os.path.join(folder, 'sl.interposer.dll'))
+
+
+def test_fg_fetch_downloads_and_unpacks_the_servers_pack(home):
+    from overtime_roster.app import packdownload
+    assert packdownload.FRAMEGEN_PACK == dlssfiles.FG_PACK and dlssfiles.FG_PACK in packdownload.KNOWN
+    assert packdownload.CHECKS[dlssfiles.FG_PACK] is packdownload.check_framegen
+    data = open(fg_pack(home / 'src.zip'), 'rb').read()
+    url = serve(home / 'release', {dlssfiles.FG_PACK: data})
+    seen = []
+    assert dlssfiles.fg_fetch(lambda name, done, total: seen.append((name, done, total)), url) == dlssfiles.fg_dir()
+    assert dlssfiles.fg_here() and seen[-1] == (dlssfiles.FG_PACK, len(data), len(data))
+    with pytest.raises(dlssfiles.DlssFileError, match='does not offer the frame generation files now'):
+        dlssfiles.fg_fetch(release=serve(home / 'none', {'nvngx_dlss.dll': DLL}))
+    bad = open(fg_pack(home / 'bad.zip', skip=('sl.dlss_g.dll',)), 'rb').read()
+    with pytest.raises(dlssfiles.DlssFileError, match='sl.dlss_g.dll is not in the frame generation pack'):
+        dlssfiles.fg_fetch(release=serve(home / 'bad', {dlssfiles.FG_PACK: bad}))
+    assert dlssfiles.fg_here()      # the unpacked files from before stay
+
+
+def test_the_frame_generation_row_by_card(sc, monkeypatch):
+    from overtime_roster.app import setup_controller as SC
+    monkeypatch.setattr(SC, 'FRAME_GEN', True)
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    sc.boost_table = {}
+
+    def row(gpu):
+        monkeypatch.setattr(sc, '_gpu', dict(gpu))
+        return sc._boost_card(str(sc.world['emu']))['picture']['framegen']
+    f = row(RTX30)
+    assert not f['can'] and f['why'] == 'Needs an NVIDIA RTX 40 or 50 card' and f['level'] == 0
+    assert [c['label'] for c in f['choices']] == ['Off', '2x'] and f['choices'][1]['disabled']
+    assert f['choices'][1]['title'] == 'Needs an NVIDIA RTX 40 or 50 card'
+    assert sc.setup_frame_gen(1) == {'error': 'Needs an NVIDIA RTX 40 or 50 card.'}
+    f = row(RTX40)
+    assert f['can'] and f['why'] == '' and [c['label'] for c in f['choices']] == ['Off', '2x']
+    assert f['choices'][1]['disabled'] and 'does not offer its files' in f['choices'][1]['title']
+    assert sc.setup_frame_gen(2) == {'error': '3x frame generation needs an NVIDIA RTX 50 card.'}
+    f = row(RTX50)
+    assert [c['label'] for c in f['choices']] == ['Off', '2x', '3x', '4x']
+    assert f['choices'][3]['title'].startswith('NVIDIA adds 3 frames after each one the game draws')
+    assert sc.setup_frame_gen(3)['error'].startswith('The Overtime server does not offer the frame generation files')
+    assert config(sc).get('frame_gen', 'off') == 'off'          # not saved without its files
+    assert 'error' in sc.setup_frame_gen(4) and 'error' in sc.setup_frame_gen('x')
+    f = row({'name': '', 'rtx': 0, 'dlss': False, 'dlss5': False, 'dlss5_compat': False, 'framegen': False})
+    assert not f['can']                                         # no card found (or an older info without the max)
+    monkeypatch.setattr(SC, 'FRAME_GEN', False)                 # a release without frame generation: no row
+    assert sc._boost_card(str(sc.world['emu']))['picture']['framegen'] is None
+    assert 'error' in sc.setup_frame_gen(1)
+
+
+def test_turning_frame_generation_on_downloads_its_files_first(sc, monkeypatch, tmp_path):
+    import shutil
+    from overtime_roster.app import packdownload
+    from overtime_roster.app import setup_controller as SC
+    monkeypatch.setattr(SC, 'FRAME_GEN', True)
+    monkeypatch.setattr(sc, '_gpu', dict(RTX50))
+    sc.setup_refresh()
+    sc.setup_build(boost.NATIVE3)
+    v3 = boost.exe_path(boost.NATIVE3)
+    os.makedirs(os.path.dirname(v3), exist_ok=True)
+    open(v3, 'wb').write(b'MZ v3')
+    data = open(fg_pack(tmp_path / 'fg.zip'), 'rb').read()
+    sc.boost_table = packdownload.published(serve(tmp_path / 'release', {dlssfiles.FG_PACK: data}), max_age=0)
+    f = sc._boost_card(str(sc.world['emu']))['picture']['framegen']
+    assert f['offered'] and not f['here'] and not f['choices'][3]['disabled']
+    assert f['choices'][3]['title'].endswith('its files download from the Overtime server first')
+    assert sc.setup_frame_gen(3) == {'ok': True, 'downloading': 'fg'}
+    gpu = config(sc)
+    assert gpu['frame_gen'] == 'dlss' and gpu['frame_gen_frames'] == 3 and dlssfiles.fg_here() and sc.ctl.busy is None
+    assert os.path.isfile(os.path.join(os.path.dirname(v3), 'nvngx_dlssg.dll'))      # beside v3 at once
+    assert any(t.startswith('Downloading the frame generation files... ') for t, _tone in sc.ctl.said)
+    assert sc.ctl.said[-1] == ('Frame generation: 4x. NHL 19 uses it from its next start. It can crash the game or reset your graphics driver on some PCs: turn it off before online games.', 'caution')
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert pic['framegen']['level'] == 3 and pic['framegen']['here']
+    assert pic['notes'] == ['Frame generation can crash the game or reset your graphics driver on some PCs. Turn it '
+                            'off before online games: a crash ends the match.']
+    assert sc.risky_picture() == ['frame generation']
+    emusettings.save(gamesetup.emu_user_dir(sc.known_emulator()), {'GPU.dlss_nr': True}, sc.resolution)
+    assert sc.risky_picture() == ['DLSS 5', 'frame generation']
+    assert sc._boost_card(str(sc.world['emu']))['picture']['notes'][-1].startswith(
+        'DLSS 5 and frame generation can crash the game or reset your graphics driver on some PCs. Turn them off')
+    sc.setup_build(boost.NATIVE2)                               # not a Picture build: the options do nothing there
+    assert sc.risky_picture() == []
+    sc.setup_build(boost.NATIVE3)
+    emusettings.save(gamesetup.emu_user_dir(sc.known_emulator()), {'GPU.dlss_nr': False}, sc.resolution)
+    monkeypatch.setattr(sc, '_gpu', dict(RTX40))                # the same config on an RTX 40 card: the driver caps it
+    assert sc._boost_card(str(sc.world['emu']))['picture']['framegen']['level'] == 1
+    monkeypatch.setattr(sc, '_gpu', dict(RTX50))
+    assert sc.setup_frame_gen(0) == {'ok': True}
+    gpu = config(sc)
+    assert gpu['frame_gen'] == 'off' and gpu['frame_gen_frames'] == 3
+    assert sc.setup_frame_gen(1) == {'ok': True}                # files here: no second download
+    shutil.rmtree(dlssfiles.fg_dir())                           # gone since: a note, and Download
+    pic = sc._boost_card(str(sc.world['emu']))['picture']
+    assert any('Frame generation needs its files: press Download' in n for n in pic['notes'])
+    assert sc.setup_frame_gen_get() == {'ok': True, 'downloading': 'fg'} and dlssfiles.fg_here()
+    assert sc.ctl.said[-1] == ('Frame generation files downloaded. NHL 19 uses them from its next start.', 'good')
+    assert sc.setup_frame_gen_remove() == {'ok': True}
+    assert not dlssfiles.fg_here() and config(sc)['frame_gen'] == 'off'
+    assert not os.path.exists(os.path.join(os.path.dirname(v3), 'nvngx_dlssg.dll'))
+    sc.boost_table = {}
+    assert sc.setup_frame_gen_get()['error'].startswith('The Overtime server does not offer')

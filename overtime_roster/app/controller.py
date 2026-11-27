@@ -123,6 +123,23 @@ def chel_migrate(prefs, want):
     return want
 
 
+FULL_DEFAULT = 1       # settings marker: 1.00.0 turned every Patch switch on, once (full_migrate)
+
+
+def full_migrate(want):
+    """Every Patch switch on (1.00.0, owner 2026-11-26: "make in patch all toggles toggled, so people get the full
+    thing"), once, for an install of any age: the page's switches in its order (a switch's needs go on first, as a
+    group's own switch does), each that can be on with its pack still to download. The Roster update group follows
+    (patchall_ctl, update_ctl: Controller.full_once). Switched off after this, a switch stays off."""
+    from . import patch_ctl     # the page's switches and their needs (patch_ctl does not import this module)
+    want = dict(want)
+    for _key, _title, _sub, keys, _main in patch_ctl.GROUPS:
+        for k in keys:
+            if not patch_ctl.why(dict(want, **{k: True}), k, (), missing_ok=True):
+                want[k] = True
+    return want
+
+
 class Controller:
     def __init__(self, host, game_dir=None, save_dir=None, reopen=False):
         self.host = host
@@ -172,14 +189,23 @@ class Controller:
         # A new install (no patch switches saved yet, 0.90.2, owner 2026-11-11) starts with the team art, 3D jerseys and
         # player photos on too, and only those of the Updated assets: their packs download at the first look that finds
         # NHL 19 (SetupController._first_assets). Every install since v0.10.0 has its switches saved: unchanged.
+        # 1.00.0: every switch goes on once, new install or old (full_migrate); its packs download the same way.
         fresh = not isinstance(prefs.get('patch'), dict)
-        self.patch_want = chel_migrate(prefs, {'text': True, 'names': True, 'league': True, 'roster': True,
-                                               'menus': True, 'chel': True, **{k: fresh for k in PACK_KEYS},
-                                               **packs_migrate(prefs, self.game_dir)})
-        if fresh:
+        want = chel_migrate(prefs, {'text': True, 'names': True, 'league': True, 'roster': True,
+                                    'menus': True, 'chel': True, **{k: fresh for k in PACK_KEYS},
+                                    **packs_migrate(prefs, self.game_dir)})
+        self.full_once = prefs.get('full_default') != FULL_DEFAULT     # the parts read it (Roster update group)
+        if self.full_once:
+            was = sorted(k for k, on in full_migrate(want).items() if on and not want.get(k))
+            want = full_migrate(want)
+            self.host.log(f"Patch switches: every one is on now, once (1.00.0){': ' + ', '.join(was) if was else ''}. "
+                          'Their downloads start at the first look at NHL 19; switch any off on the Patch tab.')
+        self.patch_want = want
+        if fresh or self.full_once:
             self.remember(first_assets=True)
-        if prefs.get('packs_default') != PACKS_DEFAULT or prefs.get('chel_default') != CHEL_DEFAULT:
-            self.remember(patch=dict(self.patch_want), packs_default=PACKS_DEFAULT, chel_default=CHEL_DEFAULT)
+        if prefs.get('packs_default') != PACKS_DEFAULT or prefs.get('chel_default') != CHEL_DEFAULT or self.full_once:
+            self.remember(patch=dict(self.patch_want), packs_default=PACKS_DEFAULT, chel_default=CHEL_DEFAULT,
+                          full_default=FULL_DEFAULT)
         self.patch_status = None  # overlay.status, after the Game patch tab was opened
         self.patch_running = False
         # the parts (registry.py): each registers its slices with the host; `calls` is what window/api.py runs

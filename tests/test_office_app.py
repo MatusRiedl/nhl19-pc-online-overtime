@@ -451,6 +451,54 @@ def test_the_contract_window_changes_a_deal(game_dir, tmp_path, monkeypatch):
 
 
 @pytest.mark.game
+def test_contract_on_the_roster_card_opens_the_front_office_window(game_dir, tmp_path, monkeypatch):
+    """Owner 2026-11-25 (v1.00.0): the Roster card's Contract... ("comes later" since 0.1.0-beta2, before Front office had
+    its window) opens the contract window for him: his club on the rail, then the Front office tab."""
+    from overtime_roster.app import roster_ctl
+    monkeypatch.setenv('OVERTIME_ROSTER_HOME', str(tmp_path / 'home'))
+    monkeypatch.setattr(jobs, 'run', lambda work, done=None, failed=None, expected=(): done and done(work()))
+
+    class Host:
+        def __init__(self):
+            self.sent = []
+
+        def register(self, name, fn):
+            pass
+
+        def changed(self, *names):
+            pass
+
+        def log(self, msg):
+            pass
+
+        def send(self, *a):
+            self.sent.append(a)
+
+    c = C.Controller(Host(), game_dir=game_dir, save_dir=str(tmp_path / 'saves'))
+    c.load_source(sources.GAME_ID)
+    c.shell.tab('roster')
+    c.parts['rail'].pick_team(0)                               # another club on the rail
+    s = c.session
+    by_name = {s.name(b): pi for pi in s.player_row for b in [s.bio(pi)[1]] if b is not None}
+    pi = by_name['Connor McDavid']
+    c.player = pi
+    card = c.parts['roster'].card_view()
+    assert card['contract'] == {'enabled': True, 'title': roster_ctl.CONTRACT_TITLE}
+    assert c.calls["roster_contract"](pi) == {"ok": True}
+    assert c.team == 11 and c.host.sent[-1] == ('goto', 'office')
+    assert c.parts['office'].view()['window']['name'] == 'Connor McDavid'
+    c.parts['office'].contract_close()
+
+    rights = next((r for g in c.parts['office'].view()['groups'] for r in g['rows'] if r['rights']), None)
+    if rights is not None:                                     # no deal: the button is off, the call says why
+        rp = next(p for p in s.player_row if (s.bio(p)[1] or {}).get('game_id') == rights['key'])
+        c.player = rp
+        assert c.parts['roster'].card_view()['contract'] == {'enabled': False, 'title': roster_ctl.CONTRACT_NONE}
+        assert c.calls['roster_contract'](rp) == {'ok': False, 'error': office.NO_DEAL}
+    assert c.calls['roster_contract']('x') == {'ok': False, 'error': 'No player picked.'}
+
+
+@pytest.mark.game
 def test_a_free_agent_signs_through_the_front_office(game_dir, tmp_path, monkeypatch):
     """Sign... on the game's own roster: the Free agents group, a window with the lowest deal, wrong values at once,
     one Undo takes the player back, no Seattle organisation in the served default."""

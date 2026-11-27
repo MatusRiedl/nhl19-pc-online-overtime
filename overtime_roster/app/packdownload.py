@@ -40,14 +40,14 @@ from .patch import (ART_ENV, ART_PACKS, CLUBART_PACK, EXTRA_PACKS, KITLAYER_PACK
 EMULATOR_PACK = 'shadps4_nhl19.zip'     # not art: the release host's Kravickas build (a lobby the server pins to it)
 KRAVICKAS_PACK = 'shadps4_kravickas.zip'    # not art: the newest Kravickas build from his GitHub (kravbuild.py, boost.py)
 EMULATOR_EXE = emufile.name()           # shadPS4.exe; shadps4.AppImage on Linux, shadps4 on macOS (emufile.py)
-NIGHTLY_PACK = 'shadps4_nightly.zip'    # not art: Overtime Native v1 (boost.py 'nightly')
+NIGHTLY_PACK = 'shadps4_nightly.zip'    # retired 1.00.0: Overtime Native v1 (boost.py 'nightly'); no longer listed or published
 # not art: Overtime Native v2 (boost.py 'native2'); shadps4_native2_linux.zip / _macos.zip on those systems
 NATIVE2_PACK = emufile.pack_name('shadps4_native2.zip')
 # not art: Overtime Native v3 (boost.py 'native3', 0.99.0): v2 + the Picture options (DLSS, DLSS 5); Windows only
 NATIVE3_PACK = 'shadps4_native3.zip'
 CPUTEST_PACK = 'cpu_estimates.zip'      # not art: tools/cpu_estimates.py as an exe, Check my CPU (cpucheck.py)
 CPUTEST_EXE = 'cpu-estimates.exe'
-TOOL_PACKS = (EMULATOR_PACK, KRAVICKAS_PACK, NIGHTLY_PACK, NATIVE2_PACK, NATIVE3_PACK,
+TOOL_PACKS = (EMULATOR_PACK, KRAVICKAS_PACK, NATIVE2_PACK, NATIVE3_PACK,
               CPUTEST_PACK)   # the program packs: each one exe, not in PACKS (no art)
 PACKS = {
     'looks32.zip': {'title': 'Team art for all 32 teams', 'core': True},
@@ -62,7 +62,8 @@ PACKS = {
 # not art: the DLSS files of Native v3's Picture options (dlssfiles.fetch, 0.99.0: hosted by the Overtime server, owner
 # 2026-11-22), each one DLL, downloaded into app_dir('dlss'); never in the exe or staged with the release
 PICTURE_PACKS = tuple(f['name'] for f in dlssfiles.FILES.values())
-KNOWN = (*PACKS, *TOOL_PACKS, *PICTURE_PACKS)     # every name published() reads and download() takes
+FRAMEGEN_PACK = dlssfiles.FG_PACK   # not art: DLSS frame generation's DLLs (v1.00.0, Overtime Native v3, Windows)
+KNOWN = (*PACKS, *TOOL_PACKS, *PICTURE_PACKS, FRAMEGEN_PACK)     # every name published() reads and download() takes
 CORE = tuple(name for name, pack in PACKS.items() if pack['core'])
 STATES = ('here', 'missing', 'newer', 'offline', 'wrong_roster', 'not_served')
 DEFAULT_FILE = 'packs/' + KITS_PACK
@@ -745,6 +746,14 @@ def check_dlss(path):
         raise art.ArtError(why)
 
 
+def check_framegen(path):
+    """The frame generation pack (dlssfiles.fg_pack_problem: Streamline's DLLs and NVIDIA's licence texts). ArtError
+    otherwise."""
+    why = dlssfiles.fg_pack_problem(path)
+    if why:
+        raise art.ArtError(why)
+
+
 def check_clubart(path):
     """The club art source pack's manifest reads (clubart.Source). ArtError otherwise."""
     clubart.Source(path)
@@ -763,9 +772,10 @@ def check_kitlayers(path):
         raise art.ArtError(f'{len(missing)} pictures missing, {missing[0]} first')
 
 
-CHECKS = {EMULATOR_PACK: check_emulator, KRAVICKAS_PACK: check_emulator, NIGHTLY_PACK: check_emulator,
+CHECKS = {EMULATOR_PACK: check_emulator, KRAVICKAS_PACK: check_emulator,
           NATIVE2_PACK: check_emulator, NATIVE3_PACK: check_emulator, CPUTEST_PACK: check_cputest, CLUBART_PACK: check_clubart,   # not art packs
-          **{name: check_kitlayers for name in KITLAYER_PACKS}, **{name: check_dlss for name in PICTURE_PACKS}}
+          **{name: check_kitlayers for name in KITLAYER_PACKS}, **{name: check_dlss for name in PICTURE_PACKS},
+          FRAMEGEN_PACK: check_framegen}
 
 
 def recorded(name, cache_dir):

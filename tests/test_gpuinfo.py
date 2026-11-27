@@ -17,13 +17,23 @@ def test_rtx_generation_from_the_name():
 def test_what_each_card_may_run():
     fifty = gpuinfo.info(['NVIDIA GeForce RTX 5080'])
     assert fifty == {'name': 'NVIDIA GeForce RTX 5080', 'rtx': 50, 'dlss': True, 'dlss5': True, 'dlss5_compat': False,
-                     'framegen': True}
+                     'framegen': True, 'framegen_max': 3}
     thirty = gpuinfo.info(['NVIDIA GeForce RTX 3080'])
     assert thirty['dlss'] and thirty['dlss5'] and thirty['dlss5_compat'] and not thirty['framegen']
+    assert thirty['framegen_max'] == 0
     amd = gpuinfo.info(['AMD Radeon RX 6800'])
     assert amd['rtx'] == 0 and not amd['dlss'] and not amd['dlss5'] and amd['name'] == 'AMD Radeon RX 6800'
     assert gpuinfo.info([]) == {'name': '', 'rtx': 0, 'dlss': False, 'dlss5': False, 'dlss5_compat': False,
-                                'framegen': False}
+                                'framegen': False, 'framegen_max': 0}
+
+
+def test_frame_generation_2x_on_rtx_40_up_to_4x_on_rtx_50():
+    # v1.00.0 plan: DLSS frame generation from RTX 40 (one added frame, 2x), multi frame generation on RTX 50 (4x)
+    forty = gpuinfo.info(['NVIDIA GeForce RTX 4070 Laptop GPU'])
+    assert forty['framegen'] and forty['framegen_max'] == 1
+    assert gpuinfo.info(['NVIDIA GeForce RTX 5090'])['framegen_max'] == 3
+    assert gpuinfo.info(['NVIDIA RTX A4000'])['framegen_max'] == 0
+    assert [gpuinfo.framegen_max(g) for g in (0, 20, 30, 40, 50, 60)] == [0, 0, 0, 1, 3, 3]
 
 
 def test_of_several_cards_the_newest_rtx_one():

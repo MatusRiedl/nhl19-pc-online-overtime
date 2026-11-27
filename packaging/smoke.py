@@ -1,18 +1,25 @@
 """A built app's smoke run, for .github/workflows/build-desktop.yml: start the program with --selftest (the modules
-import, the page's files and the data it carries are there) and with --selftest-window (the real window starts,
-hidden, and the page draws its data), print what they said, exit 1 when either failed.
+import, the page's files and the data it carries are there), with --selftest-window (the real window starts,
+hidden, and the page draws its data) and with --mcp (1.00.0: the AI server answers an MCP initialize on stdin), print
+what they said, exit 1 when any failed.
 
-    python packaging/smoke.py <program> [--nodata] [--no-window] [--timeout 300]
+    python packaging/smoke.py <program> [--nodata] [--no-window] [--no-mcp] [--timeout 300]
 
 <program>: the AppImage, or the program inside the .app (Contents/MacOS/...).
 --nodata:  a build without the private data (build_unix.py without --inputs): the default roster's lines may fail.
+--no-mcp:  skip the MCP handshake.
 Standard library only.
 """
 import argparse
+import json
 import subprocess
 import sys
 
 EXPECTED_WITHOUT_DATA = ('default roster', 'photos.zip')
+MCP_NAME = 'overtime-nhl19'     # overtime_roster/mcp NAME
+MCP_HELLO = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                        'params': {'protocolVersion': '2025-06-18', 'capabilities': {},
+                                   'clientInfo': {'name': 'smoke', 'version': '1'}}}) + '\n'
 
 
 def unexpected(text, nodata=False):
@@ -48,11 +55,32 @@ def run(program, switch, timeout, runner=subprocess.run):
     return done.stdout or '', done.stderr or '', done.returncode
 
 
+def mcp(program, timeout, runner=subprocess.run):
+    """`program --mcp` is sent one initialize and then end of input: its stdout must carry JSON lines only and the
+    answer must name the server. -> (passed, what to print)."""
+    try:
+        done = runner([program, '--mcp'], input=MCP_HELLO, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, f'--mcp: no answer within {timeout} s'
+    except OSError as err:
+        return False, f'--mcp: did not start ({err})'
+    for line in (done.stdout or '').splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            return False, f'--mcp: stdout carried a line that is not JSON: {line[:200]}'
+        info = (msg.get('result') or {}).get('serverInfo') or {} if isinstance(msg, dict) else {}
+        if msg.get('id') == 1 and info.get('name') == MCP_NAME:
+            return True, f"--mcp: {MCP_NAME} {info.get('version', '?')} answered (exit {done.returncode})"
+    return False, f'--mcp: no initialize answer (exit {done.returncode})\n{(done.stderr or "")[-600:]}'
+
+
 def main(argv=None, runner=subprocess.run):
     ap = argparse.ArgumentParser(description="Smoke run of a built app.")
     ap.add_argument('program')
     ap.add_argument('--nodata', action='store_true')
     ap.add_argument('--no-window', action='store_true')
+    ap.add_argument('--no-mcp', action='store_true')
     ap.add_argument('--timeout', type=int, default=300)
     args = ap.parse_args(argv)
     bad = 0
@@ -66,6 +94,12 @@ def main(argv=None, runner=subprocess.run):
         if not passed(text, code, nodata):
             bad += 1
             print(f'smoke: {switch} failed', flush=True)
+    if not args.no_mcp:
+        ok, said = mcp(args.program, args.timeout, runner)
+        print(said, flush=True)
+        if not ok:
+            bad += 1
+            print('smoke: --mcp failed', flush=True)
     return 1 if bad else 0
 
 

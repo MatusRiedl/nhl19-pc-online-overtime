@@ -135,6 +135,8 @@ def review(matches, rated, pid, match_id=None):
 
     claims = m.get('claims') or {}
     my_stats, their_stats = (claims.get(pid) or {}).get('stats'), (claims.get(opp['pid']) or {}).get('stats')
+    if H.is_woc(m.get('mode')):   # a WoC line (sk*/gl* keys, v1.00.0) is no team report: the tips read Versus numbers
+        my_stats = their_stats = None
     advice = tips(my_stats, their_stats, won, gf)
     delta = round(d['after'] - d['before'])
     if won:

@@ -55,6 +55,7 @@ PORTRAIT = 'nhl/ui/kettle_assets/playerportraits/p{}.gnf'
 YEAR_BASE = 1900
 BIOS = 'exhibitionplayerbiotable'
 PEOPLE_ARTIDS = range(40000, 65536)     # the art ids of the people pack's players the game does not have (below: stock
+YOURS_ARTIDS = range(60000, 62000)      # photos a player gives his own players (photos.keep_yours); the drawn ones skip them
                                         # art ids, then rosterupdate.NEW_ARTIDS)
 
 
@@ -661,11 +662,20 @@ def cached_alternates(cache_dir, families=None):
     return out
 
 
+def _first_names_fit(a, b):
+    """Could first names `a` and `b` (clubdata keys) be one person's: Mitch and Mitchell, Jake and Jacob, Egor and
+    Yegor, Lexi and Alexander; not Oscar and Filiph (twins with one birthday)."""
+    if not a or not b:
+        return True
+    short, long_ = sorted((a, b), key=len)
+    return a[0] == b[0] or short in long_ or short[:3] in long_
+
+
 def player_portraits(db, people, shift=0):
     """Give each bio in `db` the art id of its photo in the people pack (tools/build_people.py). `people` is the pack's
     `people` list, [name key (clubdata._key), year, month, day, artid]: a bio is that person by name and birth date, else
-    by name and day when a feed's year is off, else by last name and birth date (Mitch and Mitchell Marner), else by a
-    name only one bio and one person have. `shift` is
+    by name and day when a feed's year is off, else by last name and birth date with a first name that fits (Mitch and
+    Mitchell Marner; not a twin, nor a photo another bio is exactly), else by a name only one bio and one person have. `shift` is
     teams.year_shift: an updated roster's birth years sit that far behind. Returns how many bios have a photo."""
     if BIOS not in db:
         return 0
@@ -678,15 +688,22 @@ def player_portraits(db, people, shift=0):
     t = db[BIOS]
     rows = [(i, clubdata._key(t.get(i, 'firstname'), t.get(i, 'lastname'))) for i in range(t.count)]
     names = collections.Counter(name for _i, name in rows)
+    born = {i: (YEAR_BASE + t.get(i, 'year') + shift, t.get(i, 'month') + 1, t.get(i, 'day') + 1) for i, _n in rows}
+    claimed = {}        # art id: the name of a bio that is its person exactly (a twin does not take his brother's)
+    for i, name in rows:
+        artid = exact.get((name, *born[i]))
+        if artid is not None:
+            claimed[artid] = name
     found = 0
     for i, name in rows:
-        y, m, d = YEAR_BASE + t.get(i, 'year') + shift, t.get(i, 'month') + 1, t.get(i, 'day') + 1
+        y, m, d = born[i]
         artid = exact.get((name, y, m, d))
         if artid is None and len(by_day[name, m, d]) == 1:
             artid = next(iter(by_day[name, m, d]))
         if artid is None:
-            last = clubdata._key(t.get(i, 'lastname'))
-            same = {a for n, a in by_date[y, m, d] if last and n.endswith(last)}
+            last, first = clubdata._key(t.get(i, 'lastname')), clubdata._key(t.get(i, 'firstname'))
+            same = {a for n, a in by_date[y, m, d] if last and n.endswith(last) and n != last
+                    and _first_names_fit(first, n[:-len(last)]) and claimed.get(a, name) == name}
             artid = same.pop() if len(same) == 1 else None
         if artid is None and names[name] == 1 and len(by_name[name]) == 1:
             artid = next(iter(by_name[name]))
@@ -694,6 +711,45 @@ def player_portraits(db, people, shift=0):
             t.set(i, 'artid', artid)
             found += 1
     return found
+
+
+def served_people(packs):
+    """The `people` rows ([name key, year, month, day, artid]) of the art packs served, each person once (the last
+    pack that lists him wins, as its files do: a photo the player gave him beats the people pack's): who has a photo
+    under which art id."""
+    out = {}
+    for pack in packs or ():
+        for row in (getattr(pack, 'info', None) or {}).get('people') or ():
+            out[tuple(row[:4])] = list(row[:5])
+    return list(out.values())
+
+
+def year_shift_of(db, people, most=12):
+    """The years `db`'s birth years sit behind the people rows' (teams.year_shift: 8 for an updated 2026-27 roster, 0
+    for NHL 19's own): the shift under which the most bios are a person by name and full birth date."""
+    if BIOS not in db or not people:
+        return 0
+    exact = {tuple(r[:4]) for r in people}
+    t = db[BIOS]
+    bios = [(clubdata._key(t.get(i, 'firstname'), t.get(i, 'lastname')), YEAR_BASE + t.get(i, 'year'),
+             t.get(i, 'month') + 1, t.get(i, 'day') + 1) for i in range(t.count)]
+    best, shift = 0, 0
+    for s in range(most + 1):
+        n = sum((name, y + s, m, d) in exact for name, y, m, d in bios)
+        if n > best:
+            best, shift = n, s
+    return shift
+
+
+def rebind_portraits(db, packs):
+    """The patch's database step: each bio of a person the served packs have a photo of gets that photo's art id
+    (player_portraits), whatever art id the roster gave him. A roster's new players are numbered anew on every build,
+    so a pack keyed by those numbers puts faces on other players; the people pack is keyed by person. How many bios
+    have a person's photo."""
+    people = served_people(packs)
+    if not people:
+        return 0
+    return player_portraits(db, people, year_shift_of(db, people))
 
 
 def portrait_flags(db, stock, files):

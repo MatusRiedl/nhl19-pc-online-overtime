@@ -14,10 +14,22 @@ real or by rating: the player's line always wins. A player who has left the team
 It is put back through the Roster tab's own checks and writers (roster_card.check / write, faces, equipment), one
 change per part: a part the roster refuses changes nothing and is skipped with its reason (a card value that is
 refused, such as a number another player has now, is skipped alone; the rest of the card goes in).
+
+A player the user made (New player, v1.00.0: overtime_core.newplayer) keeps a `new` part too: {'pos', 'team':
+{'index', 'league', 'abbr', 'name'} or {'fa': True}}, with his card's values as he was made. NHL.com does not list
+him: the update's plan leaves him alone (made_ids), and after the update he is made again when the roster does not have
+him (a new roster, the game's own) or moved back to his club when a club league's rebuild or a release moved him,
+before his other parts go back.
+
+A league the user made (League maker, v1.00.0: overtime_core.leaguemaker) is kept whole under `leagues`, by its slot
+({'name', 'slot', 'clubs'}, as a league file holds it): after the update it is written again over the slot's places
+first, so the clubs' kept lines (keyed by the league's abbreviations) find their teams. A slot set back to the game's own
+and saved is no longer kept.
 """
 import json
 
-from overtime_core import durable, equipment as EQ, faces as F, lines as LN, rosterupdate as U
+from overtime_core import durable, equipment as EQ, faces as F, leaguemaker as LM, lines as LN, newplayer as NP, \
+    rosterupdate as U, trades as X
 from overtime_core.roster import ALTERNATE, CAPTAIN
 
 from . import labels as L, paths, roster_card as RC
@@ -26,8 +38,12 @@ from .session import TEAMS, EditError
 VERSION = 1
 FILE = 'edits.json'
 PARTS = ('card', 'face', 'gear')
-PART_WORDS = {'card': 'card', 'face': 'face & type', 'gear': 'equipment', 'lines': 'lines'}
+NEW = 'new'         # a player the user made: kept with or without other parts
+PART_WORDS = {'card': 'card', 'face': 'face & type', 'gear': 'equipment', 'lines': 'lines', NEW: 'new player'}
+MADE_CARD = ('first', 'last', 'num', 'pos', 'shoots', 'born', 'country', 'height', 'weight')
 LINES = 'lines|'     # the prefix of a team's kept lines among the rows of My edits
+LEAGUES = 'leagues'
+LEAGUE = 'league|'   # the prefix of a kept league among the rows of My edits
 NAME_KEYS = ('first', 'last', 'born')
 
 
@@ -37,7 +53,7 @@ def where():
 
 
 def empty():
-    return {'version': VERSION, 'players': {}, 'lines': {}}
+    return {'version': VERSION, 'players': {}, 'lines': {}, LEAGUES: {}}
 
 
 def load(path=None):
@@ -54,12 +70,21 @@ def load(path=None):
     kept = data.get('lines')
     data['lines'] = {k: e for k, e in (kept.items() if isinstance(kept, dict) else ())
                      if isinstance(e, dict) and isinstance(e.get('slots'), dict) and isinstance(e.get('letters'), list)}
+    kept = data.get(LEAGUES)
+    data[LEAGUES] = {}
+    for k, e in (kept.items() if isinstance(kept, dict) else ()):
+        try:
+            league = LM.normalise(e)
+        except LM.LeagueError:
+            continue
+        if league['slot'] == k and k in LM.SLOTS and league['name'] and league['clubs']:
+            data[LEAGUES][k] = league
     return data
 
 
 def count(data):
-    """How many things edits.json keeps: players and teams' lines."""
-    return len(data['players']) + len(data.get('lines') or {})
+    """How many things edits.json keeps: players, teams' lines and leagues."""
+    return len(data['players']) + len(data.get('lines') or {}) + len(data.get(LEAGUES) or {})
 
 
 def save(data, path=None):
@@ -117,11 +142,15 @@ def index(s, clock):
     return keys, names
 
 
-def locate(e, found):
+def locate(e, found, shift=0):
     """The playerindex of the player of kept edit `e` in the roster (`found`: index()), or None: one of his person
-    keys, else his name alone when one player of the roster has it (a birth date read on another clock)."""
+    keys (`shift`: the roster's clock shift; his birth date that many years on too, as a bio the update did not place
+    keeps its stored year), else his name alone when one player of the roster has it (a birth date read on another
+    clock)."""
     keys, names = found
     mine = keys_of(e)
+    if shift:
+        mine += [k for k in (_shifted(k, shift) for k in list(mine)) if k and k not in mine]
     pi = next((keys[k] for k in mine if k in keys), None)
     if pi is None:
         for k in mine:
@@ -131,6 +160,52 @@ def locate(e, found):
     return pi
 
 
+def _shifted(key, shift):
+    name, _, born = key.partition('|')
+    try:
+        return f"{name}|{int(born[:4]) + shift:04d}{born[4:]}" if len(born) == 10 else None
+    except ValueError:
+        return None
+
+
+def made_ids(data, s, clock):
+    """Game ids of the kept players the user made who are in the roster: the update's plan leaves them alone
+    (rosterupdate.plan `keep`)."""
+    if not any(e.get(NEW) for e in data['players'].values()):
+        return set()
+    found = index(s, clock)
+    out = set()
+    for e in data['players'].values():
+        if e.get(NEW):
+            pi = locate(e, found, clock.shift)
+            if pi is not None:
+                out.add(s.bio(pi)[1]['game_id'])
+    return out
+
+
+def team_of(s, pi):
+    """His `new` part's team: {'index', 'league', 'abbr', 'name'} of his club, or {'fa': True}."""
+    _, e = s.entry(pi)
+    if e is None:
+        return {'fa': True}
+    team = e['team']
+    i = s.team_row.get(team)
+    league = s.rows[TEAMS][i]['league'] if i is not None else None
+    return {'index': team, 'league': league, 'abbr': s.team_abbr(team), 'name': s.team_name(team)}
+
+
+def team_in(s, spec):
+    """The club (team index) or FA of a `new` part's team in this roster, or None: its league and abbreviation, else its
+    index when that slot is still in its league."""
+    if spec.get('fa'):
+        return X.FA
+    clubs = X.club_teams(s.db)
+    hit = [t for t, lg in clubs.items() if lg == spec.get('league') and s.team_abbr(t) == spec.get('abbr')]
+    if hit:
+        return hit[0]
+    return spec.get('index') if clubs.get(spec.get('index')) == spec.get('league') else None
+
+
 def aliases(data, s, clock):
     """{game_id: (first, last, real birth date or None)} of the kept players whose name or birth date the user
     changed: the update's plan matches them to NHL.com as they were (rosterupdate.plan `aliases`), so a renamed player
@@ -138,6 +213,8 @@ def aliases(data, s, clock):
     found = index(s, clock)
     out = {}
     for e in data['players'].values():
+        if e.get(NEW):
+            continue    # NHL.com does not list him (made_ids)
         i, card = e['id'], e.get('card') or {}
         renamed = (plain_name(card.get('first', i['first']), card.get('last', i['last']))
                    != plain_name(i['first'], i['last']))
@@ -166,7 +243,7 @@ def record(data, s, clock, items):
     for it in items:
         pi = it['pi']
         _, b = s.bio(pi)
-        if b is None or it['what'] not in PARTS:
+        if b is None or it['what'] not in PARTS + (NEW,):
             continue
         ident = it.get('ident') or identity(s, clock, pi)
         key = find(data, ident) or find(data, identity(s, clock, pi))
@@ -174,12 +251,38 @@ def record(data, s, clock, items):
             key = person_key(ident['first'], ident['last'], ident['born'])
             data['players'][key] = {'id': dict(ident)}
         e = data['players'][key]
-        _keep(e, s, clock, pi, b, it['what'], it.get('kept', it['keys']))
+        if it['what'] == NEW:
+            now = RC.values(s, clock, pi)
+            e[NEW] = {'pos': now['pos'], 'team': team_of(s, pi)}
+            e.setdefault('card', {}).update({k: now[k] for k in MADE_CARD})
+        else:
+            _keep(e, s, clock, pi, b, it['what'], it.get('kept', it['keys']))
         e['label'] = s.name(b)
         team = RC.rail_team(s, pi)
         e['team'] = s.team_abbr(team) or str(team)
         touched.add(key)
     return len(touched)
+
+
+def follow_made(data, s, clock):
+    """The made players' clubs as the roster has them now (a Move / trade since): Save keeps where he plays. Returns how
+    many changed."""
+    if not any(e.get(NEW) for e in data['players'].values()):
+        return 0
+    found = index(s, clock)
+    n = 0
+    for e in data['players'].values():
+        if not e.get(NEW):
+            continue
+        pi = locate(e, found, clock.shift)
+        if pi is None:
+            continue
+        team = team_of(s, pi)
+        if e[NEW].get('team') != team:
+            e[NEW]['team'] = team
+            e['team'] = 'FA' if team.get('fa') else team['abbr'] or str(team['index'])
+            n += 1
+    return n
 
 
 def team_key(s, team):
@@ -244,6 +347,10 @@ def forget(data, s, clock, items):
         e = data['players'].get(key) if key else None
         if e is None:
             continue
+        if it['what'] == NEW:       # his making taken back: nothing of him is kept
+            del data['players'][key]
+            touched.add(key)
+            continue
         part = e.get(it['what'])
         if not isinstance(part, dict):
             continue
@@ -260,13 +367,24 @@ def forget(data, s, clock, items):
                 part.pop(k, None)
         if not part:
             e.pop(it['what'])
-        if not any(p in e for p in PARTS):
+        if not any(p in e for p in PARTS + (NEW,)):
             del data['players'][key]
         touched.add(key)
     return len(touched)
 
 
+def record_league(data, league):
+    """Keep a league the League maker made (its slot's latest), or forget the slot's ({'slot', 'reset': True})."""
+    kept = data.setdefault(LEAGUES, {})
+    if league.get('reset'):
+        kept.pop(league['slot'], None)
+    else:
+        kept[league['slot']] = LM.normalise(league)
+
+
 def remove(data, key):
+    if key.startswith(LEAGUE):
+        return (data.get(LEAGUES) or {}).pop(key[len(LEAGUE):], None) is not None
     if key.startswith(LINES):
         return (data.get('lines') or {}).pop(key[len(LINES):], None) is not None
     return data['players'].pop(key, None) is not None
@@ -276,8 +394,13 @@ def words(e):
     """['number #94', 'cap hit $1.5M', '3 ratings', 'face & type', 'equipment'] of one kept edit."""
     out = []
     card = e.get('card') or {}
+    made = e.get(NEW)
+    if made:
+        team = made.get('team') or {}
+        club = 'free agent' if team.get('fa') else team.get('name') or team.get('abbr') or 'a club'
+        out.append(f'new player, {club}')
     for k in RC.ORDER:
-        if k in card:
+        if k in card and not (made and k in MADE_CARD):
             out.append(f'{RC.WORDS[k]} {RC.shown(k, card[k])}')
     n = len(card.get('ratings') or {})
     if n:
@@ -314,7 +437,10 @@ def rows(data):
     out = sorted(out, key=lambda r: (last(r['key']), RC.plain(r['label']), r['key']))
     teams = [{'key': LINES + k, 'label': f"{e.get('label') or e['abbr']} lines", 'team': e['abbr'],
               'words': line_words(e)} for k, e in (data.get('lines') or {}).items()]
-    return out + sorted(teams, key=lambda r: RC.plain(r['label']))
+    leagues = [{'key': LEAGUE + k, 'label': f"{e['name']} league", 'team': LM.SLOTS[k][1],
+                'words': [f"{len(e['clubs'])} club{'s' if len(e['clubs']) != 1 else ''}", f"in the {LM.SLOTS[k][1]} slot"]}
+               for k, e in (data.get(LEAGUES) or {}).items()]
+    return sorted(leagues, key=lambda r: RC.plain(r['label'])) + out + sorted(teams, key=lambda r: RC.plain(r['label']))
 
 
 # --- putting them back ---------------------------------------------------------------------------------------------
@@ -322,11 +448,29 @@ def replay(s, clock, data, model_of=lambda table: None, fold=lambda ch: None):
     """Put every kept edit back in the open roster (after an update). Each part of a player is one change (s.edit),
     handed to `fold` (the update folds them into its own change, so one Undo takes both back). Returns {'applied': n
     parts, 'skipped': [{'who', 'part', 'why'}]}."""
+    out = replay_leagues(s, data, fold)     # first: the made players' clubs and the kept lines go by its clubs
     found = index(s, clock)
-    out = {'applied': 0, 'skipped': []}
-    for e in sorted(data['players'].values(), key=lambda e: RC.plain(e.get('label') or e['id']['last'])):
+    kept = sorted(data['players'].values(), key=lambda e: RC.plain(e.get('label') or e['id']['last']))
+    failed, moved = set(), False
+    for e in kept:          # the made players first: made again or moved back, then their parts go back as anyone's
+        if not e.get(NEW):
+            continue
         who = e.get('label') or f"{e['id']['first']} {e['id']['last']}"
-        pi = locate(e, found)
+        try:
+            went = _put_new(s, clock, e, locate(e, found, clock.shift), who, fold)
+        except EditError as err:
+            failed.add(id(e))
+            out['skipped'].append({'who': who, 'part': PART_WORDS[NEW], 'why': str(err)})
+            continue
+        out['applied'] += 1
+        moved = moved or went
+    if moved:
+        found = index(s, clock)
+    for e in kept:
+        if id(e) in failed:
+            continue
+        who = e.get('label') or f"{e['id']['first']} {e['id']['last']}"
+        pi = locate(e, found, clock.shift if e.get(NEW) else 0)
         if pi is None:
             out['skipped'].append({'who': who, 'part': 'player', 'why': 'He is not in this roster.'})
             continue
@@ -343,6 +487,78 @@ def replay(s, clock, data, model_of=lambda table: None, fold=lambda ch: None):
     out['applied'] += back['applied']
     out['skipped'] += back['skipped']
     return out
+
+
+def replay_leagues(s, data, fold=lambda ch: None):
+    """Put every kept league back over its slot (after an update): one change a league that differs. Returns
+    {'applied': leagues changed, 'skipped': [{'who', 'part', 'why'}]}."""
+    out = {'applied': 0, 'skipped': []}
+    for key, league in sorted((data.get(LEAGUES) or {}).items()):
+        who = f"{league['name']} league"
+        if LM.from_db(s.db, key, league['name'])['clubs'][:len(league['clubs'])] == LM.normalise(league)['clubs']:
+            continue        # its clubs are there (its name is the names layer's: Patch)
+
+        def work(db, lg=league, who=who):
+            done = LM.make(db, lg)
+            return [(f"My edits: {lg['name']}: {new}", old, f'place {index}') for index, old, new in done['clubs']
+                    if old != new], None
+        try:
+            ch, _ = s.bulk(f'My edits: {who}', work)
+        except LM.LeagueError as err:
+            out['skipped'].append({'who': who, 'part': 'league', 'why': err.problems[0]})
+            continue
+        fold(ch)
+        out['applied'] += 1
+    return out
+
+
+def _put_new(s, clock, e, pi, who, fold):
+    """A made player back in the roster: made again when it does not have him (`pi` None), moved back to his club when
+    he is elsewhere. Returns whether the roster changed; raises EditError with the reason it refuses."""
+    spec = e[NEW]
+    team = team_in(s, spec.get('team') or {'fa': True})
+    if team is None:
+        name = (spec.get('team') or {}).get('name') or 'His club'
+        raise EditError(f'{name} is not in this roster.')
+    deal_years = 1 + (1 if RC.expansion(s) else 0)     # as the Move / trade window's
+    if pi is None:
+        card, i = e.get('card') or {}, e['id']
+        args = (card.get('first', i['first']), card.get('last', i['last']), card.get('pos') or spec.get('pos'),
+                card.get('shoots') or 'L', card.get('born') or i['born'], team, clock.shift, deal_years)
+
+        def make(db):
+            NP.create(db, *args)
+            return [(f'My edits: {who}', '', 'new player')], None
+        _bulk(s, f'My edits: {who}: new player', make, fold)
+        return True
+    _, now = s.entry(pi)
+    where = now['team'] if now is not None else X.FA
+    if where == team and (team != X.FA or pi in set(s.free_agents)):
+        return False
+    if where == team:       # a free agent the update retired (off the list): on the list again
+
+        def relist(db):
+            U._rebuild_free(db, remove=(), add=[pi])
+            return [(f'My edits: {who}', '', 'free agent again')], None
+        _bulk(s, f'My edits: {who}: free agent', relist, fold)
+        return True
+    gid = s.bio(pi)[1]['game_id']
+
+    def move(db):
+        X.move_players(db, [(gid, team)], deal_years)
+        return [(f'My edits: {who}', '', 'back to his club' if team != X.FA else 'free agent again')], None
+    _bulk(s, f'My edits: {who}: his club', move, fold)
+    return True
+
+
+def _bulk(s, label, work, fold):
+    try:
+        ch, _ = s.bulk(label, work)
+    except X.TradeError as err:
+        raise EditError(err.problems[0] if err.problems else str(err)) from None
+    except (U.UpdateError, ValueError) as err:
+        raise EditError(str(err)) from None
+    fold(ch)
 
 
 def replay_lines(s, clock, data, fold=lambda ch: None):

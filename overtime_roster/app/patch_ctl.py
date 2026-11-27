@@ -110,9 +110,6 @@ GROUPS = (
     ('assets', 'Updated assets', 'Logos, jerseys, centre ice and player photos. Each downloads when you switch it on.',
      ('art', 'kits', 'photos', 'alts_nhl', 'alts_intl', 'alts_clubs', 'alts_hometown', 'ice_all', 'rink'), ('art', 'kits', 'photos')),
 )
-COMING = {'title': '32 teams in every mode',
-          'sub': 'Classic Franchise and NHL Season with both Seattle and Utah. Today a 32 Team Expansion Draft Franchise '
-                 'has both. Still being built.'}
 NAMES = (('City', 'Arizona', 'Utah'), ('Team', 'Arizona Coyotes', 'Utah Mammoth'), ('Nickname', 'Coyotes', 'Mammoth'),
          ('Short name', 'ARI', 'UTA'), ('AHL city', 'Burnaby', 'Coachella Valley'))
 ABOUT = (
@@ -173,13 +170,20 @@ def left_out_text(lang, left):
 
 
 def served(st):
-    """{switch key: bool} of what overlay.status() says the game is served now."""
+    """{switch key: bool} of what overlay.status() says the game is served now. The photos: photos.zip, or since
+    1.00.0 the people packs (`people`, `people_local`, ...), which Patch serves instead of photos.zip when the people
+    pack is here (patch.art_packs); the real-exe check of 2026-11-27 saw "press Patch again" for ever without them."""
     ly = (st or {}).get('layers') or {}
     packs = [str(p.get('name', '') if isinstance(p, dict) else p).lower() for p in (ly.get('art') or {}).get('packs') or []]
     return {'names': 'names' in ly, 'roster': 'database' in ly, 'league': 'league' in ly, 'text': 'text' in ly,
             'menus': 'menus' in ly, 'chel': bool(((ly.get('menus') or {}).get('options') or {}).get('chel')),
-            'art': 'art' in ly, 'photos': any('photos' in p for p in packs), 'kits': any('kits' in p for p in packs),
+            'art': 'art' in ly, 'photos': any(_photos_pack(p) for p in packs), 'kits': any('kits' in p for p in packs),
             **{key: key.replace('_', '-') in packs for key in EXTRA_KEYS}}
+
+
+def _photos_pack(name):
+    """A served art pack's own name (lowercase) is one of the player photos: photos.zip's or a people pack's."""
+    return 'photos' in name or name.split('_')[0] == 'people'
 
 
 def why(want, key, found, missing_ok=False):
@@ -289,14 +293,35 @@ def adopt_patch(setup):
         pass
 
 
+def refresh_menus(ctl, game_dir):
+    """A menus layer an older Overtime wrote (owner 2026-11-25: 1.00.0 opened on a game 0.99.2 patched said "Patched"
+    while its PLAY menu still had Ones off screen): rewrite it with this version's menus (overlay.set_menus, boot.big
+    only; the other layers' files stay), so an app update needs no Patch press for its menus. Not while NHL 19 runs
+    or a lobby match is set up. A failure only goes to the log: the patch as served stays."""
+    if overlay.emulator_running() or matchsetup.active():
+        return False
+    try:
+        if not overlay.menus_stale(game_dir):
+            return False
+        overlay.set_menus(game_dir, None)
+    except EXPECTED as err:
+        ctl.host.log(f'Menus layer refresh: {err}')
+        return False
+    ctl.host.log("The menus layer was an older Overtime's: rewritten with this version's menus.")
+    return True
+
+
 def look(setup):
     """What is in the game now (in the job's thread: overlay.status hashes the patch files): the overlay, whether
-    shadPS4 runs, the eboot patch and whether its 32-team switch is on, and the game folder's size (once a folder)."""
+    shadPS4 runs, the eboot patch and whether its 32-team switch is on, and the game folder's size (once a folder).
+    A menus layer from an older Overtime is brought up to date first (refresh_menus)."""
     ctl = setup.ctl
     adopt_patch(setup)
     game_dir = ctl.game_dir
     game = getattr(ctl, 'game', None)
     ok = bool(game_dir) and (game.ok if game is not None else gamesetup.read_game(game_dir)['ok'])
+    if ok:
+        refresh_menus(ctl, game_dir)
     emu = setup.emulator if setup.emulator and os.path.isfile(setup.emulator) else None
     st = gamesetup.status(emu)
     m = st.get('manifest') or {}
@@ -466,6 +491,84 @@ def offer_update(ctl):
     return True
 
 
+# a patch an older Overtime made (overlay.outdated): what this version's Patch puts in otherwise (overlay.LEVEL 2)
+OUTDATED = ("Patched by an older Overtime. Press Patch again for this version's player photos: each player gets his "
+            "own, also the ones who wore someone else's face before.")
+REPATCH_LINES = (
+    'NHL 19 was patched by an older Overtime. This version puts the right photo on each player: Macklin Celebrini, '
+    "Quinn Hughes and about 250 other players wore someone else's face before.",
+    'Patch again takes a minute or two, with the switches you have on. Your saves and rosters are not touched.')
+
+
+REPATCH_POLL = 1.0     # seconds between looks at the busy flag while a job runs (repatch_after_job)
+REPATCH_WAIT = 1800.0  # at most this long for the job and the first-look downloads (1.00.0: every pack switch on)
+
+
+def _waits(ctl):
+    """A job runs, or the first-look downloads are not done (SetupController.assets_pending: the packs come one
+    after the other, with a moment between them that is not busy)."""
+    if ctl.busy:
+        return True
+    pending = getattr(getattr(ctl, 'setup', None), 'assets_pending', None)
+    return bool(pending and pending())
+
+
+def offer_repatch(ctl, st, running=False, wait=True):
+    """Once per app version, at the first look at the game after an update (owner 2026-11-26: "when they update we
+    need to also ask them to re-patch"): when the patch served was made by an older Overtime (overlay.outdated), ask
+    "Patch NHL 19 again?": Patch now opens Game patch and runs the one click, Later closes (the tab's state line
+    still says it). Never patches without the answer. Not while NHL 19 runs, a lobby match is set up or another
+    question is open: the next look asks then. While a job runs (the last roster opening at the start, beside Setup's
+    first look) or the first-look pack downloads are not done, it asks once they are (`wait`: repatch_after_job), so
+    the one Patch puts the downloaded packs in too. Returns whether it asked."""
+    shell, setup = getattr(ctl, 'shell', None), getattr(ctl, 'setup', None)
+    if shell is None or setup is None or not (st or {}).get('applied') or not (st or {}).get('outdated'):
+        return False
+    if running or matchsetup.active() or shell.question() is not None:
+        return False
+    if _waits(ctl):
+        if wait:
+            repatch_after_job(ctl)
+        return False
+    with ctl.lock:
+        if ctl.prefs.get('repatch_asked') == VERSION:
+            return False
+        ctl.remember(repatch_asked=VERSION)     # asked once: a closed app does not ask again
+    ctl.host.log(f"The patch served was made by an older Overtime (layers {', '.join(st['outdated'])}): asked to "
+                 'patch again.')
+
+    def now():
+        ctl.host.send('goto', 'patch')
+        return setup.setup_patch()
+    shell.ask('Patch NHL 19 again?', list(REPATCH_LINES),
+              [('Patch now', 'patch', 'primary'), ('Later', 'later', 'plain')], {'patch': now})
+    return True
+
+
+def repatch_after_job(ctl, limit=REPATCH_WAIT):
+    """offer_repatch again once the job running now and the first-look downloads are done (_waits; at most `limit`
+    seconds of waiting), on a fresh look at the patch (the job may have been a Patch). One waiter at a time."""
+    with ctl.lock:
+        if getattr(ctl, 'repatch_waiting', False):
+            return
+        ctl.repatch_waiting = True
+
+    def wait():
+        try:
+            end = time.monotonic() + limit
+            while _waits(ctl):
+                if time.monotonic() > end:
+                    return              # not asked: the next look asks (once per version)
+                time.sleep(REPATCH_POLL)
+            if ctl.game_dir:
+                offer_repatch(ctl, overlay.status(ctl.game_dir), overlay.emulator_running(), wait=False)
+        except EXPECTED as err:
+            ctl.host.log(f'Patch again question: {err}')
+        finally:
+            ctl.repatch_waiting = False
+    threading.Thread(target=wait, daemon=True, name='repatch-wait').start()
+
+
 SHIPPED_LOGOS = ('Club logos: made for the default roster this version ships, which has the 2018 club names. The clubs '
                  'that moved keep their old logos until you run Update and then Patch.')
 
@@ -557,6 +660,26 @@ def in_background(fn):
     return fut
 
 
+def kept_leagues(ctl):
+    """The league maker's leagues My edits keeps ([league], by slot): the names layer names them (overlay.apply)."""
+    roster = getattr(ctl, 'parts', {}).get('roster')
+    if roster is None:
+        return []
+    try:
+        kept = roster.kept().get('leagues') or {}
+    except Exception:   # noqa: BLE001 - an unreadable edits.json names no league (myedits.load reports it)
+        return []
+    return [kept[k] for k in sorted(kept)]
+
+
+def leagues_changed(ctl, st):
+    """Whether the leagues My edits keeps are not the ones the names layer serves (both none: no)."""
+    names = ((st or {}).get('layers') or {}).get('names')
+    if names is None:
+        return False
+    return overlay.leagues_digest(kept_leagues(ctl)) != (names.get('leagues_sha256') or '')
+
+
 def one_click(setup, then=None):
     """Patch (Setup's setup_patch; patch_apply is beta1's name): checks, the clean-game record (the first time), the
     data overlay with exactly the switches that are on (one that is off is off: its served layer goes), the eboot
@@ -567,6 +690,7 @@ def one_click(setup, then=None):
     ctl = setup.ctl
     with ctl.lock:
         emu, game_dir, want = setup.emulator, ctl.game_dir, dict(ctl.patch_want)
+        leagues = kept_leagues(ctl)
     if not emu:
         text = 'Find NHL 19 in Setup first: the patch goes in with it.'
         ctl.say(text, 'caution')
@@ -659,7 +783,8 @@ def one_click(setup, then=None):
         if layers:
             # news is no switch: always the tile (a beta1 patch served the hub without it, and apply keeps served options)
             applied = overlay.apply(game_dir, layers, database=database, menus={'chel': on['chel'], 'news': True},
-                                    art=art, lang=lang or textpack.LANG, progress=apply_meter(meter))
+                                    art=art, lang=lang or textpack.LANG, progress=apply_meter(meter),
+                                    **({'leagues': leagues} if leagues else {}))
         elif now.get('applied'):
             overlay.undo(game_dir)  # every switch off: no data patch, the server alone
         for key in ('copy', 'write', 'verify'):
@@ -1074,7 +1199,8 @@ def chips(st, teams32):
     if now['art']:
         packs = [p for p in (ly.get('art') or {}).get('packs') or []
                  if not any(w in str(p.get('name', '') if isinstance(p, dict) else p).lower()
-                            for w in ('kits', 'photos', 'alts-', 'ice-all'))]
+                            for w in ('kits', 'alts-', 'ice-all'))
+                 and not _photos_pack(str(p.get('name', '') if isinstance(p, dict) else p).lower())]
         add('art', f"{len(packs)} art pack{'s' if len(packs) != 1 else ''}" if packs else 'Team art')
     if now['photos']:
         add('photos', 'NHL.com player photos')
@@ -1150,8 +1276,13 @@ def state_line(f):
     if not f['online']:
         return {'text': 'The game data is patched, but NHL 19 cannot go online yet. Press Patch again.',
                 'tone': 'caution'}
+    if f.get('outdated'):
+        return {'text': OUTDATED, 'tone': 'caution'}
     if f['changed']:
         return {'text': 'Patched. You changed the switches: press Patch again to use them.', 'tone': 'caution'}
+    if f.get('leagues_changed'):
+        return {'text': 'Patched. Your leagues changed (My edits): press Patch again so NHL 19 shows their names.',
+                'tone': 'caution'}
     teams32 = f['teams32'] if f['teams32'] is not None else f['served']['roster']
     if not teams32 and f['served']['roster']:
         return {'text': 'Patched, with 31 teams: the default roster has no Seattle. Run Update, then press Patch '
@@ -1375,8 +1506,10 @@ class PatchCtl(Part):
                 'problems': problems_of(st, eboot) if patched else [], 
                 'changed': patched and any(picked[k] != now[k] and not (now[k] is False and k in left)
                                            for k in picked), 'served': now, 'picked': picked,
+                'leagues_changed': patched and picked.get('names') and leagues_changed(c, st),
                 'want': want, 'kits': patch.KITS_PACK in found, 'teams32': self.teams32 if online else None,
                 'applied_at': friendly_date(when) if patched else '', 'st': st,
+                'outdated': list(st.get('outdated') or []) if st.get('applied') else [],
             }
 
     def view(self):
@@ -1420,7 +1553,7 @@ class PatchCtl(Part):
                 'ready': ready, 'patched': patched, 'running': f['running'], 'busy': bool(f['busy']),
                 'changed': f['changed'], 'checked': f['checked'],
                 'state': state_line(f),
-                'layers': rows, 'groups': groups, 'coming': dict(COMING), 'kits': {'installed': f['kits']},
+                'layers': rows, 'groups': groups, 'kits': {'installed': f['kits']},
                 'pack': setup.pack_card(emulator),
                 'buttons': {'patch': {'text': 'Patch again' if patched else 'Patch', 'enabled': free},
                             'unpatch': {'enabled': free and patched},

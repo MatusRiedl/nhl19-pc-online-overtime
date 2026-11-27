@@ -44,6 +44,13 @@ HEIGHT_BASE, WEIGHT_BASE, YEAR_BASE = 54, 120, 1900
 DEFAULT_SEASON = 2026
 GENERIC_HEAD = 60000  # headid of the game's generic faces (60000 on; star players have their own)
 NHL = tuple(range(31))
+# growthtier, the game's "Future Growth Potential" (TXT_GROWTH_TIER_FWD_n / _DEF_n / _GOA_n: 0 Franchise, 1 Elite, 2 Top
+# 6 F / Top 4 D / Starter, 3 Top 9 F / Top 6 D / Fringe Starter, 4 Bottom 6 F / 7th D / Backup, 5 AHL Top 6 F ...). A
+# made or moved player kept his donor's or his 2018 self's, so a 93 showed "AHL Bottom 6 F". Lowest overall for tiers
+# 0, 1, 2 ... (below the last: the next tier), per F / D / G: the stock NHL players' share of each tier laid on an
+# updated roster's overalls (docs/notes/v100-round2.md "Potential labels").
+GROWTH_FLOORS = {'F': (92, 85, 80, 76, 71), 'D': (92, 84, 81, 73, 69), 'G': (93, 85, 81, 73)}
+GROWTH_YOUNG = 21   # this young and below Elite: one tier up (stock: prospects project above their overall)
 SLOT_FIELDS_SKIP = {'key', 'team', 'playerindex', 'jersey', 'playerstyle'}
 DRESS_SKATERS, DRESS_GOALIES = 18, 2
 TABLES = (ROSTER, CUSTOM_ROSTER, PLAYERS, BIOS, FREE, *AI.values(), *EQUIPMENT.values())
@@ -195,6 +202,7 @@ class Plan:
     releases: list = field(default_factory=list)  # (playerindex, name, from (table, team))
     kept: list = field(default_factory=list)     # (playerindex, name, team): off NHL.com's roster, stays to dress 20
     stay: int = 0
+    keep: frozenset = frozenset()   # game ids of the players the user made (plan `keep`): apply leaves them alone too
 
     def summary(self):
         return {'players': len(self.placed), 'stay': self.stay, 'moves': len(self.moves), 'new': len(self.new),
@@ -358,15 +366,18 @@ def free_and_on_a_club(db):
     return out
 
 
-def plan(db, real, season=DEFAULT_SEASON, aliases=None):
+def plan(db, real, season=DEFAULT_SEASON, aliases=None, keep=()):
     """What `apply` would do with the real rosters `real` (gather_rosters, with_absent). Birth dates match as they are or
     on the game's clock (teams.year_shift: what an earlier update for `season` stored). `aliases` {game_id: (first, last,
-    real birth date or None)}: players the user renamed (the app's My edits) match under the name and birth date they had."""
+    real birth date or None)}: players the user renamed (the app's My edits) match under the name and birth date they had.
+    `keep`: game ids of players the user made (My edits' New player): no NHL.com player is matched to them (a namesake
+    would take him over), their club does not release them, and apply neither signs one who is a free agent to a club
+    short of players nor retires him."""
     state = State(db)
     bios = db[BIOS]
     people = []
     for game_id, b in state.bio_row.items():
-        if state.main_pi(game_id) is not None:
+        if state.main_pi(game_id) is not None and game_id not in keep:
             r = bios.row(b)
             first, last, born = (aliases or {}).get(game_id) or (r['firstname'], r['lastname'], None)
             people.append(Person(game_id, first, last, born or _birth(r)))
@@ -377,7 +388,7 @@ def plan(db, real, season=DEFAULT_SEASON, aliases=None):
             unique.append(p)
     real = unique
     reals = [Person(i, p['first'], p['last'], p.get('birth') or '') for i, p in enumerate(real)]
-    out = Plan()
+    out = Plan(keep=frozenset(keep))
     placed = set()
     for p, m in zip(real, Matcher(people, shifts=range(T.year_shift(season) + 1)).match_all(reals)):
         to = target_of(p['team'])
@@ -396,8 +407,9 @@ def plan(db, real, season=DEFAULT_SEASON, aliases=None):
         else:
             out.moves.append((pi, f"{p['first']} {p['last']}", now if now else ('FA' if pi in state.free else None), to))
     leaving = {}
+    kept_pis = {pi for gid in keep for pi in state.pis_of.get(gid, ())}
     for pi, (name, team) in state.entry.items():
-        if pi in placed:
+        if pi in placed or pi in kept_pis:
             continue
         if (name == ROSTER and team in NHL) or (name == CUSTOM_ROSTER and team == T.SEATTLE):
             leaving.setdefault((name, team), []).append(pi)
@@ -688,7 +700,7 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     unsigned_last(pack); add_unsigned), rebuild the lines of every team that changed, give everyone NHL 27's
     ratings, player type and biases (`nhl27`: the local NHL 27 pack, nhl27.py) and EA's ratings (`rating_rows`) to
     the players NHL 27 does not have, lay the real lines and captains on the NHL teams (`real_lines`: the data pack's
-    `lines` part, reallines.part; None keeps the lines dealt), set the contracts (_contracts; only with `nhl27`), give every NHL goalie a
+    `lines` part, reallines.part; None keeps the lines dealt), set the contracts (_contracts; only with `nhl27`), lift the potential tier of the rated NHL club players (_potential), give every NHL goalie a
     career row (careerstats; NHL 27's seasons when the pack has them: Play Now crashes without one), write the
     calendar (`games`) and the other leagues' calendars (`leagues`, leaguecal; one that can't be made is left as it
     is and logged), the national teams (`national`: the data pack's IIHF squads, rebuild_national). `clubs`: the club
@@ -772,6 +784,8 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     min_age = NHL27_RETIRE_AGE if nhl27 and nhl27.get('players') else FA_RETIRE_AGE
     retiring = (retirees(db, active, start_year or DEFAULT_SEASON, min_age, retired_list or ())
                 if retire and active is not None else [])
+    if todo.keep:   # a player the user made stays a free agent (plan `keep`)
+        retiring = [r for r in retiring if state.bio(r[0])['game_id'] not in todo.keep]
     # numbers of the players who stay
     for table in (ROSTER, CUSTOM_ROSTER):
         if table not in db:
@@ -785,7 +799,7 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     changed |= {f for _pi, _n, f, _to in todo.moves if isinstance(f, tuple)}
     changed |= {f for _pi, _n, f in todo.releases}
     signed = []
-    club_listed = _club_listed(db, (nhl27 or {}).get('players'), (clubs or {}).get('players'), shift)
+    club_listed = _club_listed(db, (nhl27 or {}).get('players'), (clubs or {}).get('players'), shift) | todo.keep
     # a club whose league is rebuilt below signs nobody before: the rebuild sets its roster and fills it to 2 goalies
     # and 18 skaters from its own 2018 players; a free agent signed before it was taken off again (the OHL's clubs
     # signed Georgiev, Sprong and Kunin when NHL.com called a junior up, then lost them to their league's rebuild)
@@ -914,6 +928,8 @@ def apply(db, schema, todo, rating_rows=None, games=None, start_year=None, draft
     counts.update(allsv)
     counts.update(others)
     counts.update(squads)
+    if rated:
+        counts['potential'] = _potential(db, rated)
     mirror_seattle(db)
     expansion_active(db)
     if careerstats.SEASON in db:  # a roster save holds no stock career tables (only the default database does)
@@ -968,6 +984,40 @@ def _on_clock(db, found, shift):
 
 
 UFA_AGE = 27  # NHL 19's own roster: yearufa = birth year + 27 for 97 % of its players (every junior, NHL 742 of 766)
+
+
+def growth_tier(overall, group, age):
+    """The growthtier an NHL player of this overall, group ('F', 'D', 'G') and age projects to (GROWTH_FLOORS)."""
+    floors = GROWTH_FLOORS[group]
+    tier = next((i for i, low in enumerate(floors) if overall >= low), len(floors))
+    return tier - 1 if age <= GROWTH_YOUNG and tier >= 2 else tier
+
+
+def _potential(db, gids):
+    """growthtier for the NHL club players in `gids` (the ones the update rated) from their overall, position and age;
+    a tier only ever gets better, so EA's own projections and an earlier update's stay. Returns the rows changed."""
+    bios = db[BIOS]
+    on_nhl = set(NHL) | {T.SEATTLE}
+    who = {}
+    for brow in range(bios.count):
+        b = bios.row(brow)
+        if b['game_id'] in gids and b['team'] in on_nhl:
+            who[b['game_id']] = ('G' if b['position'] == GOALIE else 'D' if b['position'] == 3 else 'F',
+                                 T.GAME_YEAR - YEAR_BASE - b['year'])
+    n = 0
+    for goalie, name in AI.items():
+        t = db[name] if name in db else None
+        if t is None or 'growthtier' not in t.by_name:
+            continue
+        for i in range(t.count):
+            gid = t.get(i, 'game_id')
+            if gid not in who or (who[gid][0] == 'G') != goalie:
+                continue
+            want = min(t.get(i, 'growthtier'), growth_tier(t.get(i, 'skill_overall'), *who[gid]))
+            if t.get(i, 'growthtier') != want:
+                t.set(i, 'growthtier', want)
+                n += 1
+    return n
 
 
 def _ufa_years(db, gids):

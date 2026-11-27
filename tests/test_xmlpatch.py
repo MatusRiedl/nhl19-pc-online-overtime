@@ -32,7 +32,8 @@ def test_targets_and_blocks():
         '60 FPS replays (Kravickas)', 'Resolution 2560x1440 (Kravickas)', 'Resolution 1280x720 (Kravickas)',
         'Resolution 3840x2160 (Kravickas)', 'Resolution 5120x2880 (Kravickas)', 'Resolution 7680x4320 (Kravickas)',
         'Compute features off (Kravickas)', xmlpatch.THREES_REWARDS_TITLE, 'Cross-vendor exact math (rcp/rsqrt)',
-        xmlpatch.WOC_UNLOCK_TITLE, xmlpatch.CHEL_MAX_TITLE, 'R1: cap check on the Franchise per-team list append',
+        xmlpatch.WOC_UNLOCK_TITLE, xmlpatch.CHEL_MAX_TITLE, xmlpatch.ONES_TWO_TITLE,
+        'R1: cap check on the Franchise per-team list append', xmlpatch.CLASSIC32_TITLE,
         'BAP32: Seattle in Be a Pro', 'E32: 32 teams in every mode']
     off = (xmlpatch.RES1440_TITLE, xmlpatch.RES720_TITLE, xmlpatch.RES2160_TITLE, xmlpatch.RES2880_TITLE,
            xmlpatch.RES4320_TITLE, xmlpatch.COMPUTE_OFF_TITLE)
@@ -151,10 +152,10 @@ def _jmp_target(addr, code, at):
 
 def test_ledger_cap_is_default_and_wired():
     """In DEFAULT since R1's runs c1 / e1 (expansion career to the season-2 preseason with no crash), before the
-    Be a Pro block and the 32-team switch, which stay last."""
-    assert xmlpatch.DEFAULT[-3:] == ('ledger_cap', 'bap32', 'expansion32')
+    Classic Franchise block, the Be a Pro block and the 32-team switch (the last two stay last)."""
+    assert xmlpatch.DEFAULT[-4:] == ('ledger_cap', 'classic32', 'bap32', 'expansion32')
     text = xmlpatch.build('localhost', newline='\n')
-    block = xmlpatch.parse(text)[-3]
+    block = xmlpatch.parse(text)[-4]
     assert block['enabled'] and block['name'] == 'R1: cap check on the Franchise per-team list append'
     assert block['lines'] == xmlpatch.FEATURES['ledger_cap'].lines and len(block['lines']) == 2 + 2 * len(RESIDUAL)
     (hook_a, hook_v), (cave_a, cave_v) = block['lines'][:2]
@@ -542,7 +543,7 @@ def test_repoint_brings_a_0_98_file_up_with_chel_max():
     """0.98.0's files (DEFAULT and NO_CROSSVENDOR, no CHEL max block) get the block on the next Play (Ready and Play
     repoint with for_eboot's features), every switch kept."""
     nucleus = 'https://91.98.195.150/'
-    new = ('res2160', 'res2880', 'res4320', 'compute_off')     # 0.99.2: blocks a 0.98 file lacks too
+    new = ('res2160', 'res2880', 'res4320', 'compute_off', 'ones_two', 'classic32')  # 0.99.2 and 1.00.0: a 0.98 file lacks them too
     assert xmlpatch.EARLIER[5] == tuple(f for f in xmlpatch.DEFAULT if f not in ('chel_max',) + new)
     assert xmlpatch.EARLIER[6] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in ('chel_max',) + new)
     for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 1440) for e in (True, False)):
@@ -560,7 +561,7 @@ def test_repoint_brings_a_0_99_1_file_up_with_the_new_resolutions_and_compute_of
     """0.99.1's files (DEFAULT and NO_CROSSVENDOR without res2160 / res2880 / res4320 / compute_off) get the blocks on
     the next Play, off, every switch kept; after that the 4K / 5K / 8K choice and Compute off can be set."""
     nucleus = 'https://91.98.195.150/'
-    new = ('res2160', 'res2880', 'res4320', 'compute_off')
+    new = ('res2160', 'res2880', 'res4320', 'compute_off', 'ones_two', 'classic32')
     assert xmlpatch.EARLIER[7] == tuple(f for f in xmlpatch.DEFAULT if f not in new)
     assert xmlpatch.EARLIER[8] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in new)
     for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 1440) for e in (True, False)):
@@ -674,7 +675,7 @@ def test_compute_off_is_kravickas_line_written_off_switched_and_local():
     assert xmlpatch.with_compute_off(on, False) == base
     assert xmlpatch.netplay_fingerprint(on) == xmlpatch.netplay_fingerprint(base)   # each player's own
     assert xmlpatch.netplay_fingerprint(xmlpatch.with_resolution(base, 4320)) == xmlpatch.netplay_fingerprint(base)
-    old = xmlpatch.build('localhost', features=xmlpatch.EARLIER[-2])             # 0.98.0's file: no block
+    old = xmlpatch.build('localhost', features=xmlpatch.EARLIER[7])              # 0.99.1's file: no block
     assert xmlpatch.with_compute_off(old, False) == old
     with pytest.raises(xmlpatch.PatchError):
         xmlpatch.with_compute_off(old, True)
@@ -684,7 +685,7 @@ def test_repoint_brings_a_0_98_0_file_up_keeping_its_resolution_and_replays():
     """0.98.0's files (with and without the cross-vendor block) are taken as this app's own: the next Play writes
     today's file with the new blocks, the player's resolution and Apply everywhere kept, Compute off off."""
     nucleus = 'https://91.98.195.150/'
-    for features, now in ((xmlpatch.EARLIER[-2], xmlpatch.DEFAULT), (xmlpatch.EARLIER[-1], xmlpatch.NO_CROSSVENDOR)):
+    for features, now in ((xmlpatch.EARLIER[7], xmlpatch.DEFAULT), (xmlpatch.EARLIER[8], xmlpatch.NO_CROSSVENDOR)):
         for value in (720, 1080, 1440):
             for r60 in (True, False):
                 old = xmlpatch.with_replays60(xmlpatch.with_resolution(
@@ -696,3 +697,101 @@ def test_repoint_brings_a_0_98_0_file_up_keeping_its_resolution_and_replays():
     today = xmlpatch.with_compute_off(xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus), 2880), True)
     assert xmlpatch.repoint(today, 'localhost', 'https://localhost/') == xmlpatch.with_compute_off(
         xmlpatch.with_resolution(xmlpatch.build('localhost', 'https://localhost/'), 2880), True)
+
+
+def test_repoint_brings_a_0_99_2_file_up_with_ones_two_and_it_is_local():
+    """0.99.2's files (DEFAULT and NO_CROSSVENDOR without the Ones block) get it on the next Play, every switch kept;
+    the block is each player's own, so a 0.99.2 game and a newer one still share the netplay fingerprint."""
+    nucleus = 'https://91.98.195.150/'
+    assert xmlpatch.EARLIER[9] == tuple(f for f in xmlpatch.DEFAULT if f not in ('ones_two', 'classic32'))
+    assert xmlpatch.EARLIER[10] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f not in ('ones_two', 'classic32'))
+    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 2160) for e in (True, False)):
+        def make(features):
+            text = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features, newline), value)
+            return text if e32 else xmlpatch.expansion32_off(text)
+        for old, features in ((make(xmlpatch.EARLIER[9]), xmlpatch.DEFAULT),
+                              (make(xmlpatch.EARLIER[10]), xmlpatch.NO_CROSSVENDOR)):
+            assert xmlpatch.ONES_TWO_TITLE not in old
+            new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, features=features)
+            assert new == make(features) and xmlpatch.ONES_TWO_TITLE in new
+            assert xmlpatch.netplay_fingerprint(new) == xmlpatch.netplay_fingerprint(old)
+    block = next(b for b in xmlpatch.parse(xmlpatch.build('localhost')) if b['name'] == xmlpatch.ONES_TWO_TITLE)
+    assert block['enabled'] and block['lines'] == [('0x23EDC6E', 'C6050B411A0400')]
+    assert xmlpatch.ONES_TWO_TITLE in xmlpatch.LOCAL_ONLY_TITLES
+
+
+def test_repoint_brings_a_1_00_0_candidate_file_up_with_classic32_and_it_is_local():
+    """The first 1.00.0 candidates' files (DEFAULT and NO_CROSSVENDOR without the C32 block) get it on the next Play,
+    every switch kept; the block only changes offline mode creation, so the netplay fingerprint stays."""
+    nucleus = 'https://91.98.195.150/'
+    assert xmlpatch.EARLIER[11] == tuple(f for f in xmlpatch.DEFAULT if f != 'classic32')
+    assert xmlpatch.EARLIER[12] == tuple(f for f in xmlpatch.NO_CROSSVENDOR if f != 'classic32')
+    assert len(xmlpatch.EARLIER) == 13
+    for newline, value, e32 in ((n, v, e) for n in ('\r\n', '\n') for v in (720, 1080, 2160) for e in (True, False)):
+        def make(features):
+            text = xmlpatch.with_resolution(xmlpatch.build('ot.puckpeak.com', nucleus, features, newline), value)
+            return text if e32 else xmlpatch.expansion32_off(text)
+        for old, features in ((make(xmlpatch.EARLIER[11]), xmlpatch.DEFAULT),
+                              (make(xmlpatch.EARLIER[12]), xmlpatch.NO_CROSSVENDOR)):
+            assert xmlpatch.CLASSIC32_TITLE not in old
+            new = xmlpatch.repoint(old, 'ot.puckpeak.com', nucleus, features=features)
+            assert new == make(features) and xmlpatch.CLASSIC32_TITLE in new
+            assert xmlpatch.netplay_fingerprint(new) == xmlpatch.netplay_fingerprint(old)
+    assert xmlpatch.CLASSIC32_TITLE in xmlpatch.LOCAL_ONLY_TITLES
+
+
+def test_classic32_is_the_c32b_hook_and_its_three_caves():
+    """The comp builder's count site 0x40474bb (19 bytes: test eax,eax / jne / imul rax,r15,0x158 / mov eax,
+    [r14+rax+0x294]) calls cave 1, which runs those instructions, then a count of 31 goes on to cave 2 (list type
+    ecx <= 1, the mode's league type [r14+0xe40] NHL (0), the 32-team switch's object [0x5f4a790] set) and cave 3
+    (its byte +0x29 live: al = 32, written back to [r14+r15*0x158+0x294]). A Season of League Type AHL keeps 31 (lab
+    c32e-a). Lab runs c32c / c32d / c32e (docs/notes/32teams-everywhere.md)."""
+    import struct
+    block = next(b for b in xmlpatch.parse(xmlpatch.build('localhost')) if b['name'] == xmlpatch.CLASSIC32_TITLE)
+    assert block['enabled'] and block['lines'] == xmlpatch.FEATURES['classic32'].lines
+    (ha, hv), (c1a, c1v), (c2a, c2v), (c3a, c3v) = block['lines']
+    at = {k: int(a, 16) - 0x400000 for k, a in (('hook', ha), ('c1', c1a), ('c2', c2a), ('c3', c3a))}
+    hook, c1, c2, c3 = (bytes.fromhex(v) for v in (hv, c1v, c2v, c3v))
+    assert at == {'hook': 0x40474bb, 'c1': 0x56eb1e0, 'c2': 0x56eb020, 'c3': 0x56ebfe4}
+    orig = bytes.fromhex('85C0750F4969C758010000418B840694020000')
+    # hook: call cave 1, nops over the rest of the 19 bytes
+    assert len(hook) == len(orig) == 19 and hook[0] == 0xE8 and hook[5:] == b'\x90' * 14
+    assert at['hook'] + 5 + struct.unpack_from('<i', hook, 1)[0] == at['c1']
+    # cave 1: the hooked instructions, cmp eax,31 / jne ret, jmp cave 2, ret
+    assert c1[:19] == orig and c1[19:24] == bytes.fromhex('83F81F7505') and c1[-1] == 0xC3
+    assert _jmp_target(at['c1'], c1, 24) == at['c2']
+    # cave 2: cmp ecx,1 / ja ret; cmp dword [r14+0xe40],0 / jne ret; mov rdx,[rip -> 0x5f4a790]; test / jnz cave 3;
+    # ret (both short jumps land on the ret)
+    assert len(c2) == 32 and c2[-1] == 0xC3
+    assert c2[:4] == bytes.fromhex('83F90177') and 5 + c2[4] == 31
+    assert c2[5:13] == bytes.fromhex('4183BE400E000000') and c2[13] == 0x75 and 15 + c2[14] == 31
+    assert c2[15:18] == bytes.fromhex('488B15') and at['c2'] + 22 + struct.unpack_from('<i', c2, 18)[0] == 0x5f4a790
+    assert c2[22:27] == bytes.fromhex('4885D20F85')
+    assert at['c2'] + 31 + struct.unpack_from('<i', c2, 27)[0] == at['c3']
+    # cave 3: cmp byte [rdx+0x29],0 / je ret; mov al,32; imul rdx,r15,0x158; mov [r14+rdx+0x294],eax; ret
+    assert c3 == bytes.fromhex('807A29007411B0204969D7580100004189841694020000C3')
+    # the caves sit in text padding no other block writes (R1 ends at 0x56eb020, BAP32 at 0x56eb1e0, T1 starts at
+    # 0x56eb200; the lab desync probe's 100 bytes end at 0x56ebfe4), and cave 3 ends before the page does
+    taken = [(int(a, 16), int(a, 16) + (v if isinstance(v, int) else len(v) // 2))
+             for k, f in xmlpatch.FEATURES.items() if k != 'classic32' for a, v, *_ in f.lines]
+    for a, code in ((at['c1'], c1), (at['c2'], c2), (at['c3'], c3), (at['hook'], hook)):
+        lo, hi = a + 0x400000, a + 0x400000 + len(code)
+        assert not any(s < hi and lo < e for s, e in taken)
+    assert at['c3'] + len(c3) <= 0x56ec000
+
+
+def test_has_ones_two_wants_the_block_enabled_and_whole():
+    """The app shows its 1v1v1 lobby tile only with it (multiplayer_ctl.ONES_UNPATCHED)."""
+    for features in (xmlpatch.DEFAULT, xmlpatch.NO_CROSSVENDOR):
+        for newline in ('\r\n', '\n'):
+            text = xmlpatch.build('ot.puckpeak.com', 'https://91.98.195.150/', features, newline)
+            assert xmlpatch.has_ones_two(text)
+            assert not xmlpatch.has_ones_two(text.replace('C6050B411A0400', 'C6050B411A0401'))   # another value
+    assert not xmlpatch.has_ones_two(xmlpatch.build('localhost', None, xmlpatch.EARLIER[9]))     # 0.99.2's file
+    off = xmlpatch.build('localhost')
+    i = off.index(xmlpatch.ONES_TWO_TITLE)
+    j = off.rindex('<Metadata', 0, i)
+    k = off.index('>', i)
+    head = off[j:k]
+    assert 'isEnabled="true"' in head
+    assert not xmlpatch.has_ones_two(off[:j] + head.replace('isEnabled="true"', 'isEnabled="false"') + off[k:])

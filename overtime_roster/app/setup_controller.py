@@ -45,6 +45,8 @@ STEPS = ('Looking at shadPS4...', 'Looking at NHL 19...', 'Asking ShadNet...', '
 PACKS = {name: (p['title'], p['core']) for name, p in packdownload.PACKS.items()}
 KITS = patch.KITS_PACK
 WANTED = ('missing', 'newer', 'offline')    # pack states Download all fetches
+RESUME_POLL = 1.0       # seconds between looks at the busy flag while the first-look downloads wait (_resume_later)
+RESUME_WAIT = 1800.0    # at most this long; then the next look or start
 # the packs with their own switch (patch.EXTRA_PACKS, the Game patch tab's More jerseys and ice card): never by
 # Download all or the Photos, logos card (several hundred MB each)
 OPTIONAL = frozenset(patch.EXTRA_PACKS)
@@ -144,12 +146,14 @@ def _pack_text(row):
 
 FPS_MOVE = 'fps60:'      # defaults_done entry of 0.91.1 (its 120 / 9999 -> 60 move; 0.91.0's 9999 -> 120 wrote 'fps120:')
 FPS120_MOVE = 'fps120b:'    # defaults_done entry of 0.92.0's first build (its 60 -> 120 move); no longer written
-UNLOCK_MOVE = 'fps9999:'    # defaults_done entry: this data folder's 60 / 120 -> Unlocked move is done (owner 2026-11-13)
+UNLOCK_MOVE = 'fps9999b:'   # defaults_done entry: this data folder's frame rate -> Unlocked move of 1.00.0 is done
+UNLOCK_MOVE_0 = 'fps9999:'  # the first one (owner 2026-11-13, 60 / 120 only); 1.00.0 moves every folder again
 LOGSYNC_MOVE = 'logsync0:'  # defaults_done entry: this data folder's Log "Write at once" on -> off move is done
 REBUILD = '0.92.0'      # setup pref 'rebuild': the 0.92.0 defaults (boost.DEFAULT build, Apply everywhere on) were put in once
 DMEM_MOVE = 'dmem0:'     # defaults_done entry: this data folder's first-default DMem 3500 -> 0 at 1080p / 720p is done
 V2_MOVE = 'v2_moved'     # setup pref: a player on Overtime Native v1 (the old default) was put on v2 once (2026-11-16)
 V3_MOVE = 'v3_moved'     # setup pref: a player on Overtime Native v2 (the old default) was put on v3 once (0.99.0)
+V1_MOVE = 'v1_moved'     # setup pref: a player on Overtime Native v1 (retired in 1.00.0) was put on the default once
 # the Boost card's Picture block (Overtime Native v3, 0.99.0): the upscaler choices and the player's DLSS files
 UPSCALERS = {'off': 'Off', 'fsr1': 'FSR 1', 'dlss': 'DLSS'}
 # DLSS quality (owner 2026-11-22): NVIDIA's modes by render height / screen height (DLAA 1, Quality 0.667, Balanced
@@ -178,7 +182,38 @@ def dlss_quality(screen):
         if screen and names.count(r['label']) > 1:
             r['label'] = f"{r['label']} {r['value']}p"
     return rows
+
+
+def dlss_above(resolution, screen):
+    """Why DLSS does not run at `resolution` on a screen `screen` px high (owner 2026-11-25: "why i cant use DLSS when
+    i change resolution?"): Native v3 runs DLSS only when the game's picture is no bigger than the window, since DLSS
+    scales a smaller picture up (dlss_sr_pass: "not run"); above it the game uses FSR 1."""
+    return (f'At {resolution}p the game draws a bigger picture than your screen ({screen} px high). DLSS only scales a '
+            'smaller picture up, so at this size the game uses FSR 1. Pick a DLSS quality to use DLSS (the last one '
+            'is the sharpest).')
+
+
 DLSS_FILE_KINDS = {'dlss': ('DLSS file', 'nvngx_dlss.dll'), 'dlss5': ('DLSS 5 file', 'nvngx_dlssnr.dll')}
+# the Picture block's Frame generation row (v1.00.0): Off, then the frames NVIDIA adds after each one the game draws, up
+# to what the card takes (gpuinfo.framegen_max). One switch: Native v3 is a Windows build, and False takes the row out
+# of a release that ships without frame generation.
+FRAME_GEN = sys.platform == 'win32'
+FRAME_GEN_LEVELS = {0: 'Off', 1: '2x', 2: '3x', 3: '4x'}
+FRAME_GEN_NEEDS = 'Needs an NVIDIA RTX 40 or 50 card'
+# DLSS 5 and frame generation (owner 2026-11-25, after a graphics driver reset with DLSS 5 and 4x frame generation
+# on): off unless the player turns them on (emusettings' defaults), and the app says they can crash the game: on the
+# Picture block, when one is turned on, and on Multiplayer's checks before online play (risky_picture)
+PICTURE_RISK = 'can crash the game or reset your graphics driver on some PCs'
+
+
+def risk_note(names):
+    """The Picture note for the options on that can crash the game (['DLSS 5', 'frame generation'])."""
+    both = ' and '.join(names)
+    return (f"{both[0].upper()}{both[1:]} {PICTURE_RISK}. Turn {'them' if len(names) > 1 else 'it'} off before "
+            'online games: a crash ends the match.')
+
+
+FILE_LABELS = {**{k: v[0] for k, v in DLSS_FILE_KINDS.items()}, 'fg': dlssfiles.FG_LABEL}   # what _fetch_dlss gets
 
 
 class SetupController(Part):
@@ -204,7 +239,8 @@ class SetupController(Part):
              'setup_folder_pick': 'folder_pick', 'setup_folder_set': 'folder_set', 'setup_folder_auto': 'folder_auto',
              'setup_upscaler': 'setup_upscaler', 'setup_dlss5': 'setup_dlss5', 'setup_dlss_file': 'setup_dlss_file',
              'setup_dlss_file_set': 'setup_dlss_file_set', 'setup_dlss_file_remove': 'setup_dlss_file_remove',
-             'setup_dlss_file_get': 'setup_dlss_file_get'}
+             'setup_dlss_file_get': 'setup_dlss_file_get', 'setup_frame_gen': 'setup_frame_gen',
+             'setup_frame_gen_get': 'setup_frame_gen_get', 'setup_frame_gen_remove': 'setup_frame_gen_remove'}
     TAB = 'setup'
 
     def __init__(self, ctl):
@@ -231,13 +267,17 @@ class SetupController(Part):
         self.dl_dropped = set()     # the packs of the run no switch wants any more (the others come down)
         self.asked = set()      # the core asset switches (patch_ctl.PACK_KEYS) switched on here: their packs download
         self.first_assets = bool(ctl.prefs.get('first_assets'))  # a new install's asset packs still to download
+        self.first_started = False      # _first_assets started its download chain in this run (resume_assets)
+        self.resume_waiting = False     # a _resume_later waiter runs
         # the shadPS4 builds (boost.py): the one chosen on the Boost performance card (Overtime Native from the first start
         # and, once, for every app before 0.92.0: owner 2026-11-13), and {emulator: the player's own shadPS4, sha: {build:
         # sha256 of the pack in place}}
         rebuilt = prefs.get('rebuild') == REBUILD
         self.build = boost.name_of(prefs.get('build')) if rebuilt else boost.DEFAULT
-        if self.build == boost.NIGHTLY and not prefs.get(V2_MOVE):     # v1, the default before v2: on v2 once
-            self.build = boost.NATIVE2
+        # v1 is retired (1.00.0): a player on it goes to the default once (logged in _retire_v1)
+        self.v1_moved = rebuilt and prefs.get('build') == boost.NIGHTLY and not prefs.get(V1_MOVE)
+        if self.v1_moved:
+            self.build = boost.DEFAULT
         if self.build == boost.NATIVE2 and boost.DEFAULT == boost.NATIVE3 and not prefs.get(V3_MOVE):
             self.build = boost.NATIVE3      # v2, the default before v3 (owner 2026-11-21): on v3 once
         self._gpu = None        # gpuinfo.info(), read once
@@ -264,14 +304,26 @@ class SetupController(Part):
         # folder set here is never replaced by what a look finds (a tester's portable shadPS4, 2026-11-07)
         self.custom = {k: v for k, v in (prefs.get('custom') or {}).items() if k in FOLDERS and v}
         gamesetup.set_custom_data(self.custom.get('data') or '')
+        self._retire_v1()
 
     # --- helpers -------------------------------------------------------------------------------------------
+    def _retire_v1(self):
+        """Overtime Native v1 is retired (1.00.0): the move to the default is logged once (see __init__), and the app's
+        own copy in boost\\nightly is removed when no shadPS4 runs (else at the next start). Never fails the start."""
+        if self.v1_moved:
+            self.ctl.host.log(f'Overtime Native v1 is retired: this player moves to the {self._build_label()} build, once.')
+        try:
+            if boost.remove_retired() == 'removed':
+                self.ctl.host.log('Overtime Native v1 removed from the app folder boost\\nightly (retired in 1.00.0).')
+        except Exception as err:    # log only: the app starts anyway
+            self.ctl.host.log(f'Overtime Native v1 folder not removed now: {err}')
+
     def _remember(self):
         self.ctl.remember(setup={'emulator': self.emulator, 'skipped': self.skipped, 'boost': self.boost,
                                  'build': self.build, 'defaults_done': list(self.defaults_done),
                                  'resolution': self.resolution, 'replays60': self.replays60,
                                  'compute_off': self.compute_off, 'rebuild': REBUILD,
-                                 V2_MOVE: True, V3_MOVE: True, 'display': gamesetup.display_mode(),
+                                 V2_MOVE: True, V3_MOVE: True, V1_MOVE: True, 'display': gamesetup.display_mode(),
                                  'custom': dict(self.custom),
                                  'server': {k: v for k, v in self.server.items() if v != SERVER.get(k)}})
 
@@ -424,6 +476,7 @@ class SetupController(Part):
             self._follow(found, picked, auto)
             self._defaults(found)
             self._first_assets(found)
+            patch_ctl.offer_repatch(ctl, found.get('overlay'), found.get('running'))   # an older Overtime's patch
             if announce:
                 text, tone = self._outcome()
                 ctl.say(text, tone, 1)
@@ -522,12 +575,15 @@ class SetupController(Part):
         """Once per data folder (owner 2026-11-13: "make the app default into ... unlocked frame rate"): Frame rate 60
         (0.91.1's default) or 120 (0.91.0's, and 0.92.0's first build) becomes Unlocked. At 60 / 120 a frame that
         misses a tick waits a whole one (docs/notes/native-port.md); both builds carry Kravickas's fix of the Out of
-        order flip IRQ race that 0.91.0 left Unlocked for. A hand-set other value stays; 60 or 120 picked again
-        later stays too. Refused while the game runs or a match is set up: the next look does it."""
+        order flip IRQ race that 0.91.0 left Unlocked for. 1.00.0 (owner 2026-11-26: "make sure the unlimited FPS is
+        selected by default by everyone, it drastically reduces lag overall") does it once more for every folder, and
+        for any rate (a hand-set one too, and 60 or 120 picked since the first move). Picked again after this, a rate
+        stays. Refused while the game runs or a match is set up: the next look does it."""
         if UNLOCK_MOVE + key in self.defaults_done:
             return
         try:
-            moved = emusettings.frame_rate(user) in (60, 120)
+            was = emusettings.frame_rate(user)
+            moved = was != 9999
             if moved:
                 emusettings.save(user, {emusettings.FPS_ID: 9999}, self.resolution)
         except emusettings.SettingsError as err:
@@ -537,7 +593,7 @@ class SetupController(Part):
             self.defaults_done.append(UNLOCK_MOVE + key)
             self._remember()
         if moved:
-            self.ctl.host.log(f'Frame rate is now Unlocked, once ({user}). Setup, Boost changes it.')
+            self.ctl.host.log(f'Frame rate is now Unlocked (was {was} fps), once ({user}). Setup, Boost changes it.')
 
     def _logsync_move(self, user, key):
         """Once per data folder (owner 2026-11-13): Log "Write at once" (shadPS4's default, on) goes off: synchronous
@@ -562,24 +618,70 @@ class SetupController(Part):
         """A new install's first look that finds NHL 19 and the published packs (0.90.2, owner 2026-11-11): the team
         art, 3D jerseys and player photos it starts with switched on (controller: `first_assets`) download now, in turn,
         The mark goes only once nothing is left to fetch (all here, or switched off, or a failed pack's switch went off):
-        busy, offline or an app closed mid-download, the next look (or start) tries again."""
+        offline or an app closed mid-download, the next look (or start) tries again; busy, once the job is over
+        (_resume_later). 1.00.0 sets the mark once for every install too, with every Updated assets switch on
+        (controller.full_migrate)."""
         c = self.ctl
         if not self.first_assets or self.packs is None or not (found.get('game') or {}).get('ok') \
-                or not self.known_emulator() or c.busy:
+                or not self.known_emulator():
             return
         rows = {r['name']: r for r in self.packs}
         names = {n for k in patch_ctl.PACK_KEYS for n in patch_ctl.ASSET_PACKS[k]}
         if any(rows.get(n, {}).get('state') == 'offline' for n in names):
             return
         with c.lock:
-            self.asked.update(k for k in patch_ctl.PACK_KEYS if c.patch_want.get(k))
+            self.asked.update(k for k in patch_ctl.PACK_KEYS if c.patch_want.get(k))   # assets_pending counts them now
+        if c.busy:
+            self._resume_later()        # the last roster opening at the start: no look follows its end
+            return
         if not self._extras_wanted():
             with c.lock:
                 self.first_assets = False
                 c.remember(first_assets=False)
             return
-        c.host.log('New install: downloading the team art, 3D jerseys and player photos (Updated assets).')
+        c.host.log('Downloading the Updated assets switched on: ' + ', '.join(self._extras_wanted()) + '.')
+        self.first_started = True
         self._extras_next()
+
+    def assets_pending(self):
+        """The first-look downloads (_first_assets) are not done: a pack switched on is still to come. The question
+        "Patch NHL 19 again?" waits for them (patch_ctl.offer_repatch), so one Patch puts everything in. Offline, or
+        before the published packs are read, nothing is coming: not pending."""
+        if not self.first_assets or not self.known_emulator() or self.packs is None:
+            return False
+        if self.dl is not None:
+            return True
+        rows = {r['name']: r for r in self.packs}
+        return any(rows.get(n, {}).get('state') != 'offline' for n in self._extras_wanted())
+
+    def _resume_later(self, limit=RESUME_WAIT):
+        """The look that found NHL 19 found a job running too (the last roster opening at the app's start: not
+        Setup's, so no look follows its end): resume_assets once nothing runs (at most `limit` seconds; then the next
+        look or start). One waiter at a time."""
+        c = self.ctl
+        with c.lock:
+            if self.resume_waiting:
+                return
+            self.resume_waiting = True
+
+        def wait():
+            try:
+                end = time.monotonic() + limit
+                while c.busy and time.monotonic() < end:
+                    time.sleep(RESUME_POLL)
+            finally:
+                self.resume_waiting = False     # before the resume: busy again there, it waits anew
+            self.resume_assets()
+        threading.Thread(target=wait, daemon=True, name='first-assets-wait').start()
+
+    def resume_assets(self):
+        """_first_assets again for the look it skipped (_resume_later), unless a download chain started since (a Setup
+        job's look did it): that chain's own end starts the next pack."""
+        c = self.ctl
+        with c.lock:
+            go = self.first_assets and not self.first_started and self.dl is None and not c.busy and self.found
+        if go:
+            self._first_assets(self.found)
 
     def find_at_start(self):
         """At the app's start (rosters_ctl.start): with no shadPS4 picked yet, look for one (no network, no
@@ -1581,6 +1683,16 @@ class SetupController(Part):
                 'news': '' if part is not None else news, 'upstream': upstream,
                 'picture': self._picture(emulator) if boost.BUILDS[self.build].get('picture') else None}
 
+    def _dlss_screen(self):
+        """The screen's height when NHL 19 plays with DLSS (a Picture build, the DLSS upscaler, an RTX card), else None."""
+        if not boost.BUILDS[self.build].get('picture'):
+            return None
+        emulator = self.known_emulator()
+        user = gamesetup.emu_user_dir(emulator) if emulator else ''
+        if not user or emusettings.value(user, 'GPU.upscaler') != 'dlss' or not self._gpu_info()['dlss']:
+            return None
+        return gpuinfo.screen_height()
+
     def _gpu_info(self):
         if self._gpu is None:
             self._gpu = gpuinfo.info()
@@ -1613,14 +1725,59 @@ class SetupController(Part):
             notes.append('DLSS 5 needs nvngx_dlssnr.dll: add your own, or DLSS 5 stays off.')
         if dlss5 and gpu['dlss5_compat'] and files['dlss5'] and not dlssfiles.downloaded('dlss5'):
             notes.append(f"On an RTX {gpu['rtx']} card DLSS 5 needs the compat build of nvngx_dlssnr.dll.")
+        if upscaler == 'dlss' and gpu['dlss'] and screen and self.resolution > screen:
+            notes.append(dlss_above(self.resolution, screen))
+        framegen = self._framegen(user, gpu, getting, notes) if FRAME_GEN else None
+        risky = (['DLSS 5'] if dlss5 else []) + (['frame generation'] if framegen and framegen['level'] else [])
+        if risky:
+            notes.append(risk_note(risky))
         return {'gpu': gpu['name'], 'rtx': gpu['rtx'], 'can_dlss': gpu['dlss'], 'can_dlss5': gpu['dlss5'],
                 'dlss5_compat': gpu['dlss5_compat'], 'upscaler': upscaler,
                 'upscalers': [{'id': k, 'label': v} for k, v in UPSCALERS.items()],
                 'dlss5': dlss5, 'files': files, 'offered': offered, 'notes': notes, 'ready': bool(user),
-                'getting': getting, 'getting_label': DLSS_FILE_KINDS[getting][0] if getting else '',
+                'framegen': framegen,
+                'getting': getting, 'getting_label': FILE_LABELS.get(getting, ''),
                 'progress': part, 'screen': screen or 0,
                 'quality': dlss_quality(screen) if upscaler == 'dlss' and gpu['dlss'] else [],
                 'resolution': self.resolution}
+
+    def _framegen(self, user, gpu, getting, notes):
+        """The Picture block's Frame generation row (v1.00.0): {can (the card runs it), why (when not), level (0 off,
+        1..3 frames added), choices [{value, label, disabled, title}]: Off and 2x, 3x and 4x on RTX 50, here (the
+        files), offered (by the Overtime server)}; what stops it goes in `notes`."""
+        most = gpu.get('framegen_max', 0)
+        level = 0
+        if user and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            try:
+                level = int(emusettings.value(user, 'GPU.frame_gen_frames') or 1)
+            except (TypeError, ValueError):
+                level = 1
+            level = max(1, min(level, most or 1))      # the driver caps it the same way at the game's start
+        here = dlssfiles.fg_here()
+        offered = (self.boost_table or {}).get(dlssfiles.FG_PACK) is not None
+        choices = []
+        for value, label in FRAME_GEN_LEVELS.items():
+            if value > max(most, 1):
+                continue
+            if not value:
+                choices.append({'value': 0, 'label': label, 'title': 'No frame generation (the default)'})
+                continue
+            title = f"NVIDIA adds {value} frame{'s' if value > 1 else ''} after each one the game draws"
+            if not most:
+                title = FRAME_GEN_NEEDS
+            elif not here:
+                title += (': its files download from the Overtime server first' if offered else
+                          ': the Overtime server does not offer its files now')
+            choices.append({'value': value, 'label': label, 'title': title,
+                            'disabled': not most or not (here or offered)})
+        if level and not most:
+            notes.append('Frame generation needs an NVIDIA RTX 40 or 50 card: it stays off on this PC.')
+        elif level and not here and getting != 'fg':
+            notes.append('Frame generation needs its files: press Download beside it, or it stays off.' if offered else
+                         'Frame generation needs its files, and the Overtime server does not offer them now: it stays '
+                         'off.')
+        return {'can': most > 0, 'why': '' if most else FRAME_GEN_NEEDS, 'level': level, 'choices': choices,
+                'here': here, 'offered': offered}
 
     def _dlss_offered(self, kind):
         """The Overtime server's DLSS file of `kind` (its packdownload Release, from the last look), or None: the
@@ -1634,10 +1791,12 @@ class SetupController(Part):
         return bool(can) and not dlssfiles.here(kind) and self._dlss_offered(kind) is not None
 
     def _fetch_dlss(self, kind, save, always=False):
-        """Download the DLSS file of `kind` from the Overtime server in a job (the Help bar and the Picture block say
-        how far), then save() -> {'ok'} / {'error'} stores the choice that needs it. `always`: also when the download
-        failed (the upscaler: the game uses FSR 1 until the file is here, as with no file before)."""
-        c, label = self.ctl, DLSS_FILE_KINDS[kind][0]
+        """Download the DLSS file of `kind` ('fg': the frame generation files, v1.00.0) from the Overtime server in a
+        job (the Help bar and the Picture block say how far), then save() -> {'ok'} / {'error'} stores the choice that
+        needs it. `always`: also when the download failed (the upscaler: the game uses FSR 1 until the file is here, as
+        with no file before)."""
+        c, label = self.ctl, FILE_LABELS[kind]
+        head = label[:1].upper() + label[1:]
         if self._wait():
             return {'error': waiting(c.busy)}
         table = self.boost_table
@@ -1653,21 +1812,23 @@ class SetupController(Part):
             with c.lock:
                 self.dlss_getting, self.dlss_part = kind, 0.0
             try:
-                kept = dlssfiles.fetch(kind, progress, table)
+                kept = dlssfiles.fg_fetch(progress, table) if kind == 'fg' else dlssfiles.fetch(kind, progress, table)
             except dlssfiles.DlssFileError as err:
                 if not always:
                     raise
                 return str(err)
-            c.host.log(f'{label} downloaded: {kept}')
+            c.host.log(f'{head} downloaded: {kept}')
             if kind == 'dlss':
                 dlssfiles.place_beside(boost.exe_path(boost.NATIVE3))
+            elif kind == 'fg':
+                dlssfiles.fg_place_beside(boost.exe_path(boost.NATIVE3))
             return ''
 
         def said(why):
             out = save()
             if why:
-                c.host.log(f'{label} not downloaded: {why}')
-                return f'{label} not downloaded: {why}', 'caution'
+                c.host.log(f'{head} not downloaded: {why}')
+                return f'{head} not downloaded: {why}', 'caution'
             return ('', '') if out.get('ok') else (out.get('error') or '', 'caution')
 
         def after():
@@ -1677,7 +1838,7 @@ class SetupController(Part):
                   expected=(dlssfiles.DlssFileError,), rescan=False, after=after)
         return {'ok': True, 'downloading': kind}
 
-    def _save_picture(self, changes, said):
+    def _save_picture(self, changes, said, warn=''):
         user = self._emu_user()
         if not user:
             return {'error': 'Find NHL 19 in Setup first.'}
@@ -1690,7 +1851,8 @@ class SetupController(Part):
             self.ctl.say(f'The picture setting was not saved: {err}', 'caution')
             return {'error': str(err)}
         self.ctl.host.log(said)
-        self.ctl.say(f'{said}. NHL 19 uses it from its next start.', 'good')
+        self.ctl.say(f'{said}. NHL 19 uses it from its next start.{" " + warn if warn else ""}',
+                     'caution' if warn else 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -1700,9 +1862,14 @@ class SetupController(Part):
         if value not in UPSCALERS:
             return {'error': f'no upscaler {value}'}
         changes, said = {'GPU.upscaler': value, 'GPU.fsr_enabled': value == 'fsr1'}, f'Upscaler: {UPSCALERS[value]}'
+        warn = ''
+        if value == 'dlss' and boost.BUILDS[self.build].get('picture') and self._gpu_info()['dlss']:
+            screen = gpuinfo.screen_height()        # DLSS picked at a Resolution above the screen: it does not run there
+            if screen and self.resolution > screen:
+                warn = dlss_above(self.resolution, screen)
         if value == 'dlss' and self._dlss_download('dlss'):     # its file from the Overtime server first (0.99.0)
-            return self._fetch_dlss('dlss', lambda: self._save_picture(changes, said), always=True)
-        return self._save_picture(changes, said)
+            return self._fetch_dlss('dlss', lambda: self._save_picture(changes, said, warn), always=True)
+        return self._save_picture(changes, said, warn)
 
     def setup_dlss5(self, on):
         """The Picture block's DLSS 5 switch: on only with a DLSS 5 file here (its path goes in the config). Turned on
@@ -1714,7 +1881,8 @@ class SetupController(Part):
         if on and not kept:
             return {'error': 'Add your DLSS 5 file (nvngx_dlssnr.dll) first.'}
         return self._save_picture({'GPU.dlss_nr': on, 'GPU.dlss_nr_dll': kept if on else ''},
-                                  f"DLSS 5: {'on' if on else 'off'}")
+                                  f"DLSS 5: {'on' if on else 'off'}",
+                                  f'It {PICTURE_RISK}: turn it off before online games.' if on else '')
 
     def setup_dlss_file(self, kind):
         """Add DLSS file / Add DLSS 5 file: Windows' picker, then the player's own file is copied into the app's folder
@@ -1796,6 +1964,75 @@ class SetupController(Part):
                     self.ctl.host.log(f'DLSS 5 not switched off: {err}')
         self.ctl.host.log(f'{label} removed')
         self.ctl.say(f'{label} removed.', 'good')
+        self.ctl.changed('setup')
+        return {'ok': True}
+
+    def setup_frame_gen(self, level):
+        """The Picture block's Frame generation (v1.00.0): 0 off, 1..3 the frames NVIDIA adds after each one the game
+        draws (2x..4x), up to what the card takes. Turned on with no files here, it downloads the Overtime server's
+        first; the choice is saved once they are here (without them the game would only pay for the motion passes)."""
+        if not FRAME_GEN:
+            return {'error': 'Frame generation is not in this version of Overtime.'}
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            return {'error': f'no frame generation level {level}'}
+        if level not in FRAME_GEN_LEVELS:
+            return {'error': f'no frame generation level {level}'}
+        if not level:
+            return self._save_picture({'GPU.frame_gen': 'off'}, 'Frame generation: off')
+        most = self._gpu_info().get('framegen_max', 0)
+        if level > most:
+            text = (f'{FRAME_GEN_NEEDS}.' if not most else
+                    f'{FRAME_GEN_LEVELS[level]} frame generation needs an NVIDIA RTX 50 card.')
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+        changes = {'GPU.frame_gen': 'dlss', 'GPU.frame_gen_frames': level}
+        said = f'Frame generation: {FRAME_GEN_LEVELS[level]}'
+        warn = f'It {PICTURE_RISK}: turn it off before online games.'
+        if dlssfiles.fg_here():
+            return self._save_picture(changes, said, warn)
+        if (self.boost_table or {}).get(dlssfiles.FG_PACK) is None:
+            text = f'The Overtime server does not offer the {dlssfiles.FG_LABEL} now. Try again later.'
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+        return self._fetch_dlss('fg', lambda: self._save_picture(changes, said, warn))
+
+    def setup_frame_gen_get(self):
+        """Download beside Frame generation: the Overtime server's files now (after a first try that failed)."""
+        if not FRAME_GEN:
+            return {'error': 'Frame generation is not in this version of Overtime.'}
+        if dlssfiles.fg_here():
+            return {'ok': True}
+        if (self.boost_table or {}).get(dlssfiles.FG_PACK) is None:
+            text = f'The Overtime server does not offer the {dlssfiles.FG_LABEL} now. Try again later.'
+            self.ctl.say(text, 'caution')
+            return {'error': text}
+
+        def saved():
+            self.ctl.say('Frame generation files downloaded. NHL 19 uses them from its next start.', 'good')
+            self.ctl.changed('setup')
+            return {'ok': True}
+        return self._fetch_dlss('fg', saved)
+
+    def setup_frame_gen_remove(self):
+        """Remove beside Frame generation: the app's copy and the copies beside Overtime Native v3 go, and frame
+        generation goes off."""
+        if self._wait():
+            return {'error': waiting(self.ctl.busy)}
+        try:
+            dlssfiles.fg_remove((boost.exe_path(boost.NATIVE3),))
+        except dlssfiles.DlssFileError as err:
+            self.ctl.say(str(err), 'caution')
+            return {'error': str(err)}
+        user = self._emu_user()
+        if user and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            try:
+                emusettings.save(user, {'GPU.frame_gen': 'off'}, self.resolution)
+            except (emusettings.SettingsError, OSError) as err:
+                self.ctl.host.log(f'Frame generation not switched off: {err}')
+        self.ctl.host.log('Frame generation files removed')
+        self.ctl.say('Frame generation files removed.', 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -1942,7 +2179,12 @@ class SetupController(Part):
         else:
             then = 'Patch the game again to use it.'
         note = ' (8K, the newest: it may not run on every PC)' if value == 4320 else ''
-        self.ctl.say(f'Resolution set to {value}p{note}. {then}'.strip(), 'good')
+        screen = self._dlss_screen()
+        above = bool(screen) and value > screen
+        if above:
+            then += (f' DLSS does not run at this size: the picture is bigger than your screen ({screen} px high), so '
+                     'the game uses FSR 1.')
+        self.ctl.say(f'Resolution set to {value}p{note}. {then}'.strip(), 'caution' if above else 'good')
         self.ctl.changed('setup')
         return {'ok': True}
 
@@ -2033,6 +2275,19 @@ class SetupController(Part):
         return {'ok': True}
 
     # --- Game settings, Controllers, Keyboard (Boost card; emusettings.py, emuinput.py) ----------------------------
+    def risky_picture(self):
+        """The Picture options turned on that can crash the game, by name (DLSS 5, frame generation), when NHL 19
+        plays on a Picture build (Overtime Native v3); [] otherwise. Multiplayer's checks warn with it."""
+        if not boost.BUILDS[self.build].get('picture'):
+            return []
+        user = self._emu_user()
+        if not user:
+            return []
+        on = ['DLSS 5'] if emusettings.value(user, 'GPU.dlss_nr') else []
+        if FRAME_GEN and emusettings.value(user, 'GPU.frame_gen') == 'dlss':
+            on.append('frame generation')
+        return on
+
     def _emu_user(self):
         emu = self.known_emulator()
         return gamesetup.emu_user_dir(emu) if emu else ''
@@ -2690,7 +2945,22 @@ class SetupController(Part):
         else:
             line = {'tone': '', 'text': 'Press Check now to look for a newer version.'}
         return {'version': VERSION, 'check_on_start': on, 'newer': dict(newer) if newer else None, 'state': line,
-                'skipped': self.skipped or None}
+                'skipped': self.skipped or None, 'ai': self._ai()}
+
+    def _ai(self):
+        """Connect an AI (owner 2026-11-25): what an MCP client (Claude Desktop, Claude Code) needs to start this copy
+        as its roster server (overtime_roster/mcp, `--mcp`). Made once: the program's path does not change."""
+        if getattr(self, '_ai_card', None) is None:
+            from .. import mcp
+            cfg = mcp.config()
+            if sys.platform == 'win32':
+                where = os.path.join(os.environ.get('APPDATA', '~'), 'Claude', 'claude_desktop_config.json')
+            elif sys.platform == 'darwin':
+                where = '~/Library/Application Support/Claude/claude_desktop_config.json'
+            else:
+                where = '~/.config/Claude/claude_desktop_config.json'
+            self._ai_card = {'desktop': cfg['desktop'], 'code': cfg['code'], 'config_file': where}
+        return dict(self._ai_card)
 
     def view(self):
         c = self.ctl

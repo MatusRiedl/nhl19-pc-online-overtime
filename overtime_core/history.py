@@ -127,6 +127,153 @@ def shootout_summary(games):
             'rates': {'shooting': _pct(goals, shots), 'saving': _pct(max(0, seen - allowed), seen)}}
 
 
+# --- World of Chel per-player lines (v1.00.0, owner 2026-11-24: goalies get metrics of their own) --------------------
+# A WoC report holds one entry per human, `customPlayerReport` = NHLOTPReportBase::PlayerReport
+# (re/schema/blaze_schema.json; lab x11 saw it with pos 4 = C): skater sk* and goalie gl* numbers, pos, toiseconds.
+# Never captured with a human goalie: pos 0 = goalie (Blaze::GameSetup::Position, the LockPosition enum: 0 G, 1 LD,
+# 2 RD, 3 LW, 4 C, 5 RW) and the gl* meanings are read from their names (docs/notes/goalie-stats.md); the unit of skpim
+# is not known yet (Versus' pims is seconds). Its floats (percentages, GAA, ratings) are never kept: computed here.
+WOC_SKATER_KEYS = ('skgp', 'skgoals', 'skassists', 'skshots', 'skhits', 'skbs', 'skpim', 'skplusmin', 'skppg', 'skshg',
+                   'skgwg', 'sktakeaways', 'skgiveaways', 'skfow', 'skfol')
+WOC_GOALIE_KEYS = ('glgp', 'glshots', 'glsaves', 'glga', 'glso', 'glbrkshots', 'glbrksaves', 'glpenshots', 'glpensaves',
+                   'glsoshots', 'glsosaves', 'gldsaves', 'glpokechecks')
+WOC_SIGNED = ('skplusmin',)          # int32 in the schema: a minus is a real value
+WOC_POSITIONS = {0: 'G', 1: 'LD', 2: 'RD', 3: 'LW', 4: 'C', 5: 'RW'}
+WOC_GOALIE_POS = 0
+GOALIE, SKATER = 'goalie', 'skater'
+
+
+def is_woc(mode):
+    """A World of Chel match mode (rules.CHEL_*)."""
+    return isinstance(mode, str) and mode.startswith('chel_')
+
+
+def clean_woc_stats(raw):
+    """A WoC player entry's numbers: the allowlisted sk*/gl* names and toiseconds as whole numbers 0..STAT_MAX
+    (skplusmin may be negative), `pos` 0..9. None when no number is left."""
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for k in WOC_SKATER_KEYS + WOC_GOALIE_KEYS + ('toiseconds',):
+        v = raw.get(k)
+        if isinstance(v, int) and not isinstance(v, bool) and (-STAT_MAX if k in WOC_SIGNED else 0) <= v <= STAT_MAX:
+            out[k] = v
+    if not out:
+        return None
+    pos = raw.get('pos')
+    if isinstance(pos, int) and not isinstance(pos, bool) and 0 <= pos <= 9:
+        out['pos'] = pos
+    return out
+
+
+def woc_role(stats):
+    """GOALIE or SKATER: what the player played in that game. From `pos` (0 = goalie); an entry without one counts as
+    a goalie when it says a goalie game and no skater game."""
+    if 'pos' in stats:
+        return GOALIE if stats['pos'] == WOC_GOALIE_POS else SKATER
+    return GOALIE if stats.get('glgp') and not stats.get('skgp') else SKATER
+
+
+def _woc_saves(s):
+    """A goalie line's saves; shots minus goals against when the report says shots but no saves."""
+    shots = s.get('glshots', 0)
+    if s.get('glsaves') or not shots:
+        return s.get('glsaves', 0)
+    return max(0, shots - s.get('glga', 0))
+
+
+def _frac(part, whole):
+    """Save percentage as hockey writes it (.900 = 0.9), None for no shot."""
+    return round(part / whole, 3) if whole else None
+
+
+def woc_line(stats):
+    """One game's line to show: the role, the position and the few numbers of that role."""
+    pos = WOC_POSITIONS.get(stats.get('pos'))
+    if woc_role(stats) == GOALIE:
+        saves = _woc_saves(stats)
+        return {'role': GOALIE, 'pos': 'G', 'shots': stats.get('glshots', 0), 'saves': saves,
+                'ga': stats.get('glga', 0), 'svpct': _frac(saves, stats.get('glshots', 0))}
+    g, a = stats.get('skgoals', 0), stats.get('skassists', 0)
+    return {'role': SKATER, 'pos': pos, 'g': g, 'a': a, 'pts': g + a, 'plusmin': stats.get('skplusmin', 0),
+            'shots': stats.get('skshots', 0), 'hits': stats.get('skhits', 0)}
+
+
+def woc_summary(games):
+    """A player's World of Chel totals over `games` ([{'stats': clean_woc_stats, 'won': bool}]), skater and goalie
+    apart: {skater, goalie}, each None when that role has no game. Every game counts for its own role only."""
+    if not games:
+        return None
+    by_role = {SKATER: [], GOALIE: []}
+    for g in games:
+        by_role[woc_role(g['stats'])].append(g)
+
+    def total(rows, key):
+        return sum(r['stats'].get(key, 0) for r in rows)
+    out = {SKATER: None, GOALIE: None}
+    sk = by_role[SKATER]
+    if sk:
+        goals, assists, shots = total(sk, 'skgoals'), total(sk, 'skassists'), total(sk, 'skshots')
+        out[SKATER] = {'gp': len(sk), 'w': sum(1 for r in sk if r['won']), 'l': sum(1 for r in sk if not r['won']),
+                       'g': goals, 'a': assists, 'pts': goals + assists, 'plusmin': total(sk, 'skplusmin'),
+                       'shots': shots, 'shooting': _pct(goals, shots), 'hits': total(sk, 'skhits'),
+                       'pim': total(sk, 'skpim'), 'tk': total(sk, 'sktakeaways'), 'gv': total(sk, 'skgiveaways'),
+                       'bs': total(sk, 'skbs'), 'ppg': total(sk, 'skppg'), 'shg': total(sk, 'skshg'),
+                       'gwg': total(sk, 'skgwg')}
+    gl = by_role[GOALIE]
+    if gl:
+        shots, saves, ga = total(gl, 'glshots'), sum(_woc_saves(r['stats']) for r in gl), total(gl, 'glga')
+        timed = [r for r in gl if r['stats'].get('toiseconds')]
+        toi = total(timed, 'toiseconds')
+        brk, brk_saves = total(gl, 'glbrkshots'), total(gl, 'glbrksaves')
+        pen, pen_saves = total(gl, 'glpenshots'), total(gl, 'glpensaves')
+        so, so_saves = total(gl, 'glsoshots'), total(gl, 'glsosaves')
+        out[GOALIE] = {'gp': len(gl), 'w': sum(1 for r in gl if r['won']), 'l': sum(1 for r in gl if not r['won']),
+                       'shots': shots, 'saves': saves, 'ga': ga, 'svpct': _frac(saves, shots),
+                       'gaa': round(total(timed, 'glga') * 3600 / toi, 2) if toi else None, 'so': total(gl, 'glso'),
+                       'brk_shots': brk, 'brk_saves': brk_saves, 'brk_svpct': _frac(brk_saves, brk),
+                       'pen_shots': pen, 'pen_saves': pen_saves, 'pen_svpct': _frac(pen_saves, pen),
+                       'so_shots': so, 'so_saves': so_saves, 'so_svpct': _frac(so_saves, so),
+                       'dsaves': total(gl, 'gldsaves'), 'pokes': total(gl, 'glpokechecks'), 'toi': toi}
+    return out
+
+
+def svpct_text(v):
+    """A save percentage as hockey writes it: .900, 1.000 for every shot saved, '-' without a shot."""
+    if v is None:
+        return '-'
+    return f'{v:.3f}' if v >= 1 else f'{v:.3f}'.lstrip('0')
+
+
+def woc_card_lines(woc):
+    """The web board card's World of Chel lines ({skater, goalie} short text, each None without games), None without
+    any WoC game that carries the player's line."""
+    if not woc:
+        return None
+    sk, gl = woc.get(SKATER), woc.get(GOALIE)
+    pm = sk and (f"{sk['plusmin']:+d}" if sk['plusmin'] else '±0')
+    return {SKATER: sk and f"GP {sk['gp']} · G {sk['g']} A {sk['a']} PTS {sk['pts']} · {pm}",
+            GOALIE: gl and (f"GP {gl['gp']} · SV% {svpct_text(gl['svpct'])} · GAA "
+                            f"{'%.2f' % gl['gaa'] if gl['gaa'] is not None else '-'} · SO {gl['so']}")}
+
+
+def woc_games(matches, pid, modes=None):
+    """[{'stats', 'won'}] of the confirmed World of Chel games of `pid` that carry its own line, in `modes` (else every
+    WoC mode but Ones, whose report files places): what `woc_summary` adds up."""
+    out = []
+    for m in matches:
+        mode = m.get('mode')
+        if not is_woc(mode) or mode == ONES or (modes is not None and mode not in modes):
+            continue
+        stats = ((m.get('claims') or {}).get(pid) or {}).get('stats')
+        if not stats:
+            continue
+        r = m.get('result') or resolve(m)
+        if r['status'] == CONFIRMED and r['scores'].get(pid) is not None:
+            out.append({'stats': stats, 'won': won(r, pid)})
+    return out
+
+
 def team_code(value):
     """`value` as a team abbreviation (upper case, 2-4 letters), or None when it is not one."""
     text = str(value or '').strip().upper()
@@ -436,7 +583,7 @@ def player_detail(matches, who, limit=20):
     status, newest first) seen from this player's side. None when the player is in no match."""
     name = None
     record = _blank('')
-    faced, with_team, against_team, recent, played, shootouts = {}, {}, {}, [], [], []
+    faced, with_team, against_team, recent, played, shootouts, chel = {}, {}, {}, [], [], [], []
     for m in matches:
         mine = next((p for p in m['players'] if p['pid'] == who), None)
         if mine is None:
@@ -460,19 +607,25 @@ def player_detail(matches, who, limit=20):
         mine_stats = ((m.get('claims') or {}).get(who) or {}).get('stats')
         their_stats = ((m.get('claims') or {}).get(theirs['pid']) or {}).get('stats')
         mode = m.get('mode') or 'versus'
-        # Threes' report class is not known and WoC's is the club one (sk*/gl* keys): no Versus totals from either
+        # Threes' report class is not known and WoC's is the OTP one (sk*/gl* keys, woc_summary): no Versus totals from
+        # either. Ones files places, not lines (until its report is captured, v1.00.0 plan step O5).
+        woc = is_woc(mode) and mode != ONES
         against = r['against'].get(who) if is_team(m) else r['scores'][theirs['pid']]
         if win is not None and mine_stats and mode in ('versus', 'shootout'):
             (shootouts if mode == 'shootout' else played).append(
                 {'stats': with_opponent(mine_stats, their_stats), 'for': r['scores'][who], 'against': against})
+        if win is not None and mine_stats and woc:
+            chel.append({'stats': mine_stats, 'won': win})
         if len(recent) < limit:
             row = {'id': m['id'], 'started': m['started'], 'status': r['status'], 'rules': m.get('rules'),
-                   'mode': mode, 'box': box_score(mine_stats, their_stats, mode),
+                   'mode': mode, 'box': [] if is_woc(mode) else box_score(mine_stats, their_stats, mode),
                    'opponent': theirs, 'team': r['teams'][who], 'opp_team': r['teams'].get(theirs['pid']),
                    'for': r['scores'].get(who), 'against': against,
                    'result': None if win is None else 'W' if win else 'L'}
             if is_team(m):
                 row.update(opponents=them, mates=mates(m, who, r), left=bool(mine.get('left')))
+            if woc and mine_stats:
+                row['line'] = woc_line(mine_stats)
             recent.append(row)
     if name is None:
         return None
@@ -481,4 +634,5 @@ def player_detail(matches, who, limit=20):
             'opponents': _by_games({'pid': k[0], 'name': k[1], **v} for k, v in faced.items()),
             'teams': _by_games({'team': k, **v} for k, v in with_team.items()),
             'against': _by_games({'team': k, **v} for k, v in against_team.items()),
-            'recent': recent, 'stats': stat_summary(played), 'shootout': shootout_summary(shootouts)}
+            'recent': recent, 'stats': stat_summary(played), 'shootout': shootout_summary(shootouts),
+            'woc': woc_summary(chel)}

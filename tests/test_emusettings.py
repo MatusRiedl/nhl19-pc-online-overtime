@@ -372,6 +372,20 @@ def test_the_picture_keys_of_native_v3_and_value(user):
     assert _read(user)['GPU']['upscaler'] == 'fsr1' and _read(user)['GPU']['dlss_nr'] is False
 
 
+def test_the_frame_generation_keys_of_native_v3(user):
+    # v1.00.0 plan: frame_gen off | dlss, frame_gen_frames 1..3 (2x..4x), the count shown only with DLSS
+    assert emusettings.value(str(user), 'GPU.frame_gen') == 'off'
+    assert emusettings.value(str(user), 'GPU.frame_gen_frames') == 1
+    v = emusettings.view(str(user))
+    assert [o['value'] for o in _field(v, 'GPU.frame_gen')['options']] == ['off', 'dlss']
+    assert [o['value'] for o in _field(v, 'GPU.frame_gen_frames')['options']] == [1, 2, 3]
+    assert _field(v, 'GPU.frame_gen_frames')['show_if'] == {'GPU.frame_gen': 'dlss'}
+    assert emusettings.save(str(user), {'GPU.frame_gen': 'dlss', 'GPU.frame_gen_frames': 3}) == \
+        ['GPU.frame_gen', 'GPU.frame_gen_frames']
+    assert _read(user)['GPU']['frame_gen'] == 'dlss' and _read(user)['GPU']['frame_gen_frames'] == 3
+    assert emusettings.value(str(user), 'GPU.frame_gen_frames') == 3
+
+
 @pytest.mark.parametrize('value,need', [(1440, 3500), (2160, 3500), (2880, 6000), (4320, 12000)])
 def test_dmem_floor_follows_the_resolution(user, value, need):
     dmem = emusettings.BY_ID['General.' + gamesetup.DMEM_KEY]

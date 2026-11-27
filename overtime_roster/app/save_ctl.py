@@ -13,7 +13,7 @@ import os
 
 from overtime_core import overlay, sfo
 
-from . import install, jobs, myedits, paths, savegame
+from . import install, jobs, myedits, patch, paths, savegame
 from .registry import Part
 from .shell import TAB_LABELS, TEAM_TABS
 
@@ -162,7 +162,11 @@ class SaveCtl(Part):
             return {'ok': False, 'error': text}
         if not name:
             return {'ok': False}
-        c.say(f'{name} is out of My edits: the next update leaves him as NHL.com has him.', 'good')
+        if str(key).startswith(myedits.LEAGUE):
+            c.say(f'{name[0].upper()}{name[1:]} is out of My edits: the next update leaves its slot as the update deals '
+                  'it, and the next Patch gives the slot its own name.', 'good')
+        else:
+            c.say(f'{name} is out of My edits: the next update leaves him as NHL.com has him.', 'good')
         c.changed('save', 'update')
         return {'ok': True}
 
@@ -282,10 +286,15 @@ class SaveCtl(Part):
             c.changed('save')
 
         def work():
+            try:
+                portraits = patch.served_portraits(c.game_dir, paths.app_dir('cache')) if c.game_dir else None
+            except Exception as err:    # noqa: BLE001 (photos never stop a save)
+                c.host.log(f'Player photos left as they are: {err}')
+                portraits = None
             with c.lock:  # nobody edits while the roster is written
                 written[:] = session.history    # an edit made after the click is in the file too
                 out = install.run(session, c.game, target, name, c.save_dir, paths.app_dir('exports'),
-                                  step=step, log=c.host.log, overwrite=slot)
+                                  step=step, log=c.host.log, overwrite=slot, portraits=portraits)
                 keep = None
                 if out.ok and c.session is session:
                     try:

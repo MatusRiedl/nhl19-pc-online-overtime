@@ -554,3 +554,27 @@ def test_patch_keeps_the_record_of_checked_packs_in_the_cache(tmp_path, monkeypa
     os.utime(path, ns=(1, 1))
     patch.art_packs(str(cache), kits=False, photos=False, extras=[])
     assert json.loads((cache / patch.CHECKED).read_text()) == {art._checked_key(path): True}   # the old key gone
+
+
+def test_the_patch_gives_each_person_his_photo_whatever_number_the_roster_gave_him():
+    """Tester 2026-11-25: Celebrini, McKenna and Quinn Hughes wore other players' faces. A roster's new players are
+    numbered anew on every build, so the patch's database step binds each photo by person (name and birth date), at
+    the shift the roster's birth years sit behind."""
+    name = lambda first, last: clubdata._key(first, last)
+    people = [[name('Macklin', 'Celebrini'), 2006, 6, 13, 40247], [name('Quinn', 'Hughes'), 1999, 10, 14, 40145]]
+    other = [[name('Quinn', 'Hughes'), 1999, 10, 14, 49999], [name('Gavin', 'McKenna'), 2007, 12, 20, 40272]]
+    packs = [art.Pack('people', {'people': people}, {}), art.Pack('local', {'people': other}, {}),
+             art.Pack('looks', {}, {})]
+    assert art.served_people(packs) == [people[0], other[0], other[1]]     # the last pack that lists a person wins
+    shift = 8
+    bio = lambda first, last, y, m, d, artid: {'firstname': first, 'lastname': last, 'year': y - 1900 - shift,
+                                               'month': m - 1, 'day': d - 1, 'artid': artid, 'hasportrait': 0}
+    rows = [bio('Quinn', 'Hughes', 1999, 10, 14, 20766),      # the v0930 default's numbers: p20766 is Danila Yurov
+            bio('Macklin', 'Celebrini', 2006, 6, 13, 20860),  # p20860 Askarov
+            bio('Gavin', 'McKenna', 2007, 12, 20, 20888),     # p20888 Simashev
+            bio('Danila', 'Yurov', 2004, 1, 1, 20769)]        # no photo of his served: keeps his number
+    db = {art.BIOS: _Bios(rows)}
+    assert art.year_shift_of(db, art.served_people(packs)) == shift
+    assert art.rebind_portraits(db, packs) == 3
+    assert [r['artid'] for r in db[art.BIOS].rows] == [49999, 40247, 40272, 20769]
+    assert art.rebind_portraits(db, []) == 0 and art.year_shift_of({}, people) == 0

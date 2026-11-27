@@ -91,11 +91,18 @@ TRUSTED_EXES = {'fe88293d67e4e9ab6d0799ac6dcff84644def7806ff0d03b028967cbfdf0e99
                 # interval sets, PGO build (docs/release/v0.99.0.md "Speed work in v3"). cpu_patches, the linker and
                 # memory_patcher are v2's (git diff 5768473ca..bf8d94851: none)
                 '85c998cb5f160137cb4586219f1a0b2399920b5f7df26ff5468222c85313cebe':
-                    'Overtime Native v3 speed bf8d94851 (v3 5768473ca)'}
+                    'Overtime Native v3 speed bf8d94851 (v3 5768473ca)',
+                # 2026-11-25, the v3 of 1.00.0: the speed build + DLSS frame generation (fork a2ed4804, PGO,
+                # OVERTIME_ENABLE_DLSSG; FG off runs as 85c998cb: docs/notes/frame-generation.md). cpu_patches, the
+                # linker and memory_patcher untouched by the frame generation commits
+                '11675978e2e2ff650f656166dd865a35bc48c2a9d7889690e8dd339c26ddc04f':
+                    'Overtime Native v3 speed + frame generation a2ed4804 (v3 bf8d94851)'}
 # The default builds: Overtime Native v3 on Windows from 0.99.0 (owner 2026-11-21; the speed build 85c998cb is the one
 # that shipped, 5f1d5989 was never uploaded; v2 from 2026-11-16, v1 from 0.92.0), v2 on Linux and macOS. Since 0.99.0 the
 # exe's sha is not in the tag: a lobby plays the build the player chose.
-ONLINE_EXES = {'85c998cb5f160137cb4586219f1a0b2399920b5f7df26ff5468222c85313cebe':
+ONLINE_EXES = {'11675978e2e2ff650f656166dd865a35bc48c2a9d7889690e8dd339c26ddc04f':
+               'Overtime Native v3 speed + frame generation a2ed4804 (v3 bf8d94851)',
+               '85c998cb5f160137cb4586219f1a0b2399920b5f7df26ff5468222c85313cebe':
                'Overtime Native v3 speed bf8d94851 (v3 5768473ca)',
                '5f1d598967c95a2baca73f75492f7ab8fd75055922046c5bb9732884607f05af':
                'Overtime Native v3 5768473ca (v2 d1d3168a)',

@@ -125,6 +125,15 @@ def colours_of(v):
     return [(int(r['from'], 16), r['zones']) for r in v['palette']]
 
 
+def grouped(pal):
+    """The palette as the tab shows it: one row per colour, its shades together (equipment.shades)."""
+    return [(a, n) for a, _m, n in EQ.shades(pal)]
+
+
+def shades_of(row):
+    return [int(m, 16) for m in row['shades']]
+
+
 @pytest.mark.game
 def test_no_roster_says_pick_one(game_dir, tmp_path, monkeypatch):
     monkeypatch.setenv('OVERTIME_ROSTER_HOME', str(tmp_path / 'home'))
@@ -142,8 +151,15 @@ def test_edmonton_gear(tab):
     assert v['why'] is None and v['team'] == TEAM and v['id'] == TEAM and v['table'] == 'stock'
     assert v['title'] == 'Edmonton Oilers: jerseys and gear' and v['note'] == J.NOTE and v['note_tone'] == ''
     assert v['rows'] == len(EQ.gear_rows(s.db, TEAM, categories=EQ.GEAR))
-    assert colours_of(v) == palette(s.db, TEAM)
-    assert all(r['to'] == r['from'] and not r['changed'] and r['pieces'] for r in v['palette'])
+    assert colours_of(v) == grouped(palette(s.db, TEAM))
+    assert sorted(m for r in v['palette'] for m in shades_of(r)) == sorted(x for x, _n in palette(s.db, TEAM))
+    assert all(r['to'] == r['from'] and not r['changed'] and r['pieces'] and r['name'] and not r['follows']
+               for r in v['palette'])
+    assert [j['label'] for j in v['jerseys']][:3] == ['Home', 'Away', 'Alternate']
+    assert all(p['name'] in ('Helmet', 'Gloves') and 1 <= len(p['colours']) <= 4
+               for j in v['jerseys'] for p in j['pieces'])
+    assert v['colours']['new'] == v['colours']['now'] and v['colours']['slots'] == list(J.SLOTS)
+    assert not any(v['colours']['changed']) and v['colours']['follows'] == 0
     names = [p['name'] for p in v['pieces']]
     assert names == [n for _c, n in J.PIECES if n in names] and names[0] == 'Helmet'
     assert v['colours']['now'] == [J.hx(x) for x in EQ.team_colours(s.db, TEAM)]
@@ -206,13 +222,14 @@ def test_a_recolour_waits_in_the_draft(tab):
     v = view(c)
     row = v['palette'][0]
     assert row['changed'] and row['to'] == '123456' and row['from'] == first
+    assert part.draft(TEAM)['map'] == {m: 0x123456 for m in shades_of(row)}      # every shade of the colour
     assert any(x['hex'] == '123456' for p in v['pieces'] for x in p['colours'])
     assert v['touched'] and v['can_apply'] and v['can_undo'] and not v['mine']
     assert part.dirty(TEAM) and not part.dirty(28)
     assert part.drafts() == 'Gear not applied yet: EDM.'
     assert next(r for r in c.rail.view()['rows'] if r['id'] == TEAM)['dirty']
     assert part.recolour({'ABCDEF': '000000'}) == {'ok': True}       # a colour the gear does not wear
-    assert len(part.draft(TEAM)['map']) == 1
+    assert len(part.draft(TEAM)['map']) == len(row['shades'])
     assert part.recolour({'#zz': '000000'}) == {'error': J.NOT_A_COLOUR}
     assert part.recolour('E7E7E7') == {'error': J.NOT_A_COLOUR}
     c.rail.pick_team(28)                                               # the draft stays with its team
@@ -233,7 +250,8 @@ def test_apply_is_one_change_and_take_back_drops_it(tab):
     c, part, run, _waiting = tab
     s = c.session
     was, sticks = palette(s.db, TEAM), part.sticks_of(TEAM)
-    first = view(c)['palette'][0]['from']
+    row = view(c)['palette'][0]
+    first, k = row['from'], len(row['shades'])
     part.recolour({first: '123456'})
     if sticks:
         assert part.sticks(False) == {'ok': True} and view(c)['sticks']['fitted']
@@ -241,8 +259,8 @@ def test_apply_is_one_change_and_take_back_drops_it(tab):
     assert len(s.history) == 1
     ch = s.history[0]
     assert ch.tab == 'Jerseys & gear' and ch.team == TEAM and ch.kept is None
-    assert ch.label.startswith(f'Gear colour {first} to 123456') or ch.label.startswith('1 gear colour')
-    assert 0x123456 in dict(palette(s.db, TEAM)) and int(first, 16) not in dict(palette(s.db, TEAM))
+    assert ch.label.startswith(f'Gear colour {first} to 123456' if k == 1 else f'{k} gear colours changed')
+    assert 0x123456 in dict(palette(s.db, TEAM)) and not set(shades_of(row)) & set(dict(palette(s.db, TEAM)))
     assert EQ.team_sticks(s.db, [TEAM], setter=lambda *a: None) == []
     v = view(c)
     assert v['note'] == J.APPLIED and v['note_tone'] == 'good' and v['mine'] and v['can_undo'] and not v['touched']
@@ -283,16 +301,17 @@ def test_copy_another_teams_gear(tab):
     assert part.copy(0) == {'ok': True}
     v = view(c)
     assert v['copy']['from'] == 0 and v['copy']['from_name'] == 'Anaheim Ducks' and v['touched']
-    assert colours_of(v) == theirs and v['rows'] == len(EQ.gear_rows(s.db, 0, categories=EQ.GEAR))
+    assert colours_of(v) == grouped(theirs) and v['rows'] == len(EQ.gear_rows(s.db, 0, categories=EQ.GEAR))
     assert v['colours']['note'] == "Copying another team's gear: recolour it in Gear colours."
     assert v['copy']['note'].startswith("Takes Anaheim Ducks' helmets")
     assert part.drafts() == 'Gear not applied yet: EDM.' and palette(s.db, TEAM) == was
-    a = v['palette'][0]['from']
+    a, k = v['palette'][0]['from'], len(v['palette'][0]['shades'])
     part.recolour({a: '123456'})
     assert part.apply() == {'ok': True}
     ch = s.history[-1]
-    assert ch.kept is not None and ch.label == "Anaheim Ducks' gear copied, 1 gear colour changed"
-    assert palette(s.db, TEAM) == J.laid_over(theirs, {int(a, 16): 0x123456})
+    assert ch.kept is not None and ch.label == f"Anaheim Ducks' gear copied, {k} gear colour{'s' if k > 1 else ''} " \
+                                               'changed'
+    assert palette(s.db, TEAM) == J.laid_over(theirs, {m: 0x123456 for m in shades_of(v['palette'][0])})
     assert view(c)['copy']['from'] is None and view(c)['mine']
     assert part.take_back() == {'ok': True}
     assert not s.history and palette(s.db, TEAM) == was
@@ -315,7 +334,7 @@ def test_seattle_gear_is_the_custom_team_and_its_play_now_copy(tab):
     run()
     v = view(c)
     assert v['id'] == SEATTLE_GEAR and v['team'] == SEATTLE and v['table'] == 'custom'
-    assert colours_of(v) == palette(s.db, SEATTLE_GEAR, EQ.CUSTOM)
+    assert colours_of(v) == grouped(palette(s.db, SEATTLE_GEAR, EQ.CUSTOM))
     assert v['copy']['options'] and all(o.get('disabled') and o['label'].endswith('(kept apart)')
                                         for o in v['copy']['options'])
     assert v['copy']['note'].startswith("Seattle Kraken's gear is kept apart")
@@ -394,3 +413,194 @@ def test_another_roster_drops_the_drafts(tab):
     run()
     assert part.drafts() == '' and not part.dirty(TEAM) and not part.held
     assert not view(c).get('touched')
+
+
+# --- the team colours: edited in the tab, the gear wearing them follows (owner 2026-11-25) -------------------------------
+def team_fields(db, table, row):
+    return {f: db[table].get(row, f) for f in J.TEAM_FIELDS + tuple(f'overlay{n}color' for n in J.SLOT_FIELDS)
+            if f in db[table].row(row)}
+
+
+def follower(c, team):
+    """(slot, old colour, gear colours of its hue) of the team colour most gear wears, or None."""
+    s = c.session
+    now = EQ.team_colours(s.db, team)
+    pal = EQ.palette(s.db, team)
+    best = None
+    for k, x in enumerate(now):
+        h = EQ.hue_of(x)
+        if h is None:
+            continue
+        cs = [a for a, _n in pal if EQ.hue_of(a) is not None and EQ._apart(EQ.hue_of(a), h) <= EQ.NEAR]
+        if cs and (best is None or len(cs) > len(best[2])):
+            best = (k, x, cs)
+    return best
+
+
+@pytest.mark.game
+def test_a_team_colour_waits_in_the_draft_and_the_gear_follows(tab):
+    c, part, run, _waiting = tab
+    s = c.session
+    k, old, cs = follower(c, TEAM)
+    was, digest = palette(s.db, TEAM), s.db.digest()
+    assert part.team_colour(k, '#1E40AF') == {'ok': True}
+    assert s.db.digest() == digest and not s.history
+    v = view(c)
+    assert v['colours']['changed'][k] and v['colours']['new'][k] == '1E40AF'
+    assert v['colours']['now'][k] == J.hx(old) and v['touched'] and part.dirty(TEAM)
+    rows = {int(r['from'], 16): r for r in v['palette']}
+    follows = [r for r in v['palette'] if r['follows']]
+    assert follows and all(r['to'] == '1E40AF' for r in follows)
+    moved = part.mapping(TEAM)
+    assert set(cs) <= {m for r in follows for m in shades_of(r)}
+    assert all(moved.get(m) == 0x1E40AF for r in follows for m in shades_of(r))         # every shade of the row
+    for r in v['palette']:                                          # black, white, grey and other hues stay
+        if not r['follows']:
+            assert r['to'] == r['from'] and not r['changed']
+    assert v['colours']['follows'] == len(follows) and 'follow' in v['colours']['note']
+    assert part.describe(TEAM)
+    a = follows[0]['from']
+    assert part.recolour({a: a}) == {'ok': True}                   # Back on a following colour: it stays
+    r = next(r for r in view(c)['palette'] if r['from'] == a)
+    assert r['to'] == a and not r['follows'] and view(c)['touched']
+    assert part.team_colour(k, J.hx(old)) == {'ok': True}           # the roster's colour takes it back
+    assert not part.dirty(TEAM) and not part.held and not view(c)['touched']
+    for bad in ((3, '#123456'), ('x', '#123456'), (0, 'blue'), (0, None)):
+        assert part.team_colour(*bad) == {'error': J.NOT_A_COLOUR}
+    assert palette(s.db, TEAM) == was and rows
+
+
+@pytest.mark.game
+def test_apply_writes_the_team_colours_and_take_back_puts_them_back(tab):
+    c, part, run, _waiting = tab
+    s = c.session
+    k, old, cs = follower(c, TEAM)
+    (table, row), = part.colour_rows(TEAM)
+    before, was = team_fields(s.db, table, row), palette(s.db, TEAM)
+    part.team_colour(k, '#1E40AF')
+    assert part.apply() == {'ok': True} and len(s.history) == 1
+    after = team_fields(s.db, table, row)
+    for p in J.COLOUR_PREFIXES:
+        assert after[f'{p}{J.SLOT_FIELDS[k]}color'] == 0x1E40AF
+    assert {f: x for f, x in after.items() if f.startswith('overlay')} == \
+           {f: x for f, x in before.items() if f.startswith('overlay')}         # the overlay colours stay
+    assert EQ.team_colours(s.db, TEAM)[k] == 0x1E40AF
+    pal = dict(palette(s.db, TEAM))
+    assert 0x1E40AF in pal and not set(cs) & set(pal)
+    ch = s.history[0]
+    assert (f'EDM team colour ({J.SLOTS[k].lower()})', J.hx(old), '1E40AF') in ch.details
+    assert next(r for r in c.rail.view()['rows'] if r['id'] == TEAM)          # the rail draws the team again
+    assert view(c)['colours']['now'][k] == '1E40AF' and not view(c)['touched']
+    row0 = EQ.gear_rows(s.db, TEAM, categories=EQ.GEAR)[0]           # a later edit of the same records: restore
+    other, _ = s.edit('Another edit', lambda setter: setter(EQ.STOCK, row0, 'zone2', 0x111111))
+    other.tab, other.team = 'Roster', TEAM
+    assert part.take_back() == {'ok': True} and s.history[-1].kept is not None
+    assert team_fields(s.db, table, row) == before and palette(s.db, TEAM) == was
+
+
+@pytest.mark.game
+def test_seattle_team_colours_go_to_both_its_records(tab):
+    c, part, run, _waiting = tab
+    s = c.session
+    if EQ.CUSTOM not in s.db or not EQ.gear_rows(s.db, SEATTLE_GEAR, EQ.CUSTOM, EQ.GEAR):
+        pytest.skip('this roster has no Seattle gear')
+    c.rail.pick_team(SEATTLE)
+    run()
+    places = part.colour_rows(SEATTLE)
+    assert [t for t, _r in places] == [EQ.TEAMS, 'customteams']
+    assert part.team_colour(0, '#123456') == {'ok': True}
+    assert part.apply() == {'ok': True}
+    for table, row in places:
+        assert s.db[table].get(row, 'feprimarycolor') == 0x123456, table
+    assert part.take_back() == {'ok': True} and not s.history
+
+
+@pytest.mark.game
+def test_team_colours_round_trip_through_the_save(tab):
+    c, part, run, _waiting = tab
+    s, game = c.session, c.game
+    part.team_colour(0, '#123456')
+    part.apply()
+    for target in (install.TARGET_EXPORT, install.TARGET_SAVE):
+        db = tdb.Database.parse(install.build_database(s, game, target).to_bytes(), game.schema())
+        assert EQ.team_colours(db, TEAM)[0] == 0x123456, target
+
+
+@pytest.mark.game
+def test_jersey_parts_point_at_real_rows(tab):
+    """Each jersey's figure parts name palette rows of the tab, and the rows are the ones jersey_gear picks."""
+    c, part, run, _waiting = tab
+    s = c.session
+    v = view(c)
+    keys = {r['from'] for r in v['palette']}
+    assert v['jerseys'] and all(set(j['parts']) >= {'helmet', 'gloves'} for j in v['jerseys'])
+    for j, (label, style, variant) in zip(v['jerseys'], EQ.team_jerseys(s.db, TEAM, EQ.STOCK, part.relabel(TEAM))):
+        assert j['label'] == label
+        rows = EQ.jersey_gear(s.db, TEAM, style, variant, EQ.STOCK)
+        assert set(j['parts']) == {J.PART_OF[cat] for cat in rows if cat in J.PART_OF}
+        for name, ks in j['parts'].items():
+            assert 1 <= len(ks) <= 3 and set(ks) <= keys, (label, name, ks)     # main, trim, a detail
+        for cat, row in rows.items():
+            if cat in J.PART_OF:
+                main = J.hx(EQ.shades(J.counted(s.db, EQ.STOCK, [row]))[0][0])
+                row_of = next(r for r in v['palette'] if main in r['shades'])
+                assert j['parts'][J.PART_OF[cat]][0] == row_of['from']          # main colour: its row's colour
+
+
+@pytest.mark.game
+def test_goalie_parts_come_from_the_goalie_categories(tab):
+    c, part, _run, _waiting = tab
+    s = c.session
+    assert {J.PART_OF[cat] for cat, _n in J.PIECES} == {'helmet', 'gloves', 'pads', 'blocker', 'trapper', 'gstick'}
+    assert [J.PART_OF[cat] for cat in (2, 1, 0, 3)] == ['pads', 'blocker', 'trapper', 'gstick']
+    for label, style, variant in EQ.team_jerseys(s.db, TEAM, EQ.STOCK, part.relabel(TEAM)):
+        rows = EQ.jersey_gear(s.db, TEAM, style, variant, EQ.STOCK)
+        goalie = {cat for cat in rows if cat in (0, 1, 2, 3)}
+        parts = set(next(j for j in view(c)['jerseys'] if j['label'] == label)['parts'])
+        assert {J.PART_OF[cat] for cat in goalie} <= parts
+        assert not parts - {J.PART_OF[cat] for cat in rows if cat in J.PART_OF}
+
+
+@pytest.mark.game
+def test_a_draft_recolour_moves_after_apply_and_not_now(tab):
+    c, part, run, _waiting = tab
+    v0 = view(c)
+    first = v0['palette'][0]
+    assert part.recolour({first['from']: '123456'}) == {'ok': True}
+    v1 = view(c)
+    row = v1['palette'][0]
+    assert row['from'] == first['from'] and row['to'] == '123456'        # After Apply: the draft's colour
+    assert [r['from'] for r in v1['palette']] == [r['from'] for r in v0['palette']]
+    assert [j['parts'] for j in v1['jerseys']] == [j['parts'] for j in v0['jerseys']]   # Now: the roster's parts
+    assert part.recolour({first['from']: first['from']}) == {'ok': True}
+    assert view(c)['palette'][0]['to'] == first['from']
+
+
+@pytest.mark.game
+def test_sketch_and_worn_keys(tab):
+    c, part, run, _waiting = tab
+    v = view(c)
+    labels = [j['label'] for j in v['jerseys']]
+    for j in v['jerseys']:
+        for mode in ('now', 'new'):
+            sk = j['sketch'][mode]
+            assert set(sk) == {'body', 'trim', 'num'} and all(len(x) == 6 for x in sk.values())
+    assert v['jerseys'][1]['sketch']['now']['body'] == 'F4F4F4'          # Away is white, whatever the team wears
+    assert v['jerseys'][0]['sketch']['now'] == v['jerseys'][0]['sketch']['new']   # no draft yet
+    for r in v['palette']:
+        assert set(r['worn']) <= set(J.PART_NAME.values()) and all(set(ls) <= set(labels) for ls in r['worn'].values())
+        assert r['slot'] in ('',) + tuple(J.SLOTS)
+    worn = {(r['from'], n): ls for r in v['palette'] for n, ls in r['worn'].items()}
+    assert worn and all(ls for ls in worn.values())
+    for j in v['jerseys']:
+        for name, ks in j['parts'].items():
+            for k in set(ks):
+                assert j['label'] in worn[(k, J.PART_NAME[name])]              # "Worn on" names the jerseys
+    T = part.team_now(TEAM)
+    assert T and v['colours']['now'] == [J.hx(x) for x in T]
+    before = v['jerseys'][0]['sketch']['new']
+    assert part.team_colour(0, '123456') == {'ok': True}
+    assert view(c)['jerseys'][0]['sketch']['new'] != before                    # the sketch follows the draft
+    assert view(c)['jerseys'][0]['sketch']['now'] == before                     # Now stays
+    assert part.team_colour(0, J.hx(T[0])) == {'ok': True}                     # Back to the roster's colour
+    assert not view(c)['touched']

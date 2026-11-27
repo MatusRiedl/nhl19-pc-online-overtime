@@ -781,11 +781,15 @@ def leave(code, grace=5.0, system=None, end=os._exit, tick=0.2, threads=threadin
 
 
 def entry(argv=None):
-    """The exe's entry: --selftest, --update, --download-kits, --default-db, or the app (`python -m overtime_roster`
-    arguments)."""
+    """The exe's entry: --selftest, --update, --download-kits, --default-db, --mcp, or the app (`python -m
+    overtime_roster` arguments)."""
     argv = sys.argv[1:] if argv is None else list(argv)
-    if any(a in argv for a in ('--selftest', '--selftest-window', '--update', '--download-kits', '--default-db')):
+    if any(a in argv for a in ('--selftest', '--selftest-window', '--update', '--download-kits', '--default-db',
+                               '--mcp')):
         startup.close_splash()          # no window comes: the splash goes now
+    if '--mcp' in argv:                 # an AI client's MCP server over stdio (overtime_roster/mcp)
+        from ..mcp import main as mcp
+        return mcp(argv)
     if '--selftest-window' in argv:
         return selftest_window()
     if '--selftest' in argv:

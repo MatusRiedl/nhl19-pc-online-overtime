@@ -31,18 +31,17 @@ def test_the_marker_is_set_for_the_settings():
     assert C.CHEL_DEFAULT == 1
 
 
-def test_a_new_install_starts_with_teams_menus_and_three_asset_switches_on(game_dir, tmp_path, monkeypatch):
-    """0.90.2 (owner 2026-11-11): a new install's Patch tab has teams, league, menus and server texts on and, of the
-    Updated assets, only team art, 3D jerseys and player photos (their packs download at the first look). An install
-    with its switches saved keeps them."""
+def test_a_new_install_starts_with_every_patch_switch_on(game_dir, tmp_path, monkeypatch):
+    """0.90.2 (owner 2026-11-11) started a new install with teams, menus and three asset switches on; 1.00.0 (owner
+    2026-11-26: "all toggles toggled") starts it with every switch on, the jersey and ice packs too (their packs
+    download at the first look). An install with its switches saved after that keeps them."""
     from overtime_roster.app import patch_ctl
     from tests.test_editors_app import Host
     monkeypatch.setenv('OVERTIME_ROSTER_HOME', str(tmp_path / 'home'))
     c = C.Controller(Host(), game_dir=game_dir, save_dir=str(tmp_path / 'saves'))
     want = c.patch_want
-    assert all(want[k] for k in ('text', 'names', 'league', 'roster', 'menus', 'chel', *C.PACK_KEYS))
-    assert not any(want.get(k) for k in patch_ctl.EXTRA_KEYS)
-    assert c.prefs['first_assets'] is True and c.prefs['patch'] == want
+    assert all(want[k] for k in (*patch_ctl.KEYS, *patch_ctl.EXTRA_KEYS))
+    assert c.prefs['first_assets'] is True and c.prefs['patch'] == want and c.prefs['full_default'] == C.FULL_DEFAULT
     c.remember(patch={**want, 'kits': False}, first_assets=False)
     again = C.Controller(Host(), game_dir=game_dir, save_dir=str(tmp_path / 'saves'))
     assert again.patch_want['kits'] is False and again.patch_want['art'] is True and not again.prefs['first_assets']
